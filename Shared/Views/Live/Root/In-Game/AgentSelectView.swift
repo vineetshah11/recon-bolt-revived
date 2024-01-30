@@ -123,8 +123,8 @@ struct AgentSelectView: View {
 			}
 			.font(.title2.weight(.bold))
 			.foregroundStyle(.primary)
-            pregameInfo.team.id.name
-                    .foregroundColor(pregameInfo.team.id.color)
+            		pregameInfo.team.id.name
+                    		.foregroundColor(pregameInfo.team.id.color)
 		}
 		.padding()
 		.background(Material.thin)
