@@ -173,10 +173,8 @@ enum AnonymizationMode {
 		}
 	}
 	
-	func shouldAnonymize(_ player: Player.ID) -> Bool {
-		
-	return false
-		}
+    func shouldAnonymize(_ player: Player.ID) -> Bool {
+            return false
 	}
 }
 
