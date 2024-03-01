@@ -41,7 +41,7 @@ struct SettingsView: View {
 					
 					ListLink("Rate on the App Store", icon: "star", destination: "https://apps.apple.com/app/recon-bolt/id1563649061?action=write-review")
 					
-					ListLink("Join the Discord Server", icon: "bubble.left.and.bubble.right", destination: "https://discord.gg/bwENMNRqNa")
+					ListLink("Join the Discord Server", icon: "bubble.left.and.bubble.right", destination: "https://discord.gg/rfaEzjbWyu")
 				}
 			}
 			.deepLinkHandler { deepLink in
