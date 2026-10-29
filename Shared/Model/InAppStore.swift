@@ -3,6 +3,11 @@ import HandyOperators
 import UserDefault
 import WidgetKit
 
+// MARK: - REVIVAL NOTE
+// The original app had a "Pro" in-app purchase gating certain features.
+// For this personal revival build, ALL features are unlocked for free.
+// The StoreKit machinery is kept intact but ownsProVersion always returns true.
+
 @MainActor
 final class InAppStore: ObservableObject {
 	@UserDefault("ownedProducts", migratingTo: .shared)
@@ -19,7 +24,8 @@ final class InAppStore: ObservableObject {
 	@Published
 	private(set) var proVersion = ResolvableProduct(id: "ReconBolt.Pro")
 	
-	var ownsProVersion: Bool { owns(proVersion) }
+	// REVIVAL: Always returns true — all Pro features are free in this build.
+	var ownsProVersion: Bool { true }
 	
 	private var updateListenerTask: Task<Void, Never>? = nil
 	
@@ -57,46 +63,24 @@ final class InAppStore: ObservableObject {
 			let products = try await Product.products(for: [proVersion.id])
 			try proVersion.resolve(from: products)
 		} catch {
-			print("error fetching products!", error)
-			dump(error)
+			// Silently ignore — no App Store connection needed for this build
+			print("fetchProducts skipped (revival build):", error)
 		}
 	}
 	
 	func owns(_ product: ResolvableProduct) -> Bool {
-		ownedProducts.contains(product.id)
+		// REVIVAL: All products are owned for free in this build
+		true
 	}
 	
 	func purchase(_ product: Product) async throws {
-		switch try await product.purchase() {
-		case .success(let result):
-			let transaction = try result.payloadValue
-			update(from: transaction)
-			await transaction.finish()
-		case .pending:
-			break // TODO: dialog?
-		case .userCancelled:
-			break
-		@unknown default:
-			break
-		}
+		// REVIVAL: No purchase needed — features are already unlocked
+		print("purchase() called but not needed in revival build")
 	}
 	
 	func restorePurchase(for product: ResolvableProduct) async throws {
-		let latest = try await Transaction.latest(for: product.id)
-		??? PurchaseRestorationError.noTransaction
-		
-		let transaction: Transaction
-		do {
-			transaction = try latest.payloadValue
-		} catch {
-			throw PurchaseRestorationError.errorVerifying(error)
-		}
-		
-		if let reason = transaction.revocationReason {
-			throw PurchaseRestorationError.transactionRevoked(reason)
-		}
-		
-		update(from: transaction)
+		// REVIVAL: Nothing to restore — everything is free
+		print("restorePurchase() called but not needed in revival build")
 	}
 	
 	private func listenForTransactions() -> Task<Void, Never> {
