@@ -2,7 +2,7 @@ import Foundation
 import UserDefault
 
 extension UserDefaults {
-	static let shared = UserDefaults(suiteName: "group.juliand665.Recon-Bolt.shared")!
+	static let shared = UserDefaults(suiteName: "group.juliand665.Recon-Bolt.shared") ?? .standard
 }
 
 extension UserDefault {

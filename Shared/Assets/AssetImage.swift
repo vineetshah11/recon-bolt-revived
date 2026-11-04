@@ -53,11 +53,11 @@ struct AssetImage: Hashable, Identifiable {
 		)
 		.appendingPathComponent("AssetImage", isDirectory: true)
 	
-	private static let localFolder = fileManager
-		.containerURL(forSecurityApplicationGroupIdentifier: "group.juliand665.Recon-Bolt.shared")!
+	private static let localFolder = (fileManager
+		.containerURL(forSecurityApplicationGroupIdentifier: "group.juliand665.Recon-Bolt.shared")?
 		.appendingPathComponent("Library", isDirectory: true)
 		.appendingPathComponent("Caches", isDirectory: true)
-		.appendingPathComponent("AssetImage", isDirectory: true)
+		.appendingPathComponent("AssetImage", isDirectory: true) ?? oldLocalFolder)
 	<- migrate(to:)
 	
 	private static func migrate(to localFolder: URL) {

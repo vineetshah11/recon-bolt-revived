@@ -11,8 +11,12 @@ enum FolderLocations {
 		create: true
 	).appendingPathComponent("local")
 	
-	private static let newLocalData = fileManager
-		.containerURL(forSecurityApplicationGroupIdentifier: "group.juliand665.Recon-Bolt.shared")!
+	private static let baseFolder = fileManager
+		.containerURL(forSecurityApplicationGroupIdentifier: "group.juliand665.Recon-Bolt.shared")
+		?? (try? fileManager.url(for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
+		?? oldLocalData.deletingLastPathComponent()
+	
+	private static let newLocalData = baseFolder
 		.appendingPathComponent("Library/Application Support/local", isDirectory: true)
 	<- { newFolder in
 #if !WIDGETS
