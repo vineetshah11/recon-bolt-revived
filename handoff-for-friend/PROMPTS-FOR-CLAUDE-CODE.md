@@ -62,3 +62,4 @@ Please audit the Valorant API integration in the project and `ValorantAPI` packa
 3. Check the client version fetcher in `ValorantAPI` (or game config requests) to make sure headers like `X-Riot-ClientVersion` don't send deprecated format strings that cause Riot 400 Bad Request errors.
 4. Clean up any warnings or deprecated calls if appropriate.
 ```
+

@@ -1,0 +1,56 @@
+name: Build Recon Bolt iOS IPA
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build & Package IPA
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
+
+      - name: Resolve Swift Package Dependencies
+        run: |
+          xcodebuild -resolvePackageDependencies -project "Recon Bolt.xcodeproj"
+
+      - name: Build & Archive Recon Bolt
+        run: |
+          xcodebuild archive \
+            -project "Recon Bolt.xcodeproj" \
+            -scheme "Recon Bolt (iOS)" \
+            -destination "generic/platform=iOS" \
+            -archivePath "build/ReconBolt.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
+
+      - name: Package into IPA
+        run: |
+          mkdir -p build/Payload
+          cp -R "build/ReconBolt.xcarchive/Products/Applications/Recon Bolt.app" build/Payload/
+          cd build
+          zip -r -q "ReconBolt.ipa" Payload
+          ls -lh ReconBolt.ipa
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ReconBolt-ipa
+          path: build/ReconBolt.ipa
+          retention-days: 90

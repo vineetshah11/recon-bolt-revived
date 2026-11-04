@@ -35,3 +35,4 @@
 - **Framework**: SwiftUI (iOS 15.0+ deployment target)
 - **Dependencies**: Swift Package Manager (`ValorantAPI`, `HandyOperators`, `SwiftUIMissingPieces`, `UserDefault`, `KeychainAccess`)
 - **Build Tool**: Xcode 15 / 16 (`xcodebuild`)
+

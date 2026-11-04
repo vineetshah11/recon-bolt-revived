@@ -2650,7 +2650,7 @@
 /* Begin XCRemoteSwiftPackageReference section */
 		52D739412B5A0FB9009D9167 /* XCRemoteSwiftPackageReference "ValorantAPI" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/DarkFlyper/ValorantAPI.git";
+			repositoryURL = "https://github.com/vineetshah11/ValorantAPI.git";
 			requirement = {
 				branch = main;
 				kind = branch;

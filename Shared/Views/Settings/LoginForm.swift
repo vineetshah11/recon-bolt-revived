@@ -5,6 +5,7 @@ import ValorantAPI
 struct LoginForm: View {
 	@ObservedObject var accountManager: AccountManager
 	@State var isSigningIn = false
+	@State var isShowingWebAuth = false
 	
 	@State var credentials = Credentials()
 	
@@ -21,52 +22,82 @@ struct LoginForm: View {
 				}
 				.opacity(isSigningIn ? 1 : 0)
 				
-				VStack(spacing: 20) {
-					VStack(spacing: 12) {
-						VStack {
-							TextField(text: $credentials.username) {
-								Text("Username", comment: "Login Form")
+				VStack(spacing: 24) {
+					VStack(spacing: 16) {
+						Button {
+							isShowingWebAuth = true
+						} label: {
+							HStack {
+								Image(systemName: "globe")
+								Text("Sign In with Riot Games")
+									.bold()
 							}
-							.textContentType(.username)
-							.submitLabel(.next)
-							.onSubmit { isPasswordFieldFocused = true }
-							
-							SecureField(text: $credentials.password) {
-								Text("Password", comment: "Login Form")
-							}
-							.textContentType(.password)
-							.submitLabel(.go)
-							.onSubmit {
-								isPasswordFieldFocused = false
-								Task { await logIn() }
-							}
-							.focused($isPasswordFieldFocused)
-						}
-						.autocorrectionDisabled()
-						.textInputAutocapitalization(.never)
-						.frame(maxWidth: 240)
-						
-						if credentials.username.contains("#") {
-							VStack(alignment: .leading, spacing: 8) {
-								Text("""
-									Looks like you're trying to enter your Riot ID (and tagline) as username! Your username is actually something else: it's what you use to sign into the Valorant launcher.
-
-									If you don't know your username or don't have one, you can fix that at [account.riotgames.com](https://account.riotgames.com).
-									""", comment: "Login Form"
-								)
-							}
-							.font(.callout)
-							.foregroundStyle(.secondary)
-							.frame(maxWidth: .infinity)
-						}
-						
-						AsyncButton(action: logIn) {
-							Text("Sign In", comment: "Login Form: button")
-								.bold()
+							.frame(maxWidth: 240, minHeight: 32)
 						}
 						.buttonStyle(.borderedProminent)
-						.disabled(credentials.username.isEmpty || credentials.password.isEmpty)
+						.controlSize(.large)
+						
+						Text("Opens Riot's official web login to sign in safely and bypass anti-bot checks.", comment: "Login Form")
+							.font(.footnote)
+							.foregroundStyle(.secondary)
+							.multilineTextAlignment(.center)
+							.frame(maxWidth: 260)
 					}
+					
+					FreeStandingDisclosureGroup {
+						VStack(spacing: 12) {
+							VStack {
+								TextField(text: $credentials.username) {
+									Text("Username", comment: "Login Form")
+								}
+								.textContentType(.username)
+								.submitLabel(.next)
+								.onSubmit { isPasswordFieldFocused = true }
+								
+								SecureField(text: $credentials.password) {
+									Text("Password", comment: "Login Form")
+								}
+								.textContentType(.password)
+								.submitLabel(.go)
+								.onSubmit {
+									isPasswordFieldFocused = false
+									Task { await logIn() }
+								}
+								.focused($isPasswordFieldFocused)
+							}
+							.autocorrectionDisabled()
+							.textInputAutocapitalization(.never)
+							.frame(maxWidth: 240)
+							
+							if credentials.username.contains("#") {
+								VStack(alignment: .leading, spacing: 8) {
+									Text("""
+										Looks like you're trying to enter your Riot ID (and tagline) as username! Your username is actually something else: it's what you use to sign into the Valorant launcher.
+
+										If you don't know your username or don't have one, you can fix that at [account.riotgames.com](https://account.riotgames.com).
+										""", comment: "Login Form"
+									)
+								}
+								.font(.callout)
+								.foregroundStyle(.secondary)
+								.frame(maxWidth: .infinity)
+							}
+							
+							AsyncButton(action: logIn) {
+								Text("Sign In (Direct)", comment: "Login Form: button")
+									.bold()
+							}
+							.buttonStyle(.bordered)
+							.disabled(credentials.username.isEmpty || credentials.password.isEmpty)
+						}
+						.padding(.top, 8)
+					} label: {
+						Image(systemName: "key")
+							.frame(width: 24)
+						Text("Direct Credentials Login (Legacy)", comment: "Login Form: button/header")
+					}
+					.compositingGroup()
+					.cornerRadius(20)
 					
 					VStack(spacing: 1) {
 						trustInfo
@@ -83,6 +114,20 @@ struct LoginForm: View {
 				.buttonStyle(.bordered)
 				.buttonBorderShape(.capsule)
 				.padding()
+			}
+		}
+		.sheet(isPresented: $isShowingWebAuth) {
+			RiotWebAuthView { tokens in
+				Task {
+					await load(errorTitle: Text("Could not sign in!", comment: "Login Form: error title")) {
+						do {
+							try await accountManager.addAccount(using: tokens)
+							dismiss()
+						} catch {}
+					}
+				}
+			} onFailure: { error in
+				print("Web auth error: \(error)")
 			}
 		}
 		.sheet(caching: $accountManager.multifactorPrompt) {

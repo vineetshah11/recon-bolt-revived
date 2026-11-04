@@ -59,3 +59,4 @@ This is **Recon Bolt Revived**, a revived, modern version of the discontinued op
   - `feat(ci): add GitHub Actions IPA build workflow`
   - `feat(auth): integrate RiotWebAuthView into LoginForm and AccountManager`
 - Push directly to `origin main` or create a branch and open a PR.
+
