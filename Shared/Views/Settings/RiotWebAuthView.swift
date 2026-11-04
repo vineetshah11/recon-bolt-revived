@@ -128,14 +128,9 @@ struct RiotWebAuthRepresentable: UIViewRepresentable {
     }
 }
 
-// MARK: - Token Model
+// MARK: - Token Model Extension
 
-/// Tokens extracted directly from the Riot OAuth2 redirect URL fragment
-public struct WebAuthTokens {
-    public let accessToken: String
-    public let idToken: String
-    public let expiresIn: Int
-    
+extension WebAuthTokens {
     init?(from url: URL) {
         // Riot puts tokens in the URL *fragment* (after #)
         guard let fragment = url.fragment else { return nil }

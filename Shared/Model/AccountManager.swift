@@ -5,6 +5,18 @@ import UserDefault
 import HandyOperators
 import WidgetKit
 
+public struct WebAuthTokens: Hashable, Codable {
+	public let accessToken: String
+	public let idToken: String
+	public let expiresIn: Int
+	
+	public init(accessToken: String, idToken: String, expiresIn: Int) {
+		self.accessToken = accessToken
+		self.idToken = idToken
+		self.expiresIn = expiresIn
+	}
+}
+
 @MainActor
 final class AccountManager: ObservableObject {
 	let keychain: any Keychain

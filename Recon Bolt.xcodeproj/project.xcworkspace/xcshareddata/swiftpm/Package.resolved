@@ -93,10 +93,10 @@
     {
       "identity" : "valorantapi",
       "kind" : "remoteSourceControl",
-      "location" : "https://github.com/DarkFlyper/ValorantAPI.git",
+      "location" : "https://github.com/vineetshah11/ValorantAPI.git",
       "state" : {
         "branch" : "main",
-        "revision" : "a870a5d15600e79459682f6af3bc2320b00ce300"
+        "revision" : "92e0b8943f2a8d398da64ae3d818481fffe23d66"
       }
     }
   ],
