@@ -46,18 +46,6 @@ struct AgentPickerView: View {
                 .buttonStyle(.borderedProminent)
                 .disabled(selectedAgentID == nil || takenAgents.contains(selectedAgentID!))
                 .disabled(hasSelectedAgent)
-
-                // "Dodge" button
-                AsyncButton {
-                    await load {
-                        pregameInfo = try await $0.dodgeAgent(in: pregameInfo.id)
-                    }
-                } label: {
-                    Text("Dodge")
-                        .bold()
-                }
-                .buttonStyle(.borderedProminent)
-                // You can add additional conditions for disabling the "Dodge" button if needed
             }
 
             if let agents = assets?.agents.values {
