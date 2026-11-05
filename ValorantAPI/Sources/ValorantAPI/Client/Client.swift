@@ -59,9 +59,14 @@ public struct ValorantClient {
 		}
 	}
 	
+	// Known-good fallback version; updated periodically when Riot ships a new client.
+	// This is only used as a last resort if clientVersion was never populated from valorant-api.com.
+	private static let fallbackClientVersion = "release-13.09-shipping-18-5804228"
+	
 	func send<R: ValorantRequest>(_ request: R) async throws -> R.Response {
+		let resolvedVersion = clientVersion ?? Self.fallbackClientVersion
 		let urlRequest = try request.urlRequest(for: location) <- {
-			$0.headers.clientVersion = clientVersion
+			$0.headers.clientVersion = resolvedVersion
 			$0.headers.clientPlatform = Self.encodedPlatformInfo
 		}
 		

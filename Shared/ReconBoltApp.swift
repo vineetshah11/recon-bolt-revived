@@ -55,6 +55,40 @@ struct ReconBoltApp: App {
 		} catch {
 			print("could not set audio session category: \(error)")
 		}
+		
+		// Fetch the Riot client version early so API calls work
+		// even before the full asset download completes.
+		Task { await fetchClientVersionEarly() }
+	}
+	
+	/// Fetches the current Riot client version from valorant-api.com
+	/// and stores it in accountManager immediately on launch.
+	/// This runs in parallel with (and before) full asset loading,
+	/// preventing "Bad headers / INVALID_HEADERS" errors on first API call.
+	private func fetchClientVersionEarly() async {
+		// Fallback version in case the network call fails.
+		// Keep this roughly current; it's only used if valorant-api.com is unreachable.
+		let fallbackVersion = "release-13.09-shipping-18-5804228"
+		
+		do {
+			guard let url = URL(string: "https://valorant-api.com/v1/version") else { return }
+			let (data, _) = try await URLSession.shared.data(from: url)
+			
+			struct VersionResponse: Decodable {
+				struct Data: Decodable { let riotClientVersion: String }
+				let data: Data
+			}
+			let decoded = try JSONDecoder().decode(VersionResponse.self, from: data)
+			let version = decoded.data.riotClientVersion
+			print("[ReconBolt] Fetched client version early: \(version)")
+			accountManager.clientVersion = version
+		} catch {
+			print("[ReconBolt] Early version fetch failed (\(error)), using fallback: \(fallbackVersion)")
+			// Only set fallback if we don't already have a version from cached assets
+			if accountManager.clientVersion == nil {
+				accountManager.clientVersion = fallbackVersion
+			}
+		}
 	}
 }
 
