@@ -340,15 +340,12 @@ struct StoreDetailsView: View {
 	// MARK: - Countdown
 
 	private func countdown(
-		_ duration: Int,
+		_ duration: TimeInterval,
 		startedAt: Date
 	) -> some View {
 		TimelineView(.periodic(from: .now, by: 1)) { context in
-			let elapsed = Int(
-				context.date.timeIntervalSince(startedAt)
-			)
-
-			let remaining = max(0, duration - elapsed)
+			let elapsed = context.date.timeIntervalSince(startedAt)
+			let remaining = max(0, Int(duration - elapsed))
 
 			let hours = remaining / 3600
 			let minutes = (remaining % 3600) / 60
