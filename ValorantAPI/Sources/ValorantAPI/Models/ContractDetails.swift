@@ -59,22 +59,29 @@ public struct Contract: Equatable, Codable, Identifiable {
 	public struct Progression: Equatable, Codable {
 		public var totalEarned: Int
 		@StringKeyedDictionary
-		public var highestRewardedLevel: [LowercaseUUID: RewardedLevel]?
+		public var highestRewardedLevel: [LowercaseUUID: RewardedLevel]
 		
 		private enum CodingKeys: String, CodingKey {
 			case totalEarned = "TotalProgressionEarned"
 			case highestRewardedLevel = "HighestRewardedLevel"
 		}
 		
-		public init(from decoder: Decoder) throws {
-			let container = try decoder.container(keyedBy: CodingKeys.self)
-			totalEarned = try container.decode(Int.self, forKey: .totalEarned)
-			highestRewardedLevel = try container.decodeIfPresent([LowercaseUUID: RewardedLevel].self, forKey: .highestRewardedLevel)
+		public init(totalEarned: Int = 0, highestRewardedLevel: [LowercaseUUID: RewardedLevel] = [:]) {
+			self.totalEarned = totalEarned
+			self._highestRewardedLevel = .init(wrappedValue: highestRewardedLevel)
 		}
 		
-		public init(totalEarned: Int, highestRewardedLevel: [LowercaseUUID: RewardedLevel]?) {
-			self.totalEarned = totalEarned
-			self.highestRewardedLevel = highestRewardedLevel
+		public init(from decoder: Decoder) throws {
+			let container = try decoder.container(keyedBy: CodingKeys.self)
+			self.totalEarned = try container.decode(Int.self, forKey: .totalEarned)
+			let decoded = try container.decodeIfPresent(StringKeyedDictionary<[LowercaseUUID: RewardedLevel]>.self, forKey: .highestRewardedLevel)
+			self._highestRewardedLevel = decoded ?? .init(wrappedValue: [:])
+		}
+		
+		public func encode(to encoder: Encoder) throws {
+			var container = encoder.container(keyedBy: CodingKeys.self)
+			try container.encode(totalEarned, forKey: .totalEarned)
+			try container.encode(_highestRewardedLevel, forKey: .highestRewardedLevel)
 		}
 		
 		public struct RewardedLevel: Equatable, Codable {
