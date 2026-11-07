@@ -74,7 +74,7 @@ public struct Contract: Equatable, Codable, Identifiable {
 		public init(from decoder: Decoder) throws {
 			let container = try decoder.container(keyedBy: CodingKeys.self)
 			self.totalEarned = try container.decode(Int.self, forKey: .totalEarned)
-			let decoded = try container.decodeIfPresent(StringKeyedDictionary<[LowercaseUUID: RewardedLevel]>.self, forKey: .highestRewardedLevel)
+			let decoded = try container.decodeIfPresent(StringKeyedDictionary<LowercaseUUID, RewardedLevel>.self, forKey: .highestRewardedLevel)
 			self._highestRewardedLevel = decoded ?? .init(wrappedValue: [:])
 		}
 		
