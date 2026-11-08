@@ -10,8 +10,12 @@ extension ValorantClient {
 		}
 	}
 	
-	public func getPartyInfo(for id: Party.ID) async throws -> Party {
-		try await send(PartyInfoRequest(partyID: id))
+	public func getPartyInfo(for id: Party.ID) async throws -> Party? {
+		do {
+			return try await send(PartyInfoRequest(partyID: id))
+		} catch APIError.badResponseCode(404, _, _), APIError.resourceNotFound {
+			return nil
+		}
 	}
 	
 	public func getPartyInfo() async throws -> Party? {
