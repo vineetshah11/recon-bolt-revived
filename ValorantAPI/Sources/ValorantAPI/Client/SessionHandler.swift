@@ -83,6 +83,7 @@ final actor SessionHandler {
 			session.hasExpired = true
 			throw APIError.sessionExpired(mfaRequired: mfaRequired)
 		} catch {
+			session.hasExpired = true
 			throw APIError.sessionResumptionFailure(error)
 		}
 	}
