@@ -34,8 +34,39 @@ struct AssetsUnwrappingView<Content: View>: View {
 	@ViewBuilder var content: (_ assets: AssetCollection) -> Content
 	
 	@Environment(\.assets) private var assets
+	@EnvironmentObject private var assetManager: AssetManager
 	
 	var body: some View {
-		UnwrappingView(value: assets, placeholder: "Assets not loaded!", content: content)
+		if let assets {
+			content(assets)
+		} else if let error = assetManager.error {
+			VStack(spacing: 16) {
+				Image(systemName: "exclamationmark.triangle")
+					.font(.largeTitle)
+					.foregroundColor(.secondary)
+				Text("Couldn't load assets")
+					.font(.headline)
+				Text(error.localizedDescription)
+					.font(.caption)
+					.foregroundColor(.secondary)
+					.multilineTextAlignment(.center)
+					.padding(.horizontal)
+				AsyncButton("Try Again") {
+					await assetManager.tryLoadAssets()
+				}
+				.buttonStyle(.borderedProminent)
+			}
+			.padding()
+			.frame(maxWidth: .infinity, maxHeight: .infinity)
+		} else {
+			VStack(spacing: 12) {
+				ProgressView()
+				Text("Loading assets…")
+					.font(.subheadline)
+					.foregroundColor(.secondary)
+			}
+			.frame(maxWidth: .infinity, maxHeight: .infinity)
+		}
 	}
 }
+

@@ -9,7 +9,6 @@ extension AssetClient {
 		async let missions = getMissionInfo()
 		async let contracts = getContractInfo()
 		async let gameModes = getGameModeInfo()
-		async let queues = getQueues()
 		async let objectives = getObjectiveInfo()
 		async let playerCards = getPlayerCardInfo()
 		async let playerTitles = getPlayerTitleInfo()
@@ -20,6 +19,15 @@ extension AssetClient {
 		async let currencies = getCurrencyInfo()
 		async let bundles = getBundleInfo()
 		async let contentTiers = getContentTiers()
+		
+		// Queues endpoint is optional — has been intermittently 404 on valorant-api.com
+		let queues: [QueueInfo]
+		do {
+			queues = try await getQueues()
+		} catch {
+			print("⚠️ Failed to fetch queues (non-fatal):", error)
+			queues = []
+		}
 		
 		// this seems to be what skins are actually referred to by…
 		let skinsByLevelID = try await Dictionary(
@@ -63,3 +71,4 @@ extension AssetClient {
 		)
 	}
 }
+

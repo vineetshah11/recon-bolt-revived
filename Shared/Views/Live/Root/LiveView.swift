@@ -74,6 +74,9 @@ struct LiveView: View {
 				loadoutInfo = try await .init(using: $0)
 			} catch Loadout.FetchError.uninitialized {
 				throw WrongAccountError(user: user)
+			} catch APIError.badResponseCode(404, _, _), APIError.resourceNotFound {
+				// Loadout not found for this account/region — silently ignore
+				loadoutInfo = nil
 			}
 		}
 	}
