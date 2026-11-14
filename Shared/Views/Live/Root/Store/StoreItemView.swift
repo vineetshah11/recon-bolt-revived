@@ -54,7 +54,7 @@ struct StoreItemView<Item: UntypedStoreItem, PriceLabel: View>: View {
 		} else if let card = item.card {
 			let info = assets?.playerCards[card]
 			NavigationButton {
-				fullscreenImages = info.map { [$0.largeArt, $0.wideArt, $0.smallArt] }
+				fullscreenImages = info.map { [$0.largeArt, $0.wideArt, $0.smallArt].compactMap { $0 } }
 			} label: {
 				HStack(spacing: 12) {
 					info?.smallArt.view()

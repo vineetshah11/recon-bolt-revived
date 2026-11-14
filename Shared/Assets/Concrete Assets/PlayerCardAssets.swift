@@ -24,5 +24,5 @@ struct PlayerCardInfo: AssetItem, Codable, Identifiable {
 	/// Wide artwork used in the loading screen.
 	var wideArt: AssetImage
 	/// Tall artwork used in the lobby.
-	var largeArt: AssetImage
+	var largeArt: AssetImage?
 }
