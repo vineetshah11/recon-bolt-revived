@@ -5,6 +5,8 @@ import HandyOperators
 struct PlayerIdentityCell: View {
 	let user: User?
 	let identity: Player.Identity?
+	/// The signed-in account's own ID. When set, that player's name is always shown regardless of anonymization mode.
+	var ownUserID: User.ID? = nil
 	
 	@Environment(\.assets) private var assets
 	@Environment(\.shouldAnonymize) private var shouldAnonymize
@@ -13,7 +15,8 @@ struct PlayerIdentityCell: View {
 		VStack(spacing: 0) {
 			HStack {
 				HStack(spacing: 4) {
-					if let user, !shouldAnonymize(user.id) {
+					let isOwnUser = user != nil && user?.id == ownUserID
+					if let user, isOwnUser || !shouldAnonymize(user.id) {
 						Text(user.gameName)
 							.fontWeight(.semibold)
 						

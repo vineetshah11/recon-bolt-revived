@@ -22,6 +22,7 @@ struct MatchDetailsContainer: View {
 			}
 		}
 		.withLocalData($details, id: matchID, shouldAutoUpdate: true, shouldReportErrors: true)
+		.anonymizing(additionally: .none)   // reveal all names post-match
 		.navigationTitle(Text("Match Details", comment: "Match Details: title"))
 		.navigationBarTitleDisplayMode(.inline)
 	}

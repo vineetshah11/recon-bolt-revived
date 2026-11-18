@@ -45,7 +45,10 @@ struct CompetitiveSummaryCell: View {
 		VStack {
 			let act = seasons?.currentAct()
 			let info = summary?.competitiveInfo?.inSeason(act?.id)
-			let tierInfo = seasons?.tierInfo(number: info?.competitiveTier, in: act)
+			let tier = info?.competitiveTier ?? 0
+			let tierInfo = seasons?.tierInfo(number: tier, in: act)
+			// Treat tier 0 (unranked) explicitly — the API name may be an internal placeholder.
+			let isUnranked = tier == 0
 			
 			SeasonLabel(season: act?.id)
 				.font(secondaryFont)
@@ -54,7 +57,11 @@ struct CompetitiveSummaryCell: View {
 				.alignmentGuide(.rankIcon) { $0[VerticalAlignment.center] }
 			
 			Group {
-				if let tierInfo {
+				if isUnranked {
+					Text("Unranked", comment: "Match List: player has not played ranked this act")
+						.foregroundStyle(.secondary)
+						.font(primaryFont)
+				} else if let tierInfo {
 					Text(tierInfo.name)
 						.font(primaryFont)
 				} else {
@@ -63,7 +70,7 @@ struct CompetitiveSummaryCell: View {
 						.font(primaryFont)
 				}
 				
-				Text("\(info?.adjustedRankedRating ?? 0) RR")
+				Text(isUnranked ? "0 RR" : "\(info?.adjustedRankedRating ?? 0) RR")
 					.font(secondaryFont)
 			}
 			.placeholder(if: summary == nil)

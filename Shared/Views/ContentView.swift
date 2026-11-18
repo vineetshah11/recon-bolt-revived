@@ -48,6 +48,8 @@ struct ContentView: View {
 				) }
 				.tag(Tab.settings)
 		}
+		.environmentObject(assetManager)
+		.environment(\.assets, assetManager.assets)
 		.task(id: accountManager.requiresAction) {
 			if accountManager.requiresAction {
 				tab = .settings
