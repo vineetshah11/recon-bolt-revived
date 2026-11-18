@@ -152,8 +152,14 @@ extension EnvironmentValues {
 }
 
 extension View {
+	/// Merges `mode` into the inherited anonymization — use during live pregame/in-game to add more IDs.
 	func anonymizing(additionally mode: AnonymizationMode) -> some View {
 		transformEnvironment(\.anonymization) { $0 = $0.merging(mode) }
+	}
+	
+	/// Replaces the inherited anonymization entirely — use when you want an absolute override (e.g. post-match).
+	func anonymizing(_ mode: AnonymizationMode) -> some View {
+		environment(\.anonymization, mode)
 	}
 }
 
