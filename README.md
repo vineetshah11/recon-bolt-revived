@@ -6,7 +6,7 @@
 
 This is a companion app for Valorant. It started as a way to view your competitive rank changes (back before the numbers were visible) and has now evolved into so much more, even allowing you to participate in agent select from anywhere. Check out the screenshots for a clearer overview than I could ever give in words!
 
-Unfortunately, this app needs your Riot username and password to function, but of course you can view the code yourself to check its safety, and the password is stored in the keychain rather than as plaintext.
+Sign-in happens in a real `WKWebView` on Riot's own login page (see `Shared/Views/Settings/RiotWebAuthView.swift`). The app only stores the resulting tokens, so your password never passes through the app's own code.
 
 ## Discord
 
@@ -75,6 +75,25 @@ Please note that the app **only supports iOS 15+**, but you should be on the lat
 </p>
 
 
+## Building
+
+Requirements: Xcode 15 or newer. Clone the repo, open `Recon Bolt.xcodeproj` and build the `Recon Bolt (iOS)` scheme for a device or simulator; Swift Package Manager fetches the dependencies, including `ValorantAPI`, on first open.
+
+The **Build Recon Bolt iOS IPA** workflow (`.github/workflows/build-ipa.yml`) archives the app on every push to `main` and uploads an unsigned `Recon Bolt.ipa` as a workflow artifact. Install that IPA with Sideloadly or AltStore using your own Apple ID—no paid developer account is required.
+
+## Project layout
+
+| Path | Contents |
+| --- | --- |
+| `Shared/` | SwiftUI views, models, themes and assets used by every app target |
+| `iOS/` | iOS target resources: `Info.plist`, settings bundle and localizations |
+| `macOS/` | macOS target |
+| `Widgets/` | WidgetKit extension |
+| `IntentsExtension/` | Siri/Shortcuts intents |
+| `Hasher/` | Small command-line hashing helper |
+| `Resources/` | Localized strings, icons and README screenshots |
+| `Recon Bolt Tests/` | Unit tests |
+
 ## Thanks
 
 This project would not have been possible (or was significantly eased by) some prior work:
@@ -88,4 +107,3 @@ This project would not have been possible (or was significantly eased by) some p
 ## Why not Android?
 
 The vast majority of Recon Bolt is UI Code, which heavily relies on Apple's fantastic new SwiftUI framework. I simply would not have had the motivation to work this much on an app with any other framework I know of, much less for an OS which I don't even use. Sorry!
-"# test" 

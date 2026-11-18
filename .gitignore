@@ -1,6 +1,18 @@
 ## Xcode User Data
 xcuserdata/
 
-# Swift Package Manager
+## macOS
+.DS_Store
+
+## Build output
+build/
+DerivedData/
+*.ipa
+*.xcarchive
+
+## Swift Package Manager
 /.swiftpm
 *.xcloc
+
+## Local tooling
+/tools/
