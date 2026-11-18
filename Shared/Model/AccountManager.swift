@@ -181,7 +181,7 @@ final class AccountManager: ObservableObject {
 		@UserDefault("AccountManager.clientVersion", migratingTo: .shared)
 		var clientVersion: String?
 		@UserDefault("AccountManager.shouldReauthAutomatically", migratingTo: .shared)
-		var shouldReauthAutomatically = false
+		var shouldReauthAutomatically = true
 	}
 	
 	func handleMultifactor(info: MultifactorInfo) async throws -> String {

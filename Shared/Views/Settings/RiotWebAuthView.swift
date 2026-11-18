@@ -70,8 +70,9 @@ struct RiotWebAuthRepresentable: UIViewRepresentable {
     
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        // Use a non-persistent store so we always get a fresh login
-        config.websiteDataStore = .nonPersistent()
+        // Use the default persistent store so Riot session cookies survive app restarts.
+        // Previously used .nonPersistent() which discarded cookies on every launch.
+        config.websiteDataStore = .default()
         
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
