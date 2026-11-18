@@ -39,7 +39,10 @@ struct ReconBoltApp: App {
 				.preferredColorScheme(settings.theme.colorScheme)
 				.task(id: assetManager.assets?.version) {
 					guard let version = assetManager.assets?.version else { return }
-					accountManager.clientVersion = version.riotClientVersion
+					// assets may be cached from an older patch, so their version is only a fallback
+					if accountManager.clientVersion == nil {
+						accountManager.clientVersion = version.riotClientVersion
+					}
 					imageManager.setVersion(version)
 				}
 			}
@@ -68,26 +71,17 @@ struct ReconBoltApp: App {
 	private func fetchClientVersionEarly() async {
 		// Fallback version in case the network call fails.
 		// Keep this roughly current; it's only used if valorant-api.com is unreachable.
-		let fallbackVersion = "release-13.09-shipping-18-5804228"
+		let fallbackVersion = "release-13.10-shipping-18-5893614"
 		
-		do {
-			guard let url = URL(string: "https://valorant-api.com/v1/version") else { return }
-			let (data, _) = try await URLSession.shared.data(from: url)
-			
-			struct VersionResponse: Decodable {
-				struct Data: Decodable { let riotClientVersion: String }
-				let data: Data
-			}
-			let decoded = try JSONDecoder().decode(VersionResponse.self, from: data)
-			let version = decoded.data.riotClientVersion
-			print("[ReconBolt] Fetched client version early: \(version)")
-			accountManager.clientVersion = version
-		} catch {
-			print("[ReconBolt] Early version fetch failed (\(error)), using fallback: \(fallbackVersion)")
-			// Only set fallback if we don't already have a version from cached assets
-			if accountManager.clientVersion == nil {
-				accountManager.clientVersion = fallbackVersion
-			}
+		if await accountManager.refreshClientVersion() {
+			print("[ReconBolt] Fetched client version early:", accountManager.clientVersion ?? "?")
+			return
+		}
+		
+		// only use the fallback if nothing at all is known yet
+		if accountManager.clientVersion == nil {
+			print("[ReconBolt] Early version fetch failed, using fallback:", fallbackVersion)
+			accountManager.clientVersion = fallbackVersion
 		}
 	}
 }

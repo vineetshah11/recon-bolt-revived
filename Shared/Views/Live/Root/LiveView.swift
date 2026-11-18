@@ -25,6 +25,7 @@ struct LiveView: View {
 	@Environment(\.valorantLoad) private var load
 	@Environment(\.assets) private var assets
 	@Environment(\.seasons) private var seasons
+	@Environment(\.accountManager) private var accountManager
 	
 	@Namespace private var missionsBoxID
 	@Namespace private var storeBoxID
@@ -82,11 +83,28 @@ struct LiveView: View {
 				loadoutError = nil
 				throw WrongAccountError(user: user)
 			} catch APIError.badResponseCode(404, _, _), APIError.resourceNotFound {
+				// Riot's personalization service can't find anything for requests carrying an outdated
+				// client version, so try once more with a freshly fetched one before giving up.
 				loadoutInfo = nil
-				loadoutError = String(
-					localized: "Riot didn't return a loadout for this account (404). Loadouts are only available for the signed-in account, in its own region.",
-					comment: "Loadout box: reason shown when Riot answers with 404"
-				)
+				loadoutError = nil
+				if
+					let version = await AccountManager.fetchLatestClientVersion(),
+					version != $0.clientVersion
+				{
+					if let accountManager {
+						await MainActor.run { accountManager.clientVersion = version }
+					}
+					
+					var retryClient = $0
+					retryClient.clientVersion = version
+					loadoutInfo = try? await LoadoutInfo(using: retryClient)
+				}
+				if loadoutInfo == nil {
+					loadoutError = String(
+						localized: "Riot didn't return a loadout for this account (404). Loadouts are only available for the signed-in account, in its own region.",
+						comment: "Loadout box: reason shown when Riot answers with 404"
+					)
+				}
 			} catch {
 				guard !Task.isCancelled else { return }
 				loadoutInfo = nil

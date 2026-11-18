@@ -178,6 +178,33 @@ final class AccountManager: ObservableObject {
 		activeAccount?.setClientVersion(clientVersion)
 	}
 	
+	/// The version Riot expects in `X-Riot-ClientVersion`. Several services (personalization among them)
+	/// can't find anything for requests carrying a stale one, so this is refreshed from the live API.
+	static func fetchLatestClientVersion() async -> String? {
+		struct Response: Decodable {
+			struct Payload: Decodable { let riotClientVersion: String }
+			let data: Payload
+		}
+		
+		guard let url = URL(string: "https://valorant-api.com/v1/version") else { return nil }
+		do {
+			let (data, _) = try await URLSession.shared.data(from: url)
+			let version = try JSONDecoder().decode(Response.self, from: data).data.riotClientVersion
+			return version.hasPrefix("release-") ? version : nil
+		} catch {
+			print("could not fetch latest client version:", error)
+			return nil
+		}
+	}
+	
+	/// Updates the version used for API requests. Returns whether it changed.
+	@discardableResult
+	func refreshClientVersion() async -> Bool {
+		guard let version = await Self.fetchLatestClientVersion(), version != clientVersion else { return false }
+		clientVersion = version
+		return true
+	}
+	
 	private struct Storage {
 		@UserDefault("AccountManager.activeAccount", migratingTo: .shared)
 		var activeAccount: User.ID?

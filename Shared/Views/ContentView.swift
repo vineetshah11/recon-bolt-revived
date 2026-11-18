@@ -77,6 +77,7 @@ struct ContentView: View {
 		.withLoadErrorAlerts()
 		.onSceneActivation {
 			Task { await assetManager.tryLoadAssets() }
+			Task { await accountManager.refreshClientVersion() }
 		}
 		.readingDeepLinkHandler { handleDeepLink = $0 }
 		.environment(\.deepLink, handle(_:))
