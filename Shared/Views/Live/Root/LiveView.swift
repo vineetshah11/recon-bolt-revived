@@ -14,6 +14,7 @@ struct LiveView: View {
 		}
 	}
 	@State fileprivate var loadoutInfo: LoadoutInfo?
+	@State fileprivate var loadoutError: String?
 	@State fileprivate var storeInfo: StoreInfo?
 	
 	@UserDefault.State("LiveView.expandedBoxes")
@@ -66,17 +67,30 @@ struct LiveView: View {
 	
 	var loadoutBox: some View {
 		RefreshableBox(title: "Loadout", isExpanded: $expandedBoxes.contains(.loadout)) {
-			infoOrPlaceholder(placeholder: "Loadout didn't load", loadoutInfo) { info in
-				LoadoutDetailsView(loadout: info.loadout, inventory: info.inventory)
+			if let loadoutInfo {
+				LoadoutDetailsView(loadout: loadoutInfo.loadout, inventory: loadoutInfo.inventory)
+			} else {
+				Divider()
+				LoadoutUnavailableView(reason: loadoutError)
 			}
 		} refresh: {
 			do {
 				loadoutInfo = try await .init(using: $0)
+				loadoutError = nil
 			} catch Loadout.FetchError.uninitialized {
+				loadoutInfo = nil
+				loadoutError = nil
 				throw WrongAccountError(user: user)
 			} catch APIError.badResponseCode(404, _, _), APIError.resourceNotFound {
-				// Loadout not found for this account/region — silently ignore
 				loadoutInfo = nil
+				loadoutError = String(
+					localized: "Riot didn't return a loadout for this account (404). Loadouts are only available for the signed-in account, in its own region.",
+					comment: "Loadout box: reason shown when Riot answers with 404"
+				)
+			} catch {
+				guard !Task.isCancelled else { return }
+				loadoutInfo = nil
+				loadoutError = Self.message(for: error)
 			}
 		}
 	}
@@ -93,6 +107,16 @@ struct LiveView: View {
 			storeInfo = try await .init(using: $0)
 		}
 		.id(storeBoxID)
+	}
+	
+	private static func message(for error: Error) -> String {
+		if error is DecodingError {
+			return String(
+				localized: "Riot's response couldn't be read. The app's copy of the Valorant API library is likely outdated.",
+				comment: "Loadout box: shown when the loadout response fails to decode"
+			)
+		}
+		return error.localizedDescription
 	}
 	
 	func handle(_ link: DeepLink, scrollView: ScrollViewProxy) {
@@ -148,6 +172,34 @@ extension LiveView {
 	}
 }
 
+private struct LoadoutUnavailableView: View {
+	var reason: String?
+	
+	var body: some View {
+		VStack(spacing: 8) {
+			Image(systemName: "shippingbox")
+				.font(.title2)
+				.foregroundColor(.secondary)
+			
+			Text("Loadout didn't load", comment: "Live: loadout box placeholder")
+				.font(.headline)
+			
+			if let reason {
+				Text(reason)
+					.font(.caption)
+					.foregroundColor(.secondary)
+					.multilineTextAlignment(.center)
+			}
+			
+			Text("Tap the refresh button above to try again.", comment: "Live: loadout box placeholder hint")
+				.font(.caption)
+				.foregroundColor(.secondary)
+		}
+		.padding()
+		.frame(maxWidth: .infinity)
+	}
+}
+
 private struct WrongAccountError: Error, LocalizedError {
 	var user: User?
 	
@@ -172,13 +224,13 @@ private struct WrongAccountError: Error, LocalizedError {
 
 private struct LoadoutInfo {
 	var loadout: Loadout
-	var inventory: Inventory
+	/// Only needed for editing, so a failure here doesn't take the whole loadout down.
+	var inventory: Inventory?
 	
 	init(using client: ValorantClient) async throws {
 		async let loadout = client.getLoadout()
-		async let inventory = client.getInventory()
+		self.inventory = try? await client.getInventory()
 		self.loadout = try await loadout
-		self.inventory = try await inventory
 	}
 }
 

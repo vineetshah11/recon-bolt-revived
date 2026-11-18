@@ -5,16 +5,16 @@ struct WeaponLoadoutView: View {
 	@Binding var loadout: UpdatableLoadout
 	var inventory: Inventory
 	
-	@Environment(\.assets) private var assets
-	
 	var body: some View {
-		List {
-			ForEach(Weapon.ID.orderInCollection, id: \.self) { gunID in
-				let gun = $loadout[dynamicMember: \.guns[gunID]!]
-				Section {
-					GunCell(gun: gun, loadout: $loadout, inventory: inventory)
-				} header: {
-					Text(assets?.weapons[gun.wrappedValue.id]?.displayName ?? "")
+		AssetsUnwrappingView { assets in
+			List {
+				ForEach(Weapon.ID.orderInCollection, id: \.self) { gunID in
+					let gun = $loadout[dynamicMember: \.guns[gunID]!]
+					Section {
+						GunCell(gun: gun, loadout: $loadout, inventory: inventory)
+					} header: {
+						Text(assets.weapons[gunID]?.displayName ?? "")
+					}
 				}
 			}
 		}
@@ -47,6 +47,24 @@ struct WeaponLoadoutView: View {
 					.frame(height: 80)
 					.padding(.vertical, 8)
 				}
+			} else {
+				// The skin's assets are missing (outdated assets, or a skin that isn't in them yet).
+				// Keep the row visible instead of quietly dropping the weapon from the list.
+				HStack(spacing: 12) {
+					Image(systemName: "questionmark.square.dashed")
+						.font(.title3)
+						.foregroundColor(.secondary)
+						.frame(width: 60)
+					
+					VStack(alignment: .leading, spacing: 2) {
+						Text(assets?.weapons[gun.id]?.displayName ?? String(localized: "Weapon", comment: "Weapon Loadout: fallback name"))
+						Text("This skin couldn't be loaded. Try refreshing the app's assets.", comment: "Weapon Loadout: shown when a skin's assets are missing")
+							.font(.caption)
+							.foregroundColor(.secondary)
+					}
+				}
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.frame(height: 80)
 			}
 		}
 	}

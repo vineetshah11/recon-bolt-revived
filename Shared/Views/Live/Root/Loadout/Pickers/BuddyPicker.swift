@@ -20,13 +20,14 @@ struct BuddyPicker: View {
 				presenting: buddyToAssign
 			) { level in
 				ForEach((inventory.buddies[level.id] ?? []).indexed(), id: \.element) { index, instance in
-					let currentOwner = loadout.currentWeapon(for: instance)!
-					Button {
-						loadout.guns[currentOwner]!.buddy = nil
-						loadout.guns[weapon]!.buddy = level.instance(instance)
-					} label: {
-						let name = assets?.weapons[currentOwner]?.displayName ?? "unknown gun"
-						Text("\(name)")
+					if let currentOwner = loadout.currentWeapon(for: instance) {
+						Button {
+							loadout.guns[currentOwner]?.buddy = nil
+							loadout.guns[weapon]?.buddy = level.instance(instance)
+						} label: {
+							let name = assets?.weapons[currentOwner]?.displayName ?? "unknown gun"
+							Text("\(name)")
+						}
 					}
 				}
 			} message: { level in
@@ -51,8 +52,10 @@ struct BuddyPicker: View {
 					Text(level.buddy.displayName)
 				}
 			} deselector: {
-				SelectableRow(selection: Binding($loadout.guns[weapon])!.buddy, item: nil) {
-					Label(String(localized: "No Buddy", comment: "Buddy picker: option at the top to select no buddy"), systemImage: "xmark")
+				if let gunBinding = Binding($loadout.guns[weapon]) {
+					SelectableRow(selection: gunBinding.buddy, item: nil) {
+						Label(String(localized: "No Buddy", comment: "Buddy picker: option at the top to select no buddy"), systemImage: "xmark")
+					}
 				}
 			}
 		}
@@ -65,7 +68,7 @@ struct BuddyPicker: View {
 		}
 		
 		if let instance = unassigned {
-			loadout.guns[weapon]!.buddy = level.instance(instance)
+			loadout.guns[weapon]?.buddy = level.instance(instance)
 		} else {
 			buddyToAssign = level
 			isAssigningBuddy = true
