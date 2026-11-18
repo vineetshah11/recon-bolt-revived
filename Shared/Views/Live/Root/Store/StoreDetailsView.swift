@@ -435,27 +435,113 @@ struct StoreDetailsView: View {
 		}
 	}
 
-	@ScaledMetric private var priceLabelOffset = 16
-
+	@ViewBuilder
 	func nightMarketView(for market: Storefront.NightMarket) -> some View {
 		ForEach(market.offers) { offer in
-			OfferCell(offer: offer.offer)
-				.overlay(alignment: .bottomTrailing) {
-					VStack {
-						CurrencyLabel.multiple(for: offer.discountedCosts)
-						Text("-\(offer.discountPercent)%", comment: "Store: night market discount")
-							.font(.footnote.bold())
-							.foregroundColor(.accentColor)
-					}
-					.padding(8)
-					.frame(width: 12 * priceLabelOffset)
-					.background(Material.ultraThin)
-					.frame(width: 0)
-					.offset(y: -priceLabelOffset)
-					.rotationEffect(.degrees(-45), anchor: .bottom)
+			let reward = offer.offer.rewards.first!
+			let resolved = assets?.resolveSkin(.init(rawID: reward.itemID))
+			let discountText = Text("-\(offer.discountPercent)%", comment: "Store: night market discount")
+
+			// MARK: Offer pricing
+			// `StoreOffer.cost` and `discountedCosts` are keyed by currency, but a night market
+			// offer is only ever priced in one currency, so a single `CurrencyLabel` is enough.
+			let originalPrice = offer.offer.cost.first
+			let discountedPrice = offer.discountedCosts.first
+
+			NavigationLink {
+				if let resolved {
+					SkinDetailsView(skin: resolved.skin)
 				}
-				.background(cardColor)
-				.cornerRadius(8)
+			} label: {
+				HStack(spacing: 14) {
+					// MARK: Skin preview
+					ZStack {
+						if let icon = resolved?.displayIcon {
+							icon.view()
+								.aspectRatio(contentMode: .fill)
+						} else {
+							Rectangle()
+								.fill(Color.white.opacity(0.06))
+						}
+						LinearGradient(
+							gradient: Gradient(colors: [
+								Color.purple.opacity(0.55),
+								Color.purple.opacity(0.12)
+							]),
+							startPoint: .top,
+							endPoint: .bottom
+						)
+					}
+					.frame(width: 120, height: 120)
+					.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+					// MARK: Offer details
+					VStack(alignment: .leading, spacing: 8) {
+						if let name = resolved?.skin.displayName {
+							Text(name)
+								.font(.system(size: 17, weight: .bold, design: .rounded))
+								.foregroundColor(.white)
+								.lineLimit(2)
+								.multilineTextAlignment(.leading)
+						}
+
+						HStack(spacing: 8) {
+							VStack(alignment: .leading, spacing: 2) {
+								Text("Original price", comment: "Store: night market original price label")
+									.font(.caption2.weight(.medium))
+									.foregroundColor(.white.opacity(0.5))
+
+								if let (currencyID, amount) = originalPrice {
+									CurrencyLabel(amount: amount, currencyID: currencyID)
+										.strikethrough(color: .white.opacity(0.45))
+										.foregroundColor(.white.opacity(0.55))
+								}
+							}
+
+							Spacer()
+
+							VStack(alignment: .trailing, spacing: 2) {
+								Text("Discounted price", comment: "Store: night market discounted price label")
+									.font(.caption2.weight(.medium))
+									.foregroundColor(valorantRed.opacity(0.8))
+
+								if let (currencyID, amount) = discountedPrice {
+									CurrencyLabel(amount: amount, currencyID: currencyID)
+										.font(.system(size: 14, weight: .bold, design: .rounded))
+										.foregroundColor(valorantRed)
+								}
+							}
+						}
+						.padding(.horizontal, 2)
+
+						// MARK: Discount badge
+					HStack {
+						discountText
+							.font(.caption.weight(.bold))
+							.foregroundColor(.white)
+						Spacer()
+					}
+					.padding(.horizontal, 10)
+					.padding(.vertical, 5)
+					.frame(minHeight: 28)
+					.background(
+						RoundedRectangle(cornerRadius: 7, style: .continuous)
+							.fill(Color.purple)
+					)
+					.overlay(
+						RoundedRectangle(cornerRadius: 7, style: .continuous)
+							.stroke(Color.white.opacity(0.18), lineWidth: 1)
+					)
+				}
+				.padding(14)
+			}
+			.background(cardColor)
+			.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+			.overlay(
+				RoundedRectangle(cornerRadius: 14, style: .continuous)
+					.stroke(Color.purple.opacity(0.35), lineWidth: 1)
+			)
+			.shadow(color: Color.purple.opacity(0.08), radius: 8, y: 4)
 		}
 	}
 
