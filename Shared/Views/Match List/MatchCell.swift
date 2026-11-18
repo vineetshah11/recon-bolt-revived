@@ -25,6 +25,14 @@ enum ReconTheme {
 			}
 		}
 		
+		var title: LocalizedStringKey {
+			switch self {
+			case .win: return "Victory"
+			case .loss: return "Defeat"
+			case .draw: return "Draw"
+			}
+		}
+		
 		var gradient: LinearGradient {
 			let colors: [Color]
 			switch self {
@@ -79,8 +87,8 @@ struct MatchCell: View {
 		matchInfo
 			.listRowBackground(Color.clear)
 			.listRowSeparator(.hidden)
-			.listRowInsets(EdgeInsets(top: 4, leading: 12, bottom: 4, trailing: 12))
-			.swipeActions(edge: .leading) {
+			.listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
+			.swipeActions(edge: .trailing) {
 				if matchDetails == nil {
 					AsyncButton {
 						await load {
@@ -97,10 +105,10 @@ struct MatchCell: View {
 			.withLocalData($matchDetails, id: match.id)
 	}
 	
-	@ScaledMetric private var avatarSize = 46
-	
-	private let bannerHeight: CGFloat = 132
+	private let bannerHeight: CGFloat = 118
+	private let bannerAgentWidth: CGFloat = 104
 	private let cornerRadius: CGFloat = 16
+	private let cardPadding: CGFloat = 14
 	
 	// MARK: Outcome
 	
@@ -118,6 +126,26 @@ struct MatchCell: View {
 			return team.won ? .win : .loss
 		}
 		return .draw
+	}
+	
+	private var isTeamMVP: Bool {
+		guard
+			let stats = myself?.stats,
+			let teamID = myself?.teamID,
+			let matchDetails
+		else { return false }
+		
+		let team = matchDetails.players.filter { $0.teamID == teamID }
+		guard team.count > 1 else { return false }
+		return stats.score == team.compactMap { $0.stats?.score }.max()
+	}
+	
+	private var platformIcon: String? {
+		switch myself?.platformInfo.type.uppercased() {
+		case "PC": return "desktopcomputer"
+		case nil: return nil
+		default: return "gamecontroller.fill"
+		}
 	}
 	
 	// MARK: Content
@@ -141,8 +169,15 @@ struct MatchCell: View {
 	
 	private func card(for mapID: MapID) -> some View {
 		VStack(spacing: 0) {
-			banner(for: mapID)
-			statsSection
+			if matchDetails != nil {
+				header
+				banner(for: mapID)
+				statsFooter
+			} else {
+				notDownloadedHeader
+				placeholderBanner(for: mapID)
+				downloadHint
+			}
 		}
 		.background(ReconTheme.background)
 		.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
@@ -152,169 +187,76 @@ struct MatchCell: View {
 		)
 	}
 	
-	// MARK: Banner
+	// MARK: Header
 	
-	private func banner(for mapID: MapID) -> some View {
-		ZStack {
-			MapImage.wideImage(mapID)
-				.aspectRatio(contentMode: .fill)
+	private var header: some View {
+		HStack(alignment: .center, spacing: 10) {
+			CompetitiveTierImage(tier: match.tierAfterUpdate, time: match.startTime)
+				.frame(width: 30, height: 30)
 			
-			LinearGradient(
-				colors: [.black.opacity(0.5), .black.opacity(0.1), .black.opacity(0.75)],
-				startPoint: .top,
-				endPoint: .bottom
-			)
-			
-			score
-		}
-		.frame(maxWidth: .infinity)
-		.frame(height: bannerHeight)
-		.clipped()
-		.overlay(alignment: .top) { bannerHeader(for: mapID) }
-	}
-	
-	private func bannerHeader(for mapID: MapID) -> some View {
-		HStack(alignment: .top, spacing: 8) {
-			VStack(alignment: .leading, spacing: 2) {
-				MapImage.LabelText(mapID: mapID)
-					.font(.system(.headline, design: .rounded))
-					.foregroundColor(.white)
-					.lineLimit(1)
-					.minimumScaleFactor(0.6)
-				
-				if let matchDetails {
-					matchDetails.matchInfo.queueLabel
-						.font(.system(.caption2, design: .rounded).weight(.medium))
-						.foregroundColor(.white.opacity(0.75))
-						.lineLimit(1)
+			VStack(alignment: .leading, spacing: 3) {
+				HStack(spacing: 6) {
+					if let platformIcon {
+						Image(systemName: platformIcon)
+							.font(.system(size: 13, weight: .semibold))
+							.foregroundColor(.white.opacity(0.85))
+					}
+					
+					if let matchDetails {
+						matchDetails.matchInfo.queueLabel
+							.font(.system(.headline, design: .rounded))
+							.foregroundColor(.white)
+							.lineLimit(1)
+					}
 				}
+				
+				timestamp
 			}
 			
 			Spacer(minLength: 8)
 			
-			match.startTime.relativeText()
-				.font(.system(.caption2, design: .rounded))
-				.foregroundColor(.white.opacity(0.8))
-				.lineLimit(1)
+			rankInfo
 		}
-		.shadow(color: .black.opacity(0.5), radius: 3, y: 1)
-		.padding(12)
+		.padding(.horizontal, cardPadding)
+		.padding(.vertical, 12)
 	}
 	
-	@ViewBuilder
-	private var score: some View {
-		if let matchDetails {
-			if matchDetails.teams.count >= 2 {
-				let ownTeam = matchDetails.teams.first(where: { $0.id == myself?.teamID })
-				let enemyTeam = matchDetails.teams.first(where: { $0.id != myself?.teamID })
-				
-				HStack(spacing: 10) {
-					Text(verbatim: "\(ownTeam?.pointCount ?? 0)")
-						.foregroundColor(outcome.accent)
-					
-					Text(verbatim: "–")
-						.font(.system(size: 26, weight: .bold, design: .rounded))
-						.foregroundColor(.white.opacity(0.6))
-					
-					Text(verbatim: "\(enemyTeam?.pointCount ?? 0)")
-						.foregroundColor(.white)
-				}
-				.font(.system(size: 34, weight: .heavy, design: .rounded))
-				.monospacedDigit()
-				.shadow(color: .black.opacity(0.45), radius: 6, y: 2)
-			} else {
-				ScoreSummaryView(teams: matchDetails.teams, ownTeamID: myself?.teamID)
-					.font(.system(size: 28, weight: .bold, design: .rounded))
-					.monospacedDigit()
-					.shadow(color: .black.opacity(0.45), radius: 6, y: 2)
-			}
-		} else {
-			Text("Swipe to fetch", comment: "Match List: shown in place of the score when details haven't been fetched")
-				.font(.system(.footnote, design: .rounded).weight(.medium))
-				.foregroundColor(.white.opacity(0.7))
-		}
-	}
-	
-	// MARK: Stats
-	
-	private var statsSection: some View {
-		HStack(alignment: .center, spacing: 12) {
-			agentAvatar
-				.offset(y: -26)
-			
+	private var notDownloadedHeader: some View {
+		HStack(alignment: .center, spacing: 10) {
 			VStack(alignment: .leading, spacing: 3) {
-				kdaRow
-				rankRow
+				Text("Not Downloaded", comment: "Match List: match details have not been fetched yet")
+					.font(.system(.headline, design: .rounded))
+					.foregroundColor(.white)
+				timestamp
 			}
 			
-			Spacer(minLength: 0)
+			Spacer(minLength: 8)
+			
+			rankInfo
 		}
-		.padding(.horizontal, 12)
-		.padding(.vertical, 10)
+		.padding(.horizontal, cardPadding)
+		.padding(.vertical, 12)
 	}
 	
-	private var agentAvatar: some View {
-		Group {
-			if let agentID = myself?.agentID {
-				AgentImage.icon(agentID)
-					.aspectRatio(contentMode: .fill)
-			} else {
-				Color.white.opacity(0.08)
-					.overlay {
-						Image(systemName: "person.fill")
-							.foregroundColor(.white.opacity(0.3))
-					}
-			}
-		}
-		.frame(width: avatarSize, height: avatarSize)
-		.clipShape(Circle())
-		.padding(3)
-		.background(ReconTheme.background, in: Circle())
-		.overlay(
-			Circle()
-				.stroke(outcome.accent.opacity(0.8), lineWidth: 2)
-				.padding(3)
-		)
+	private var timestamp: some View {
+		match.startTime.listTimestamp()
+			.font(.system(.caption, design: .rounded))
+			.foregroundColor(ReconTheme.secondary)
+			.lineLimit(1)
 	}
 	
 	@ViewBuilder
-	private var kdaRow: some View {
-		if let stats = myself?.stats {
-			HStack(spacing: 5) {
-				Text(verbatim: "K \(stats.kills)")
-					.foregroundColor(.white)
-				Text(verbatim: "/")
-					.foregroundColor(ReconTheme.secondary)
-				Text(verbatim: "D \(stats.deaths)")
-					.foregroundColor(.white)
-				Text(verbatim: "/")
-					.foregroundColor(ReconTheme.secondary)
-				Text(verbatim: "A \(stats.assists)")
-					.foregroundColor(.white)
-			}
-			.font(.system(.subheadline, design: .monospaced).weight(.medium))
-			.monospacedDigit()
-		}
-	}
-	
-	@ViewBuilder
-	private var rankRow: some View {
+	private var rankInfo: some View {
 		if match.isRanked {
-			HStack(spacing: 5) {
-				CompetitiveTierImage(tier: match.tierAfterUpdate, time: match.startTime)
-					.frame(width: 18, height: 18)
+			VStack(alignment: .trailing, spacing: 2) {
+				rrLabel
 				
 				if let tierName {
 					Text(tierName)
-						.font(.system(.caption, design: .rounded).weight(.medium))
-						.foregroundColor(.white.opacity(0.85))
-						.lineLimit(1)
-					
-					Text(verbatim: "·")
+						.font(.system(.caption2, design: .rounded).weight(.medium))
 						.foregroundColor(ReconTheme.secondary)
+						.lineLimit(1)
 				}
-				
-				rrLabel
 				
 				if match.performanceBonus != 0 {
 					Text("WP: +\(match.performanceBonus)", comment: "Match List: shown with a match's RR change when the player got a performance bonus")
@@ -342,6 +284,200 @@ struct MatchCell: View {
 			.font(.system(.caption, design: .rounded).weight(.semibold))
 			.monospacedDigit()
 			.foregroundColor(outcome.accent)
+	}
+	
+	// MARK: Banner
+	
+	private func banner(for mapID: MapID) -> some View {
+		ZStack(alignment: .topTrailing) {
+			MapImage.wideImage(mapID)
+				.aspectRatio(contentMode: .fill)
+			
+			LinearGradient(
+				colors: [.black.opacity(0.65), .black.opacity(0.2), .clear],
+				startPoint: .leading,
+				endPoint: .trailing
+			)
+			
+			HStack(spacing: 4) {
+				if let agentID = myself?.agentID {
+					agentArt(agentID)
+					
+					VStack(alignment: .leading, spacing: 6) {
+						AgentLabel(agent: agentID)
+							.font(.system(.title3, design: .rounded).weight(.bold))
+							.foregroundColor(.white)
+							.lineLimit(1)
+						
+						mapChip(for: mapID)
+					}
+					.layoutPriority(1)
+				} else {
+					mapChip(for: mapID)
+						.padding(.leading, cardPadding)
+				}
+				
+				Spacer(minLength: 0)
+			}
+			.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+			
+			resultPill
+				.padding(10)
+		}
+		.frame(maxWidth: .infinity)
+		.frame(height: bannerHeight)
+		.clipped()
+	}
+	
+	private func agentArt(_ agentID: Agent.ID) -> some View {
+		AgentImage.killfeedPortrait(agentID)
+			.aspectRatio(contentMode: .fill)
+			.frame(width: bannerAgentWidth, height: bannerHeight)
+			.clipped()
+			.mask(
+				LinearGradient(
+					colors: [.black, .black, .clear],
+					startPoint: .leading,
+					endPoint: .trailing
+				)
+			)
+	}
+	
+	private func mapChip(for mapID: MapID) -> some View {
+		HStack(spacing: 5) {
+			MapImage.LabelText(mapID: mapID)
+			
+			if isTeamMVP {
+				Text(verbatim: "|")
+					.foregroundColor(.white.opacity(0.6))
+				Text("Team MVP", comment: "Match List: player had the highest combat score on their team")
+					.fontWeight(.bold)
+			}
+		}
+		.font(.system(.caption2, design: .rounded).weight(.semibold))
+		.foregroundColor(.white)
+		.lineLimit(1)
+		.padding(.horizontal, 9)
+		.padding(.vertical, 4)
+		.background(Capsule().fill(Color.black.opacity(0.35)))
+	}
+	
+	private var resultPill: some View {
+		Text(outcome.title)
+			.font(.system(.caption2, design: .rounded).weight(.heavy))
+			.textCase(.uppercase)
+			.foregroundColor(.white)
+			.padding(.horizontal, 10)
+			.padding(.vertical, 5)
+			.background(Capsule().fill(outcome.accent))
+			.shadow(color: .black.opacity(0.3), radius: 4, y: 1)
+	}
+	
+	private func placeholderBanner(for mapID: MapID) -> some View {
+		ZStack {
+			MapImage.wideImage(mapID)
+				.aspectRatio(contentMode: .fill)
+			
+			Color.black.opacity(0.35)
+			
+			MapImage.LabelText(mapID: mapID)
+				.font(.system(.title3, design: .rounded).weight(.semibold))
+				.foregroundColor(.white)
+				.padding(.horizontal, 18)
+				.padding(.vertical, 8)
+				.background(Capsule().fill(Color.black.opacity(0.4)))
+				.overlay(Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1))
+		}
+		.frame(maxWidth: .infinity)
+		.frame(height: bannerHeight)
+		.clipped()
+	}
+	
+	// MARK: Footer
+	
+	private var statsFooter: some View {
+		HStack(spacing: 0) {
+			if let stats = myself?.stats {
+				stat(icon: "scope", text: "\(stats.kills) / \(stats.deaths) / \(stats.assists)")
+				
+				Spacer(minLength: 8)
+				
+				stat(icon: "chart.bar.fill", text: "\(acs(for: stats))")
+					.accessibilityLabel(Text("Average combat score", comment: "Match List: ACS stat"))
+				
+				Spacer(minLength: 8)
+			} else {
+				Spacer(minLength: 8)
+			}
+			
+			footerScore
+			
+			Image(systemName: "chevron.right")
+				.font(.system(.caption, design: .rounded).weight(.semibold))
+				.foregroundColor(ReconTheme.secondary)
+				.padding(.leading, 8)
+		}
+		.padding(.horizontal, cardPadding)
+		.padding(.vertical, 12)
+	}
+	
+	private func stat(icon: String, text: String) -> some View {
+		HStack(spacing: 6) {
+			Image(systemName: icon)
+				.font(.system(size: 12, weight: .semibold))
+				.foregroundColor(.white.opacity(0.6))
+			
+			Text(text)
+				.font(.system(.subheadline, design: .rounded).weight(.semibold))
+				.monospacedDigit()
+				.foregroundColor(.white)
+		}
+	}
+	
+	private func acs(for stats: Player.Stats) -> Int {
+		stats.roundsPlayed > 0 ? stats.score / stats.roundsPlayed : 0
+	}
+	
+	@ViewBuilder
+	private var footerScore: some View {
+		if let matchDetails {
+			if matchDetails.teams.count == 2 {
+				let ownTeam = matchDetails.teams.first(where: { $0.id == myself?.teamID })
+				let enemyTeam = matchDetails.teams.first(where: { $0.id != myself?.teamID })
+				
+				HStack(spacing: 6) {
+					Image(systemName: "flag.fill")
+						.font(.system(size: 12, weight: .semibold))
+						.foregroundColor(.white.opacity(0.6))
+					
+					Text(verbatim: "\(ownTeam?.pointCount ?? 0) – \(enemyTeam?.pointCount ?? 0)")
+						.font(.system(.subheadline, design: .rounded).weight(.semibold))
+						.monospacedDigit()
+						.foregroundColor(.white)
+				}
+			} else if !matchDetails.teams.isEmpty {
+				ScoreSummaryView(teams: matchDetails.teams, ownTeamID: myself?.teamID)
+					.font(.system(.subheadline, design: .rounded).weight(.semibold))
+					.monospacedDigit()
+					.foregroundColor(.white)
+			}
+		}
+	}
+	
+	private var downloadHint: some View {
+		HStack {
+			Text("Swipe to the left or tap to download.", comment: "Match List: match details have not been fetched yet")
+				.font(.system(.footnote, design: .rounded))
+				.foregroundColor(ReconTheme.secondary)
+			
+			Spacer(minLength: 4)
+			
+			Image(systemName: "chevron.right")
+				.font(.system(.caption, design: .rounded).weight(.semibold))
+				.foregroundColor(ReconTheme.secondary)
+		}
+		.padding(.horizontal, cardPadding)
+		.padding(.vertical, 12)
 	}
 	
 	// MARK: Secondary states
@@ -417,5 +553,13 @@ extension Date {
 					.foregroundStyle(.secondary)
 			}
 		}
+	}
+	
+	/// Absolute date and time, e.g. “17/11/26 · 1:40 AM”.
+	func listTimestamp() -> Text {
+		let date = Text(self, formatter: Self.startDateFormatter)
+		let separator = Text(verbatim: " · ")
+		let time = Text(self, formatter: Self.startTimeFormatter)
+		return date + separator + time
 	}
 }
