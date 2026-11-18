@@ -110,6 +110,12 @@ struct LiveView: View {
 	}
 	
 	private static func message(for error: Error) -> String {
+		if let apiError = error as? APIError, apiError.recommendsReauthentication {
+			return String(
+				localized: "Your Riot session has expired. Sign in again to load your loadout.",
+				comment: "Loadout box: shown when the session has expired"
+			)
+		}
 		if error is DecodingError {
 			return String(
 				localized: "Riot's response couldn't be read. The app's copy of the Valorant API library is likely outdated.",

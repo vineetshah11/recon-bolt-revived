@@ -13,6 +13,7 @@ struct ContentView: View {
 	var tab = Tab.career
 	
 	@State var handleDeepLink: DeepLink.Handler?
+	@State var isReauthenticating = false
 	
 	var body: some View {
 		TabView(selection: $tab) {
@@ -24,7 +25,7 @@ struct ContentView: View {
 				) }
 				.tag(Tab.career)
 			
-			onlineView { LiveView(userID: $0) }
+			onlineView { LiveView(userID: $0).id(accountManager.sessionGeneration) }
 				.withToolbar()
 				.tabItem { Label(
 					String(localized: "Live", comment: "Top-Level Tab Title"),
@@ -50,10 +51,22 @@ struct ContentView: View {
 		}
 		.environmentObject(assetManager)
 		.environment(\.assets, assetManager.assets)
+		.background {
+			SessionRefreshPresenter(manager: accountManager, isPresented: $isReauthenticating)
+		}
 		.task(id: accountManager.requiresAction) {
 			if accountManager.requiresAction {
 				tab = .settings
+				if accountManager.activeAccount != nil {
+					isReauthenticating = true
+				}
 			}
+		}
+		.onChange(of: accountManager.requiresAction) { requiresAction in
+			guard requiresAction, accountManager.activeAccount != nil else { return }
+			// web sign-in only stores tokens, so the stored session can't refresh itself;
+			// grab a fresh one from Riot's login page (usually silent, since its cookies persist)
+			isReauthenticating = true
 		}
 		.sheet(caching: $accountManager.multifactorPrompt) {
 			MultifactorPromptView(prompt: $0, didSessionExpire: true)
@@ -142,6 +155,29 @@ struct ContentView: View {
 		case live
 		case reference
 		case settings
+	}
+}
+
+/// Re-runs the Riot web sign-in when the stored session can't refresh on its own.
+private struct SessionRefreshPresenter: View {
+	@ObservedObject var manager: AccountManager
+	@Binding var isPresented: Bool
+	
+	var body: some View {
+		Color.clear
+			.sheet(isPresented: $isPresented) {
+				RiotWebAuthView { tokens in
+					Task {
+						do {
+							try await manager.addAccount(using: tokens)
+						} catch {
+							print("could not refresh session:", error)
+						}
+					}
+				} onFailure: { error in
+					print("session refresh cancelled:", error)
+				}
+			}
 	}
 }
 

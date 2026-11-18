@@ -22,6 +22,9 @@ final class AccountManager: ObservableObject {
 	let keychain: any Keychain
 	@Published var multifactorPrompt: MultifactorPrompt?
 	
+	/// Bumped whenever a session is replaced, so views that cache remote data can reload.
+	@Published private(set) var sessionGeneration = 0
+	
 	@Published var activeAccount: StoredAccount? = nil {
 		didSet {
 			if oldValue !== activeAccount {
@@ -119,6 +122,7 @@ final class AccountManager: ObservableObject {
 			storedAccounts.append(session.userID)
 		}
 		activeAccount = try StoredAccount(session: session, context: context)
+		sessionGeneration += 1
 	}
 	
 	func addAccount(using tokens: WebAuthTokens) async throws {
@@ -131,6 +135,7 @@ final class AccountManager: ObservableObject {
 			storedAccounts.append(session.userID)
 		}
 		activeAccount = try StoredAccount(session: session, context: context)
+		sessionGeneration += 1
 	}
 	
 	func removeAccounts(at offsets: IndexSet) {
