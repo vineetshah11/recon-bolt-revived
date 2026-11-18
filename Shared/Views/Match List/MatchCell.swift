@@ -73,6 +73,7 @@ struct MatchCell: View {
 	@LocalData var matchDetails: MatchDetails?
 	
 	@Environment(\.valorantLoad) private var load
+	@Environment(\.seasons) private var seasons
 	
 	var body: some View {
 		matchInfo
@@ -96,7 +97,10 @@ struct MatchCell: View {
 			.withLocalData($matchDetails, id: match.id)
 	}
 	
-	@ScaledMetric private var iconSize = 52
+	@ScaledMetric private var avatarSize = 46
+	
+	private let bannerHeight: CGFloat = 132
+	private let cornerRadius: CGFloat = 16
 	
 	// MARK: Outcome
 	
@@ -130,114 +134,214 @@ struct MatchCell: View {
 			TransparentNavigationLink {
 				MatchDetailsContainer(matchID: match.id, userID: userID)
 			} label: {
-				HStack(spacing: 12) {
-					agentIcon(mapID: mapID)
-					
-					VStack(alignment: .leading, spacing: 3) {
-						MapImage.LabelText(mapID: mapID)
-							.font(.system(.headline, design: .rounded))
-							.foregroundColor(.white)
-							.lineLimit(1)
-							.minimumScaleFactor(0.6)
-						
-						if let matchDetails {
-							matchDetails.matchInfo.queueLabel
-								.font(.system(.caption, design: .rounded).weight(.medium))
-								.foregroundColor(ReconTheme.secondary)
-								.lineLimit(1)
-						}
-						
-						match.startTime.relativeText()
-							.font(.system(.caption2, design: .rounded))
-							.foregroundColor(ReconTheme.secondary.opacity(0.8))
-					}
-					
-					Spacer(minLength: 8)
-					
-					trailingInfo
-				}
-				.matchCard(outcome)
+				card(for: mapID)
 			}
 		}
 	}
 	
+	private func card(for mapID: MapID) -> some View {
+		VStack(spacing: 0) {
+			banner(for: mapID)
+			statsSection
+		}
+		.background(ReconTheme.background)
+		.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+		.overlay(
+			RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+				.stroke(ReconTheme.border, lineWidth: 1)
+		)
+	}
+	
+	// MARK: Banner
+	
+	private func banner(for mapID: MapID) -> some View {
+		ZStack {
+			MapImage.wideImage(mapID)
+				.aspectRatio(contentMode: .fill)
+			
+			LinearGradient(
+				colors: [.black.opacity(0.5), .black.opacity(0.1), .black.opacity(0.75)],
+				startPoint: .top,
+				endPoint: .bottom
+			)
+			
+			score
+		}
+		.frame(maxWidth: .infinity)
+		.frame(height: bannerHeight)
+		.clipped()
+		.overlay(alignment: .top) { bannerHeader(for: mapID) }
+	}
+	
+	private func bannerHeader(for mapID: MapID) -> some View {
+		HStack(alignment: .top, spacing: 8) {
+			VStack(alignment: .leading, spacing: 2) {
+				MapImage.LabelText(mapID: mapID)
+					.font(.system(.headline, design: .rounded))
+					.foregroundColor(.white)
+					.lineLimit(1)
+					.minimumScaleFactor(0.6)
+				
+				if let matchDetails {
+					matchDetails.matchInfo.queueLabel
+						.font(.system(.caption2, design: .rounded).weight(.medium))
+						.foregroundColor(.white.opacity(0.75))
+						.lineLimit(1)
+				}
+			}
+			
+			Spacer(minLength: 8)
+			
+			match.startTime.relativeText()
+				.font(.system(.caption2, design: .rounded))
+				.foregroundColor(.white.opacity(0.8))
+				.lineLimit(1)
+		}
+		.shadow(color: .black.opacity(0.5), radius: 3, y: 1)
+		.padding(12)
+	}
+	
 	@ViewBuilder
-	private func agentIcon(mapID: MapID) -> some View {
-		let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+	private var score: some View {
+		if let matchDetails {
+			if matchDetails.teams.count >= 2 {
+				let ownTeam = matchDetails.teams.first(where: { $0.id == myself?.teamID })
+				let enemyTeam = matchDetails.teams.first(where: { $0.id != myself?.teamID })
+				
+				HStack(spacing: 10) {
+					Text(verbatim: "\(ownTeam?.pointCount ?? 0)")
+						.foregroundColor(outcome.accent)
+					
+					Text(verbatim: "–")
+						.font(.system(size: 26, weight: .bold, design: .rounded))
+						.foregroundColor(.white.opacity(0.6))
+					
+					Text(verbatim: "\(enemyTeam?.pointCount ?? 0)")
+						.foregroundColor(.white)
+				}
+				.font(.system(size: 34, weight: .heavy, design: .rounded))
+				.monospacedDigit()
+				.shadow(color: .black.opacity(0.45), radius: 6, y: 2)
+			} else {
+				ScoreSummaryView(teams: matchDetails.teams, ownTeamID: myself?.teamID)
+					.font(.system(size: 28, weight: .bold, design: .rounded))
+					.monospacedDigit()
+					.shadow(color: .black.opacity(0.45), radius: 6, y: 2)
+			}
+		} else {
+			Text("Swipe to fetch", comment: "Match List: shown in place of the score when details haven't been fetched")
+				.font(.system(.footnote, design: .rounded).weight(.medium))
+				.foregroundColor(.white.opacity(0.7))
+		}
+	}
+	
+	// MARK: Stats
+	
+	private var statsSection: some View {
+		HStack(alignment: .center, spacing: 12) {
+			agentAvatar
+				.offset(y: -26)
+			
+			VStack(alignment: .leading, spacing: 3) {
+				kdaRow
+				rankRow
+			}
+			
+			Spacer(minLength: 0)
+		}
+		.padding(.horizontal, 12)
+		.padding(.vertical, 10)
+	}
+	
+	private var agentAvatar: some View {
 		Group {
 			if let agentID = myself?.agentID {
 				AgentImage.icon(agentID)
-					.scaledToFill()
+					.aspectRatio(contentMode: .fill)
 			} else {
-				MapImage.wideImage(mapID)
-					.scaledToFill()
+				Color.white.opacity(0.08)
+					.overlay {
+						Image(systemName: "person.fill")
+							.foregroundColor(.white.opacity(0.3))
+					}
 			}
 		}
-		.frame(width: iconSize, height: iconSize)
-		.background(Color.white.opacity(0.05))
-		.clipShape(shape)
-		.overlay(shape.stroke(outcome.accent.opacity(0.6), lineWidth: 1.5))
+		.frame(width: avatarSize, height: avatarSize)
+		.clipShape(Circle())
+		.padding(3)
+		.background(ReconTheme.background, in: Circle())
+		.overlay(
+			Circle()
+				.stroke(outcome.accent.opacity(0.8), lineWidth: 2)
+				.padding(3)
+		)
 	}
 	
-	private var trailingInfo: some View {
-		HStack(spacing: 10) {
-			VStack(alignment: .trailing, spacing: 6) {
-				scorePill
-				
-				if match.isRanked {
-					rrLabel
-				}
+	@ViewBuilder
+	private var kdaRow: some View {
+		if let stats = myself?.stats {
+			HStack(spacing: 5) {
+				Text(verbatim: "K \(stats.kills)")
+					.foregroundColor(.white)
+				Text(verbatim: "/")
+					.foregroundColor(ReconTheme.secondary)
+				Text(verbatim: "D \(stats.deaths)")
+					.foregroundColor(.white)
+				Text(verbatim: "/")
+					.foregroundColor(ReconTheme.secondary)
+				Text(verbatim: "A \(stats.assists)")
+					.foregroundColor(.white)
 			}
-			
-			if match.isRanked {
-				ChangeRing(match: match)
-					.frame(height: 40)
-					.accentColor(outcome.accent)
-			}
+			.font(.system(.subheadline, design: .monospaced).weight(.medium))
+			.monospacedDigit()
 		}
 	}
 	
 	@ViewBuilder
-	private var scorePill: some View {
-		if let matchDetails {
-			ScoreSummaryView(
-				teams: matchDetails.teams,
-				ownTeamID: myself?.teamID
-			)
-			.font(.system(.subheadline, design: .rounded).weight(.bold))
-			.monospacedDigit()
-			.padding(.horizontal, 12)
-			.padding(.vertical, 5)
-			.background(outcome.gradient)
-			.clipShape(Capsule())
-			.transition(.slide)
-		} else {
-			Text("Swipe to fetch", comment: "Match List: shown in place of the score when details haven't been fetched")
-				.font(.system(.caption2, design: .rounded))
-				.foregroundColor(ReconTheme.secondary)
-				.lineLimit(1)
+	private var rankRow: some View {
+		if match.isRanked {
+			HStack(spacing: 5) {
+				CompetitiveTierImage(tier: match.tierAfterUpdate, time: match.startTime)
+					.frame(width: 18, height: 18)
+				
+				if let tierName {
+					Text(tierName)
+						.font(.system(.caption, design: .rounded).weight(.medium))
+						.foregroundColor(.white.opacity(0.85))
+						.lineLimit(1)
+					
+					Text(verbatim: "·")
+						.foregroundColor(ReconTheme.secondary)
+				}
+				
+				rrLabel
+				
+				if match.performanceBonus != 0 {
+					Text("WP: +\(match.performanceBonus)", comment: "Match List: shown with a match's RR change when the player got a performance bonus")
+						.font(.system(.caption2, design: .rounded).weight(.medium))
+						.monospacedDigit()
+						.foregroundColor(ReconTheme.victory)
+				}
+				if match.afkPenalty != 0 {
+					Text("AFK: \(match.afkPenalty)", comment: "Match List: shown with a match's RR change when the player got an AFK Penalty")
+						.font(.system(.caption2, design: .rounded).weight(.medium))
+						.monospacedDigit()
+						.foregroundColor(ReconTheme.defeat)
+				}
+			}
 		}
 	}
 	
+	private var tierName: String? {
+		seasons?.currentTierInfo(number: match.tierAfterUpdate, at: match.startTime)?.name
+	}
+	
 	private var rrLabel: some View {
-		VStack(alignment: .trailing, spacing: 1) {
-			let change = match.ratingEarned
-			Text(change > 0 ? "+\(change) RR" : change < 0 ? "\(change) RR" : "= RR")
-				.font(.system(.caption, design: .rounded).weight(.semibold))
-				.monospacedDigit()
-				.foregroundColor(outcome.accent)
-			
-			if match.performanceBonus != 0 {
-				Text("WP: +\(match.performanceBonus)", comment: "Match List: shown with a match's RR change when the player got a performance bonus")
-					.foregroundColor(ReconTheme.victory)
-					.font(.caption2.monospacedDigit())
-			}
-			if match.afkPenalty != 0 {
-				Text("AFK: \(match.afkPenalty)", comment: "Match List: shown with a match's RR change when the player got an AFK Penalty")
-					.foregroundColor(ReconTheme.defeat)
-					.font(.caption2.monospacedDigit())
-			}
-		}
+		let change = match.ratingEarned
+		return Text(change > 0 ? "+\(change) RR" : change < 0 ? "\(change) RR" : "= RR")
+			.font(.system(.caption, design: .rounded).weight(.semibold))
+			.monospacedDigit()
+			.foregroundColor(outcome.accent)
 	}
 	
 	// MARK: Secondary states
@@ -282,60 +386,6 @@ extension MatchCell {
 			match: match, userID: userID, filter: filter,
 			matchDetails: .init(id: match.id)
 		)
-	}
-}
-
-// MARK: - ChangeRing
-
-private struct ChangeRing: View {
-	let match: CompetitiveUpdate
-	
-	var body: some View {
-		ZStack {
-			let before = CGFloat(match.eloBeforeUpdate) / 100
-			let after = CGFloat(match.eloAfterUpdate) / 100
-			let lower = min(before, after)
-			let higher = max(before, after)
-			let zeroPoint = lower.rounded(.down)
-			
-			CircularProgressView {
-				CircularProgressLayer(
-					end: after - zeroPoint,
-					color: .gray
-				)
-				CircularProgressLayer(
-					start: lower - zeroPoint,
-					end: higher - zeroPoint,
-					shouldKnockOutSurroundings: true,
-					color: .accentColor
-				)
-			} base: { Color.gray.opacity(0.2) }
-			
-			CompetitiveTierImage(tier: match.tierAfterUpdate, time: match.startTime)
-				.padding(8)
-			
-			movementIndicator
-				.background(Circle().fill(Color.white).blendMode(.destinationOut))
-				.alignmentGuide(.top) { $0[VerticalAlignment.center] }
-				.frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-		}
-		.compositingGroup()
-		.padding(2)
-		.aspectRatio(contentMode: .fit)
-	}
-	
-	@ViewBuilder
-	private var movementIndicator: some View {
-		Group {
-			if match.tierAfterUpdate > match.tierBeforeUpdate {
-				Image(systemName: "chevron.up.circle.fill")
-					.foregroundColor(.green)
-			} else if match.tierAfterUpdate < match.tierBeforeUpdate {
-				Image(systemName: "chevron.down.circle.fill")
-					.foregroundColor(.red)
-			}
-		}
-		.font(.system(size: 12))
 	}
 }
 
