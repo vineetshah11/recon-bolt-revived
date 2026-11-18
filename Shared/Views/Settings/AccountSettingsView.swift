@@ -6,6 +6,7 @@ struct AccountSettingsView: View {
 	
 	@State var loginTarget: LoginTarget?
 	@State var isConfirmingSignOut = false
+	@State var isRefreshingSession = false
 	@Environment(\.ownsProVersion) private var ownsProVersion
 	
 	var body: some View {
@@ -32,9 +33,9 @@ struct AccountSettingsView: View {
 						Text("Time to log in again", comment: "Account Settings: shown when the current account's session has expired")
 						Spacer()
 						Button {
-							loginTarget = .sessionRefresh
+							isRefreshingSession = true
 						} label: {
-							Text("Refresh", comment: "Account Settings: button to refresh expired session")
+							Text("Sign In Again", comment: "Account Settings: button to refresh expired session")
 						}
 						.font(.body.bold())
 					}
@@ -68,6 +69,9 @@ struct AccountSettingsView: View {
 			} header: {
 				Text("Management", comment: "Settings: section")
 			}
+		}
+		.fullScreenCover(isPresented: $isRefreshingSession) {
+			SessionRefreshView(manager: accountManager)
 		}
 	}
 	

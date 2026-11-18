@@ -51,9 +51,6 @@ struct ContentView: View {
 		}
 		.environmentObject(assetManager)
 		.environment(\.assets, assetManager.assets)
-		.background {
-			SessionRefreshPresenter(manager: accountManager, isPresented: $isReauthenticating)
-		}
 		.task(id: accountManager.requiresAction) {
 			if accountManager.requiresAction {
 				tab = .settings
@@ -72,6 +69,9 @@ struct ContentView: View {
 			MultifactorPromptView(prompt: $0, didSessionExpire: true)
 		} onDismiss: {
 			$0.completion(.failure(AccountManager.MultifactorPromptError.cancelled))
+		}
+		.fullScreenCover(isPresented: $isReauthenticating) {
+			SessionRefreshView(manager: accountManager)
 		}
 		.withValorantLoadFunction(manager: accountManager)
 		.withLoadErrorAlerts()
@@ -159,26 +159,75 @@ struct ContentView: View {
 	}
 }
 
-/// Re-runs the Riot web sign-in when the stored session can't refresh on its own.
-private struct SessionRefreshPresenter: View {
+/// Full-screen Riot sign-in used when the stored session can't refresh on its own.
+/// Unlike ``RiotWebAuthView`` it stays open until a working session exists, and shows why it didn't.
+struct SessionRefreshView: View {
 	@ObservedObject var manager: AccountManager
-	@Binding var isPresented: Bool
+	
+	@Environment(\.dismiss) private var dismiss
+	
+	@State private var attempt = 0
+	@State private var isSigningIn = false
+	@State private var errorMessage: String?
 	
 	var body: some View {
-		Color.clear
-			.sheet(isPresented: $isPresented) {
-				RiotWebAuthView { tokens in
-					Task {
-						do {
-							try await manager.addAccount(using: tokens)
-						} catch {
-							print("could not refresh session:", error)
+		NavigationView {
+			ZStack(alignment: .bottom) {
+				RiotWebAuthRepresentable(
+					onSuccess: signIn,
+					onFailure: { error in errorMessage = error.localizedDescription }
+				)
+				.id(attempt)
+				
+				if isSigningIn {
+					ProgressView(String(localized: "Signing in…", comment: "Session refresh: progress"))
+						.padding()
+						.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+				}
+				
+				if let errorMessage {
+					VStack(spacing: 8) {
+						Text(errorMessage)
+							.font(.footnote)
+							.multilineTextAlignment(.center)
+						Button(String(localized: "Try Again", comment: "Session refresh: button")) {
+							self.errorMessage = nil
+							attempt += 1
 						}
+						.buttonStyle(.borderedProminent)
 					}
-				} onFailure: { error in
-					print("session refresh cancelled:", error)
+					.padding()
+					.background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+					.padding()
 				}
 			}
+			.navigationTitle(Text("Sign In to Riot", comment: "Session refresh: title"))
+			.navigationBarTitleDisplayMode(.inline)
+			.toolbar {
+				ToolbarItem(placement: .cancellationAction) {
+					Button(String(localized: "Cancel", comment: "Session refresh: button")) {
+						dismiss()
+					}
+				}
+			}
+		}
+		.ignoresSafeArea(.all, edges: .bottom)
+	}
+	
+	private func signIn(_ tokens: WebAuthTokens) {
+		guard !isSigningIn else { return }
+		isSigningIn = true
+		errorMessage = nil
+		
+		Task {
+			do {
+				try await manager.addAccount(using: tokens)
+				dismiss()
+			} catch {
+				errorMessage = error.localizedDescription
+			}
+			isSigningIn = false
+		}
 	}
 }
 

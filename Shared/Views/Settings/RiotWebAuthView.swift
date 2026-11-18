@@ -120,12 +120,20 @@ struct RiotWebAuthRepresentable: UIViewRepresentable {
             onSuccess(tokens)
         }
         
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            // Ignore "cancelled" errors from our own decisionHandler(.cancel)
-            let nsError = error as NSError
-            if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return }
-            onFailure(RiotWebAuthError.navigationFailed(error))
-        }
+        		func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+			report(error)
+		}
+		
+		func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+			report(error)
+		}
+		
+		private func report(_ error: Error) {
+			// Ignore "cancelled" errors from our own decisionHandler(.cancel)
+			let nsError = error as NSError
+			if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return }
+			onFailure(RiotWebAuthError.navigationFailed(error))
+		}
     }
 }
 
