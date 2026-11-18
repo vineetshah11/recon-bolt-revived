@@ -4,6 +4,9 @@ import ValorantAPI
 struct ReferenceView: View {
 	private let columns = [GridItem(.adaptive(minimum: 150, maximum: 280), spacing: 14)]
 
+	private let agentTint = Color(red: 0.16, green: 0.07, blue: 0.11)
+	private let weaponTint = Color(red: 0.09, green: 0.11, blue: 0.15)
+
 	var body: some View {
 		AssetsUnwrappingView { assets in
 			ScrollView {
@@ -20,24 +23,18 @@ struct ReferenceView: View {
 					NavigationLink {
 						AgentListView()
 					} label: {
-						ReferenceCard(title: "Agents", systemImage: "person") {
-							Color(red: 0.16, green: 0.07, blue: 0.11)
-								.overlay {
-									AgentImage.fullPortrait(.jett)
-										.aspectRatio(contentMode: .fill)
-								}
+						ReferenceCard(title: "Agents", systemImage: "person", tint: agentTint) {
+							AgentImage.fullPortrait(.jett)
+								.aspectRatio(contentMode: .fill)
 						}
 					}
 
 					NavigationLink {
 						WeaponListView()
 					} label: {
-						ReferenceCard(title: "Weapons", systemImage: "scope") {
-							Color(red: 0.09, green: 0.11, blue: 0.15)
-								.overlay {
-									WeaponImage.displayIcon(.vandal)
-										.aspectRatio(contentMode: .fill)
-								}
+						ReferenceCard(title: "Weapons", systemImage: "scope", tint: weaponTint) {
+							WeaponImage.displayIcon(.vandal)
+								.padding(24)
 						}
 					}
 				}
@@ -56,20 +53,21 @@ struct ReferenceView: View {
 }
 
 /// A full-bleed artwork tile used by the reference grid.
-struct ReferenceCard<Background: View>: View {
+struct ReferenceCard<Artwork: View>: View {
 	var title: LocalizedStringKey
 	var systemImage: String
-	@ViewBuilder var background: Background
+	/// backdrop for artwork with a transparent background
+	var tint: Color = Color(red: 20 / 255, green: 29 / 255, blue: 38 / 255)
+	@ViewBuilder var artwork: Artwork
 
 	private let cornerRadius: CGFloat = 16
-	private let height: CGFloat = 160
 
 	var body: some View {
 		ZStack(alignment: .bottomLeading) {
-			background
-				.frame(maxWidth: .infinity, maxHeight: .infinity)
-				.clipped()
+			tint
+			artwork
 
+			// keeps the title legible over busy artwork
 			LinearGradient(
 				colors: [.clear, .black.opacity(0.55), .black.opacity(0.9)],
 				startPoint: .center,
@@ -89,8 +87,7 @@ struct ReferenceCard<Background: View>: View {
 			.shadow(color: .black.opacity(0.6), radius: 4, y: 1)
 		}
 		.frame(maxWidth: .infinity)
-		.frame(height: height)
-		.background(Color(red: 20 / 255, green: 29 / 255, blue: 38 / 255))
+		.frame(height: 160)
 		.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
 		.overlay {
 			RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
