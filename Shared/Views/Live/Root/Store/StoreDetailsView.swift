@@ -493,8 +493,8 @@ struct StoreDetailsView: View {
 
 								if let (currencyID, amount) = originalPrice {
 									CurrencyLabel(amount: amount, currencyID: currencyID)
-										.strikethrough(color: .white.opacity(0.45))
-										.foregroundColor(.white.opacity(0.55))
+										.strikethrough()
+										.foregroundColor(.white.opacity(0.45))
 								}
 							}
 
