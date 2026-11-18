@@ -239,10 +239,23 @@ struct MatchCell: View {
 	}
 	
 	private var timestamp: some View {
-		match.startTime.listTimestamp()
-			.font(.system(.caption, design: .rounded))
-			.foregroundColor(ReconTheme.secondary)
-			.lineLimit(1)
+		HStack(spacing: 5) {
+			match.startTime.listTimestamp()
+			
+			if let matchDetails,
+			   let length = Self.durationFormatter.string(from: matchDetails.matchInfo.gameLength) {
+				Text(verbatim: "·")
+				Text(verbatim: length)
+			}
+		}
+		.font(.system(.caption, design: .rounded))
+		.foregroundColor(ReconTheme.secondary)
+		.lineLimit(1)
+	}
+	
+	private static let durationFormatter = DateComponentsFormatter() <- {
+		$0.unitsStyle = .abbreviated
+		$0.allowedUnits = [.minute]
 	}
 	
 	@ViewBuilder
@@ -281,9 +294,13 @@ struct MatchCell: View {
 	private var rrLabel: some View {
 		let change = match.ratingEarned
 		return Text(change > 0 ? "+\(change) RR" : change < 0 ? "\(change) RR" : "= RR")
-			.font(.system(.caption, design: .rounded).weight(.semibold))
+			.font(.system(.caption, design: .rounded).weight(.bold))
 			.monospacedDigit()
 			.foregroundColor(outcome.accent)
+			.padding(.horizontal, 8)
+			.padding(.vertical, 3)
+			.background(Capsule().fill(outcome.accent.opacity(0.15)))
+			.overlay(Capsule().stroke(outcome.accent.opacity(0.35), lineWidth: 1))
 	}
 	
 	// MARK: Banner
@@ -297,6 +314,12 @@ struct MatchCell: View {
 				colors: [.black.opacity(0.65), .black.opacity(0.2), .clear],
 				startPoint: .leading,
 				endPoint: .trailing
+			)
+			
+			LinearGradient(
+				colors: [.clear, .clear, .black.opacity(0.35)],
+				startPoint: .top,
+				endPoint: .bottom
 			)
 			
 			HStack(spacing: 4) {
@@ -327,6 +350,11 @@ struct MatchCell: View {
 		.frame(maxWidth: .infinity)
 		.frame(height: bannerHeight)
 		.clipped()
+		.overlay(alignment: .bottom) {
+			Rectangle()
+				.fill(ReconTheme.border)
+				.frame(height: 1)
+		}
 	}
 	
 	private func agentArt(_ agentID: Agent.ID) -> some View {
@@ -396,70 +424,77 @@ struct MatchCell: View {
 	// MARK: Footer
 	
 	private var statsFooter: some View {
-		HStack(spacing: 0) {
+		HStack(alignment: .center, spacing: 12) {
 			if let stats = myself?.stats {
-				stat(icon: "scope", text: "\(stats.kills) / \(stats.deaths) / \(stats.assists)")
+				footerStat(label: "K / D / A", value: "\(stats.kills) / \(stats.deaths) / \(stats.assists)")
 				
-				Spacer(minLength: 8)
+				footerSeparator
 				
-				stat(icon: "chart.bar.fill", text: "\(acs(for: stats))")
+				footerStat(label: "ACS", value: "\(acs(for: stats))")
 					.accessibilityLabel(Text("Average combat score", comment: "Match List: ACS stat"))
 				
-				Spacer(minLength: 8)
+				if let matchDetails, !matchDetails.teams.isEmpty {
+					footerSeparator
+					footerScore(for: matchDetails)
+				}
 			} else {
-				Spacer(minLength: 8)
+				Spacer(minLength: 0)
 			}
 			
-			footerScore
+			Spacer(minLength: 4)
 			
 			Image(systemName: "chevron.right")
 				.font(.system(.caption, design: .rounded).weight(.semibold))
 				.foregroundColor(ReconTheme.secondary)
-				.padding(.leading, 8)
 		}
 		.padding(.horizontal, cardPadding)
-		.padding(.vertical, 12)
+		.padding(.vertical, 11)
 	}
 	
-	private func stat(icon: String, text: String) -> some View {
-		HStack(spacing: 6) {
-			Image(systemName: icon)
-				.font(.system(size: 12, weight: .semibold))
-				.foregroundColor(.white.opacity(0.6))
+	private func footerStat(label: LocalizedStringKey, value: String) -> some View {
+		VStack(alignment: .leading, spacing: 2) {
+			Text(label)
+				.font(.system(size: 9, weight: .semibold, design: .rounded))
+				.foregroundColor(ReconTheme.secondary)
 			
-			Text(text)
+			Text(verbatim: value)
 				.font(.system(.subheadline, design: .rounded).weight(.semibold))
 				.monospacedDigit()
 				.foregroundColor(.white)
+				.lineLimit(1)
 		}
+	}
+	
+	private var footerSeparator: some View {
+		Rectangle()
+			.fill(ReconTheme.border)
+			.frame(width: 1, height: 24)
 	}
 	
 	private func acs(for stats: Player.Stats) -> Int {
 		stats.roundsPlayed > 0 ? stats.score / stats.roundsPlayed : 0
 	}
 	
+	/// Score as seen from the player's own team, or a multi-team summary for nonstandard modes.
 	@ViewBuilder
-	private var footerScore: some View {
-		if let matchDetails {
-			if matchDetails.teams.count == 2 {
-				let ownTeam = matchDetails.teams.first(where: { $0.id == myself?.teamID })
-				let enemyTeam = matchDetails.teams.first(where: { $0.id != myself?.teamID })
+	private func footerScore(for matchDetails: MatchDetails) -> some View {
+		if matchDetails.teams.count == 2 {
+			let ownTeam = matchDetails.teams.first(where: { $0.id == myself?.teamID })
+			let enemyTeam = matchDetails.teams.first(where: { $0.id != myself?.teamID })
+			
+			footerStat(
+				label: "Score",
+				value: "\(ownTeam?.pointCount ?? 0) – \(enemyTeam?.pointCount ?? 0)"
+			)
+		} else {
+			VStack(alignment: .leading, spacing: 2) {
+				Text("Score")
+					.font(.system(size: 9, weight: .semibold, design: .rounded))
+					.foregroundColor(ReconTheme.secondary)
 				
-				HStack(spacing: 6) {
-					Image(systemName: "flag.fill")
-						.font(.system(size: 12, weight: .semibold))
-						.foregroundColor(.white.opacity(0.6))
-					
-					Text(verbatim: "\(ownTeam?.pointCount ?? 0) – \(enemyTeam?.pointCount ?? 0)")
-						.font(.system(.subheadline, design: .rounded).weight(.semibold))
-						.monospacedDigit()
-						.foregroundColor(.white)
-				}
-			} else if !matchDetails.teams.isEmpty {
 				ScoreSummaryView(teams: matchDetails.teams, ownTeamID: myself?.teamID)
 					.font(.system(.subheadline, design: .rounded).weight(.semibold))
 					.monospacedDigit()
-					.foregroundColor(.white)
 			}
 		}
 	}

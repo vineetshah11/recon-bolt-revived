@@ -33,11 +33,20 @@ struct CompetitiveSummaryCell: View {
 			}
 			.frame(maxWidth: .infinity)
 			.fixedSize(horizontal: false, vertical: true)
-			.padding(.vertical)
-			.aligningListRowSeparator()
+			.padding(.vertical, 16)
+			.padding(.horizontal, 8)
+			.background(ReconTheme.background)
+			.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+			.overlay(
+				RoundedRectangle(cornerRadius: 16, style: .continuous)
+					.stroke(ReconTheme.border, lineWidth: 1)
+			)
 			.updatingGameConfig()
 		}
 		.disabled(summary == nil)
+		.listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
+		.listRowSeparator(.hidden)
+		.listRowBackground(Color.clear)
 	}
 	
 	@ViewBuilder
@@ -52,6 +61,7 @@ struct CompetitiveSummaryCell: View {
 			
 			SeasonLabel(season: act?.id)
 				.font(secondaryFont)
+				.foregroundColor(ReconTheme.secondary)
 			
 			RankInfoView(summary: summary, size: artworkSize, lineWidth: 5, shouldFallBackOnPrevious: false)
 				.alignmentGuide(.rankIcon) { $0[VerticalAlignment.center] }
@@ -59,19 +69,21 @@ struct CompetitiveSummaryCell: View {
 			Group {
 				if isUnranked {
 					Text("Unranked", comment: "Match List: player has not played ranked this act")
-						.foregroundStyle(.secondary)
+						.foregroundColor(ReconTheme.secondary)
 						.font(primaryFont)
 				} else if let tierInfo {
 					Text(tierInfo.name)
+						.foregroundColor(.white)
 						.font(primaryFont)
 				} else {
 					Text("Unknown Rank", comment: "Match List: should never appear unless assets are missing/outdated")
-						.foregroundStyle(.secondary)
+						.foregroundColor(ReconTheme.secondary)
 						.font(primaryFont)
 				}
 				
 				Text(isUnranked ? "0 RR" : "\(info?.adjustedRankedRating ?? 0) RR")
 					.font(secondaryFont)
+					.foregroundColor(ReconTheme.secondary)
 			}
 			.placeholder(if: summary == nil)
 			
@@ -90,6 +102,7 @@ struct CompetitiveSummaryCell: View {
 			VStack {
 				SeasonLabel(season: peakRank.season)
 					.font(secondaryFont)
+					.foregroundColor(ReconTheme.secondary)
 				
 				PeakRankIcon(
 					peakRank: peakRank, tierInfo: info,
@@ -99,8 +112,10 @@ struct CompetitiveSummaryCell: View {
 				
 				VStack {
 					Text(info.name)
+						.foregroundColor(.white)
 						.font(primaryFont)
 					Text("Lifetime Peak")
+						.foregroundColor(ReconTheme.secondary)
 						.font(secondaryFont)
 				}
 			}
