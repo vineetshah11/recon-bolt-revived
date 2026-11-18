@@ -55,7 +55,7 @@ struct LiveView: View {
 	
 	var missionsBox: some View {
 		RefreshableBox(title: "Missions", isExpanded: $expandedBoxes.contains(.missions)) {
-			infoOrPlaceholder(placeholder: "Missions not loaded!", contractsProgress) {
+			infoOrPlaceholder(placeholder: "Missions didn't load", contractsProgress) {
 				ContractDetailsView(contracts: .init(progress: $0, assets: assets, seasons: seasons))
 			}
 		} refresh: {
@@ -66,7 +66,7 @@ struct LiveView: View {
 	
 	var loadoutBox: some View {
 		RefreshableBox(title: "Loadout", isExpanded: $expandedBoxes.contains(.loadout)) {
-			infoOrPlaceholder(placeholder: "Loadout not loaded!", loadoutInfo) { info in
+			infoOrPlaceholder(placeholder: "Loadout didn't load", loadoutInfo) { info in
 				LoadoutDetailsView(loadout: info.loadout, inventory: info.inventory)
 			}
 		} refresh: {
@@ -83,7 +83,7 @@ struct LiveView: View {
 	
 	var storeBox: some View {
 		RefreshableBox(title: "Store", isExpanded: $expandedBoxes.contains(.store)) {
-			infoOrPlaceholder(placeholder: "Store not loaded!", storeInfo) { info in
+			infoOrPlaceholder(placeholder: "Store didn't load", storeInfo) { info in
 				StoreDetailsView(
 					updateTime: info.updateTime,
 					storefront: info.storefront, wallet: info.wallet

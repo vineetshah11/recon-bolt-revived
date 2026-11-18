@@ -19,7 +19,7 @@ struct ContentView: View {
 			onlineView { BookmarkListView(userID: $0) }
 				.withToolbar()
 				.tabItem { Label(
-					String(localized: "Career", comment: "Top-Level Tab Title"),
+					String(localized: "Matches", comment: "Top-Level Tab Title"),
 					systemImage: "clock"
 				) }
 				.tag(Tab.career)
@@ -35,8 +35,8 @@ struct ContentView: View {
 			ReferenceView()
 				.withToolbar()
 				.tabItem { Label(
-					String(localized: "Reference", comment: "Top-Level Tab Title"),
-					systemImage: "book"
+					String(localized: "Explore", comment: "Top-Level Tab Title"),
+					systemImage: "square.grid.2x2"
 				) }
 				.tag(Tab.reference)
 			

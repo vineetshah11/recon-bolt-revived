@@ -29,7 +29,7 @@ struct AccountSettingsView: View {
 			Section {
 				if accountManager.activeAccount?.session.hasExpired == true {
 					HStack {
-						Text("Session expired!", comment: "Account Settings: shown when the current account's session has expired")
+						Text("Time to log in again", comment: "Account Settings: shown when the current account's session has expired")
 						Spacer()
 						Button {
 							loginTarget = .sessionRefresh
