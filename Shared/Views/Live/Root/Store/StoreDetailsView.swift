@@ -515,33 +515,34 @@ struct StoreDetailsView: View {
 						.padding(.horizontal, 2)
 
 						// MARK: Discount badge
-					HStack {
-						discountText
-							.font(.caption.weight(.bold))
-							.foregroundColor(.white)
-						Spacer()
+						HStack {
+							discountText
+								.font(.caption.weight(.bold))
+								.foregroundColor(.white)
+							Spacer()
+						}
+						.padding(.horizontal, 10)
+						.padding(.vertical, 5)
+						.frame(minHeight: 28)
+						.background(
+							RoundedRectangle(cornerRadius: 7, style: .continuous)
+								.fill(Color.purple)
+						)
+						.overlay(
+							RoundedRectangle(cornerRadius: 7, style: .continuous)
+								.stroke(Color.white.opacity(0.18), lineWidth: 1)
+						)
 					}
-					.padding(.horizontal, 10)
-					.padding(.vertical, 5)
-					.frame(minHeight: 28)
-					.background(
-						RoundedRectangle(cornerRadius: 7, style: .continuous)
-							.fill(Color.purple)
-					)
-					.overlay(
-						RoundedRectangle(cornerRadius: 7, style: .continuous)
-							.stroke(Color.white.opacity(0.18), lineWidth: 1)
-					)
+					.padding(14)
 				}
-				.padding(14)
+				.background(cardColor)
+				.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+				.overlay(
+					RoundedRectangle(cornerRadius: 14, style: .continuous)
+						.stroke(Color.purple.opacity(0.35), lineWidth: 1)
+				)
+				.shadow(color: Color.purple.opacity(0.08), radius: 8, y: 4)
 			}
-			.background(cardColor)
-			.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-			.overlay(
-				RoundedRectangle(cornerRadius: 14, style: .continuous)
-					.stroke(Color.purple.opacity(0.35), lineWidth: 1)
-			)
-			.shadow(color: Color.purple.opacity(0.08), radius: 8, y: 4)
 		}
 	}
 
