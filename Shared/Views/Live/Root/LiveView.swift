@@ -36,6 +36,8 @@ struct LiveView: View {
 		ScrollViewReader { scrollView in
 			ScrollView {
 				VStack(spacing: 16) {
+					ProfileSummaryBox(userID: userID, contractsProgress: contractsProgress)
+
 					LiveGameBox(userID: userID, isExpanded: $expandedBoxes.contains(.party))
 
 					missionsBox
@@ -80,7 +82,7 @@ struct LiveView: View {
 			.background(Color.groupedBackground)
 			.deepLinkHandler { handle($0, scrollView: scrollView) }
 		}
-		.navigationTitle("Live")
+		.navigationTitle("Live & Profile")
 		.withLocalData($user, id: userID)
 		.id(userID) // when user changes, current state is bound to become invalid/irrelevant
 		.updatingGameConfig()
@@ -145,7 +147,7 @@ struct LiveView: View {
 						status: 404,
 						riotErrorCode: riotError?.errorCode ?? Self.errorCode(for: error),
 						description: riotError?.message ?? String(localized: "Riot returned no loadout for this request.", comment: "Loadout box: 404 without details"),
-						requestURL: "https://pd.\($0.location.shard).a.pvp.net/personalization/v2/players/\(userID)/playerloadout (client version: \(retryClient.clientVersion ?? "none"))"
+						requestURL: "https://pd.\($0.location.shard).a.pvp.net/personalization/v3/players/\(userID)/playerloadout (client version: \(retryClient.clientVersion ?? "none"))"
 					)
 					rawErrorDump = dumpString(error)
 				}

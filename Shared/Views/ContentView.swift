@@ -28,7 +28,7 @@ struct ContentView: View {
 			onlineView { LiveView(userID: $0).id(accountManager.sessionGeneration) }
 				.withToolbar()
 				.tabItem { Label(
-					String(localized: "Live", comment: "Top-Level Tab Title"),
+					String(localized: "Live & Profile", comment: "Top-Level Tab Title"),
 					systemImage: "play"
 				) }
 				.tag(Tab.live)
