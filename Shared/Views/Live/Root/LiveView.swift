@@ -60,7 +60,8 @@ struct LiveView: View {
 						.padding(8)
 						.background(Color.secondary.opacity(0.08))
 						.clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-						.button {
+						
+						Button {
 							UIPasteboard.general.string = rawErrorDump
 						} label: {
 							Label("Copy", systemImage: "doc.on.doc")
@@ -144,7 +145,7 @@ struct LiveView: View {
 						status: 404,
 						riotErrorCode: error?.errorCode,
 						description: error?.message ?? String(localized: "Riot returned a 404 for this loadout request.", comment: "Loadout box: 404 without details"),
-						requestURL: "https://pd.pvp.net/personalization/v2/players/\(user.puuid)/playerloadout"
+						requestURL: "https://pd.pvp.net/personalization/v2/players/\(userID)/playerloadout"
 					)
 					rawErrorDump = dump(error)
 				}
