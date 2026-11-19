@@ -117,44 +117,35 @@ struct LiveView: View {
 				errorMessage = nil
 				rawErrorDump = nil
 				throw WrongAccountError(user: user)
-			} catch APIError.badResponseCode(404, _, let error) where error?.errorCode == "RESOURCE_NOT_FOUND" || error?.errorCode == "PERMISSION_DENIED" || error?.errorCode == "INVALID_CLIENT_VERSION" {
-				// Riot's personalization service can't find anything for requests carrying an outdated
-				// client version, so try once more with a freshly fetched one before giving up.
+			} catch let error as APIError where Self.isMissingResourceError(error) {
+				// Riot's personalization service can't find anything for requests carrying a client
+				// version it doesn't know, so refresh it and retry once before giving up. Note that
+				// Riot answers with a RESOURCE_NOT_FOUND error body, which the API turns into
+				// `.resourceNotFound` rather than `.badResponseCode(404, …)`.
 				loadoutInfo = nil
 				loadoutError = nil
 				errorMessage = nil
 				rawErrorDump = nil
-				if
-					let version = await AccountManager.fetchLatestClientVersion(),
-					version != $0.clientVersion
-				{
+				let freshVersion = await AccountManager.fetchLatestClientVersion()
+				var retryClient = $0
+				if let freshVersion {
+					retryClient.clientVersion = freshVersion
 					if let accountManager {
-						await MainActor.run { accountManager.clientVersion = version }
+						await MainActor.run { accountManager.clientVersion = freshVersion }
 					}
-
-					var retryClient = $0
-					retryClient.clientVersion = version
-					loadoutInfo = try? await LoadoutInfo(using: retryClient)
 				}
+				loadoutInfo = try? await LoadoutInfo(using: retryClient)
 				if loadoutInfo == nil {
 					loadoutError = String(
-						localized: "Riot didn't return a loadout for this account (404). Loadouts are only available for the signed-in account, in its own region.",
+						localized: "Riot didn't return a loadout for this account. Loadouts are only available for the signed-in account, in its own region.",
 						comment: "Loadout box: reason shown when Riot answers with 404"
 					)
-					let riotErrorCode: String?
-					let errorDescription: String
-					if let riotError = error {
-						riotErrorCode = "\(riotError.errorCode)"
-						errorDescription = "\(riotError.message)"
-					} else {
-						riotErrorCode = nil
-						errorDescription = String(localized: "Riot returned a 404 for this loadout request.", comment: "Loadout box: 404 without details")
-					}
+					let riotError = Self.riotError(from: error)
 					errorMessage = ErrorMessage(
 						status: 404,
-						riotErrorCode: riotErrorCode,
-						description: errorDescription,
-						requestURL: "https://pd.pvp.net/personalization/v2/players/\(userID)/playerloadout"
+						riotErrorCode: riotError?.errorCode ?? Self.errorCode(for: error),
+						description: riotError?.message ?? String(localized: "Riot returned no loadout for this request.", comment: "Loadout box: 404 without details"),
+						requestURL: "https://pd.\($0.location.shard).a.pvp.net/personalization/v2/players/\(userID)/playerloadout (client version: \(retryClient.clientVersion ?? "none"))"
 					)
 					rawErrorDump = dumpString(error)
 				}
@@ -214,6 +205,30 @@ struct LiveView: View {
 		return error.localizedDescription
 	}
 
+	/// Whether the error means "Riot has no such resource": a stale client version, the wrong
+	/// account/region, or a service that doesn't know this endpoint.
+	private static func isMissingResourceError(_ error: APIError) -> Bool {
+		switch error {
+		case .resourceNotFound:
+			return true
+		case .badResponseCode(404, _, let riotError):
+			let knownMissingCodes = ["RESOURCE_NOT_FOUND", "PERMISSION_DENIED", "INVALID_CLIENT_VERSION"]
+			return riotError.map { knownMissingCodes.contains($0.errorCode) } ?? true
+		default:
+			return false
+		}
+	}
+	
+	private static func riotError(from error: APIError) -> RiotError? {
+		if case .badResponseCode(_, _, let riotError) = error { return riotError }
+		return nil
+	}
+	
+	private static func errorCode(for error: APIError) -> String? {
+		if case .resourceNotFound = error { return "RESOURCE_NOT_FOUND" }
+		return nil
+	}
+	
 	private func errorMessage(for error: APIError) -> (Int?, String?, String?) {
 		switch error {
 		case .badResponseCode(let code, _, let apiError?):

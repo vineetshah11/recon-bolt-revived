@@ -78,6 +78,9 @@ struct ReconBoltApp: App {
 			return
 		}
 		
+		// the version may be unchanged, but the API client still has to be told about it
+		accountManager.updateClientVersion()
+		
 		// only use the fallback if nothing at all is known yet
 		if accountManager.clientVersion == nil {
 			print("[ReconBolt] Early version fetch failed, using fallback:", fallbackVersion)

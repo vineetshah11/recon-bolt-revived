@@ -83,6 +83,10 @@ final class AccountManager: ObservableObject {
 				accountLoadError = error.localizedDescription
 			}
 		}
+		
+		// property observers don't fire for assignments made inside init, so the stored
+		// client version would otherwise never reach the (lazily created) API client
+		updateClientVersion()
 	}
 	
 #if DEBUG
