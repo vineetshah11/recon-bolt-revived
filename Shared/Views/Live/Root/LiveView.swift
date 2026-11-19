@@ -15,6 +15,7 @@ struct LiveView: View {
 	}
 	@State fileprivate var loadoutInfo: LoadoutInfo?
 	@State fileprivate var loadoutError: String?
+	@State fileprivate var storeInfo: StoreInfo?
 	@State fileprivate var errorMessage: ErrorMessage?
 	@State fileprivate var rawErrorDump: String?
 
@@ -115,7 +116,7 @@ struct LiveView: View {
 				errorMessage = nil
 				rawErrorDump = nil
 				throw WrongAccountError(user: user)
-			} catch APIError.badResponseCode(404, _, let error) where error.errorCode == "RESOURCE_NOT_FOUND" || error.errorCode == "PERMISSION_DENIED" || error.errorCode == "INVALID_CLIENT_VERSION" {
+			} catch APIError.badResponseCode(404, _, let error) where error?.errorCode == "RESOURCE_NOT_FOUND" || error?.errorCode == "PERMISSION_DENIED" || error?.errorCode == "INVALID_CLIENT_VERSION" {
 				// Riot's personalization service can't find anything for requests carrying an outdated
 				// client version, so try once more with a freshly fetched one before giving up.
 				loadoutInfo = nil
@@ -141,8 +142,8 @@ struct LiveView: View {
 					)
 					errorMessage = ErrorMessage(
 						status: 404,
-						riotErrorCode: error.errorCode,
-						description: error.localizedDescription,
+						riotErrorCode: error?.errorCode,
+						description: error?.message ?? String(localized: "Riot returned a 404 for this loadout request.", comment: "Loadout box: 404 without details"),
 						requestURL: "https://pd.pvp.net/personalization/v2/players/\(user.puuid)/playerloadout"
 					)
 					rawErrorDump = dump(error)
@@ -152,20 +153,12 @@ struct LiveView: View {
 				loadoutInfo = nil
 				rawErrorDump = dump(error)
 				let (status, riotErrorCode, description) = errorMessage(for: error)
-				if let description, description.isEmpty {
-					errorMessage = ErrorMessage(status: status, riotErrorCode: error.errorCode, description: error.localizedDescription, requestURL: nil)
-				} else {
-					errorMessage = ErrorMessage(status: status, riotErrorCode: error.errorCode, description: description, requestURL: nil)
-				}
-				if errorMessage == nil {
-					let raw = error as? NSError
-					let message = String(
-						localized: "Riot returned an unexpected error: \(error.localizedDescription)",
-						table: "Errors",
-						comment: "Loadout box: unexpected Riot error"
-					)
-					errorMessage = ErrorMessage(status: status, riotErrorCode: error.errorCode, description: message, requestURL: nil)
-				}
+				errorMessage = ErrorMessage(
+					status: status,
+					riotErrorCode: riotErrorCode,
+					description: description ?? error.localizedDescription,
+					requestURL: nil
+				)
 			} catch {
 				guard !Task.isCancelled else { return }
 				loadoutInfo = nil
@@ -214,7 +207,7 @@ struct LiveView: View {
 	private func errorMessage(for error: APIError) -> (Int?, String?, String?) {
 		switch error {
 		case .badResponseCode(let code, _, let apiError?):
-			return (code, apiError?.errorCode, apiError?.message ?? apiError.localizedDescription)
+			return (code, apiError.errorCode, apiError.message)
 		case .badResponseCode(let code, _, nil):
 			return (code, nil, nil)
 		case .tokenFailure(let message):
@@ -229,7 +222,61 @@ struct LiveView: View {
 			return (nil, "RESOURCE_NOT_FOUND", nil)
 		case .unauthorized:
 			return (nil, "UNAUTHORIZED", nil)
+		case .rateLimited(retryAfter: let delay):
+			return (nil, "RATE_LIMITED", delay.map { String(localized: "Try again in \($0) seconds.", comment: "Loadout box: rate limited") })
 		}
+	}
+	
+	func handle(_ link: DeepLink, scrollView: ScrollViewProxy) {
+		switch link {
+		case .widget(let link):
+			switch link.destination {
+			case .missions:
+				expandedBoxes.insert(.missions)
+				scrollView.scrollTo(missionsBoxID)
+			case .store:
+				expandedBoxes.insert(.store)
+				scrollView.scrollTo(storeBoxID)
+			default:
+				break
+			}
+		default:
+			break
+		}
+	}
+	
+	@ViewBuilder
+	func infoOrPlaceholder<Data, Content: View>(
+		placeholder: LocalizedStringKey,
+		_ data: Data?,
+		@ViewBuilder content: (Data) -> Content
+	) -> some View {
+		if let data {
+			content(data)
+		} else {
+			Divider()
+			
+			GroupBox {
+				Text(placeholder)
+					.foregroundColor(.secondary)
+			}
+			.padding(16)
+		}
+	}
+	
+	enum Box: String, Hashable, DefaultsValueConvertible {
+		typealias DefaultsRepresentation = String
+		
+		case party
+		case missions
+		case loadout
+		case store
+	}
+}
+
+extension LiveView {
+	init(userID: User.ID) {
+		self.init(userID: userID, user: .init(id: userID))
 	}
 }
 
@@ -260,7 +307,7 @@ private struct ErrorMessageView: View {
 				if let requestURL = errorMessage.requestURL {
 					Text("URL: \(requestURL)", comment: "Live: request URL line")
 				}
-				Text(errorMessage.description, comment: "Live: full error description")
+				Text(verbatim: errorMessage.description)
 					.font(.caption)
 					.foregroundStyle(.secondary)
 					.lineLimit(nil)
@@ -344,6 +391,23 @@ private struct LoadoutInfo {
 		async let loadout = client.getLoadout()
 		self.inventory = try? await client.getInventory()
 		self.loadout = try await loadout
+	}
+}
+
+private struct StoreInfo {
+	var updateTime: Date
+	var storefront: Storefront
+	var wallet: StoreWallet
+}
+
+extension StoreInfo {
+	init(using client: ValorantClient) async throws {
+		async let storefront = client.getStorefront()
+		async let wallet = client.getStoreWallet()
+		
+		self.storefront = try await storefront
+		self.wallet = try await wallet
+		self.updateTime = .now
 	}
 }
 

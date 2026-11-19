@@ -24,11 +24,11 @@ struct AccountSettingsView: View {
 				let storedCredentals = accountManager.activeAccount?.session.credentials
 				LoginForm(
 					accountManager: accountManager,
-					credentials: (target.shouldRestoreCredentials ? storedCredentals : nil) ?? .init(),
 					onStartWebAuth: {
 						loginTarget = nil
 						isPresentingWebAuth = true
-					}
+					},
+					credentials: (target.shouldRestoreCredentials ? storedCredentals : nil) ?? .init()
 				)
 				.withLoadErrorAlerts()
 			}
@@ -77,20 +77,24 @@ struct AccountSettingsView: View {
 			}
 		}
 		.fullScreenCover(isPresented: $isPresentingWebAuth) {
-			RiotWebAuthView(usePersistentStore: false) { tokens in
-				Task {
-					await load(errorTitle: Text("Could not sign in!", comment: "Account Settings: error title")) {
-						try await accountManager.addAccount(using: tokens)
+			RiotWebAuthView(
+				onSuccess: { tokens in
+					Task {
+						await load(errorTitle: Text("Could not sign in!", comment: "Account Settings: error title")) {
+							try await accountManager.addAccount(using: tokens)
+						}
+						isPresentingWebAuth = false
 					}
-					isPresentingWebAuth = false
-				}
-			} onFailure: { error in
-				Task {
-					await load(errorTitle: Text("Could not sign in!", comment: "Account Settings: error title")) {
-						throw error
+				},
+				onFailure: { error in
+					Task {
+						await load(errorTitle: Text("Could not sign in!", comment: "Account Settings: error title")) {
+							throw error
+						}
 					}
-				}
-			}
+				},
+				usePersistentStore: false
+			)
 		}
 		.fullScreenCover(isPresented: $isRefreshingSession) {
 			SessionRefreshView(manager: accountManager)
