@@ -5,7 +5,7 @@ import ValorantAPI
 struct LoginForm: View {
 	@ObservedObject var accountManager: AccountManager
 	@State var isSigningIn = false
-	var onStartWebAuth: () -> Void = {}
+	@State var isShowingWebAuth = false
 
 	@State var credentials = Credentials()
 	
@@ -25,7 +25,7 @@ struct LoginForm: View {
 				VStack(spacing: 24) {
 					VStack(spacing: 16) {
 						Button {
-							onStartWebAuth()
+															isShowingWebAuth = true
 						} label: {
 							HStack {
 								Image(systemName: "globe")
@@ -121,6 +121,35 @@ struct LoginForm: View {
 			MultifactorPromptView(prompt: $0)
 		} onDismiss: {
 			$0.completion(.failure(AccountManager.MultifactorPromptError.cancelled))
+		}
+		.fullScreenCover(isPresented: $isShowingWebAuth) {
+			RiotWebAuthView(
+				onSuccess: { tokens in
+					isShowingWebAuth = false
+					Task {
+						do {
+							try await accountManager.addAccount(using: tokens)
+							// let the cover finish dismissing before closing this sheet
+							try? await Task.sleep(nanoseconds: 400_000_000)
+							dismiss()
+						} catch {
+							await load(errorTitle: Text("Could not sign in!", comment: "Login Form: error title")) {
+								throw error
+							}
+						}
+					}
+				},
+				onFailure: { error in
+					isShowingWebAuth = false
+					if let riotError = error as? RiotWebAuthError, case .userCancelled = riotError { return }
+					Task {
+						await load(errorTitle: Text("Could not sign in!", comment: "Login Form: error title")) {
+							throw error
+						}
+					}
+				},
+				usePersistentStore: false
+			)
 		}
 		.navigationTitle(Text("Sign In with your Riot account", comment: "Login Form"))
 		.navigationBarTitleDisplayMode(.inline)

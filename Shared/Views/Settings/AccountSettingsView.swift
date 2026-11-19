@@ -7,10 +7,7 @@ struct AccountSettingsView: View {
 	@State var loginTarget: LoginTarget?
 	@State var isConfirmingSignOut = false
 	@State var isRefreshingSession = false
-	@State var isPresentingWebAuth = false
-	@State var isPendingWebAuth = false
 	@Environment(\.ownsProVersion) private var ownsProVersion
-	@Environment(\.loadWithErrorAlerts) private var load
 	
 	var body: some View {
 		Group {
@@ -21,21 +18,10 @@ struct AccountSettingsView: View {
 			} footer: {
 				legalBoilerplate
 			}
-			.sheet(item: $loginTarget, onDismiss: {
-				// iOS 15 tears a fullScreenCover down if it's presented while the sheet is
-				// still dismissing, so wait for the dismissal to finish before showing it.
-				if isPendingWebAuth {
-					isPendingWebAuth = false
-					isPresentingWebAuth = true
-				}
-			}) { target in
+			.sheet(item: $loginTarget) { target in
 				let storedCredentals = accountManager.activeAccount?.session.credentials
 				LoginForm(
 					accountManager: accountManager,
-					onStartWebAuth: {
-						isPendingWebAuth = true
-						loginTarget = nil
-					},
 					credentials: (target.shouldRestoreCredentials ? storedCredentals : nil) ?? .init()
 				)
 				.withLoadErrorAlerts()
@@ -83,26 +69,6 @@ struct AccountSettingsView: View {
 			} header: {
 				Text("Management", comment: "Settings: section")
 			}
-		}
-		.fullScreenCover(isPresented: $isPresentingWebAuth) {
-			RiotWebAuthView(
-				onSuccess: { tokens in
-					Task {
-						await load(errorTitle: Text("Could not sign in!", comment: "Account Settings: error title")) {
-							try await accountManager.addAccount(using: tokens)
-						}
-						isPresentingWebAuth = false
-					}
-				},
-				onFailure: { error in
-					Task {
-						await load(errorTitle: Text("Could not sign in!", comment: "Account Settings: error title")) {
-							throw error
-						}
-					}
-				},
-				usePersistentStore: false
-			)
 		}
 		.fullScreenCover(isPresented: $isRefreshingSession) {
 			SessionRefreshView(manager: accountManager)
