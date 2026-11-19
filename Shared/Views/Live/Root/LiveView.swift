@@ -156,12 +156,12 @@ struct LiveView: View {
 						description: errorDescription,
 						requestURL: "https://pd.pvp.net/personalization/v2/players/\(userID)/playerloadout"
 					)
-					rawErrorDump = dump(error)
+					rawErrorDump = dumpString(error)
 				}
 			} catch let error as APIError {
 				guard !Task.isCancelled else { return }
 				loadoutInfo = nil
-				rawErrorDump = dump(error)
+				rawErrorDump = dumpString(error)
 				let (status, riotErrorCode, description) = errorMessage(for: error)
 				errorMessage = ErrorMessage(
 					status: status,
@@ -172,7 +172,7 @@ struct LiveView: View {
 			} catch {
 				guard !Task.isCancelled else { return }
 				loadoutInfo = nil
-				rawErrorDump = dump(error)
+				rawErrorDump = dumpString(error)
 				let description = String(
 					localized: "The loadout request failed: \(error.localizedDescription)",
 					table: "Errors",
@@ -402,6 +402,13 @@ private struct LoadoutInfo {
 		self.inventory = try? await client.getInventory()
 		self.loadout = try await loadout
 	}
+}
+
+/// The standard library's `dump` writes to a stream, so capture it into a string.
+private func dumpString<T>(_ value: T) -> String {
+	var output = ""
+	dump(value, to: &output)
+	return output
 }
 
 private struct StoreInfo {
