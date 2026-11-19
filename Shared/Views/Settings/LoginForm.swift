@@ -117,7 +117,7 @@ struct LoginForm: View {
 			}
 		}
 		.sheet(isPresented: $isShowingWebAuth) {
-			RiotWebAuthView { tokens in
+			RiotWebAuthView(usePersistentStore: false) { tokens in
 				Task {
 					await load(errorTitle: Text("Could not sign in!", comment: "Login Form: error title")) {
 						do {
@@ -127,7 +127,11 @@ struct LoginForm: View {
 					}
 				}
 			} onFailure: { error in
-				print("Web auth error: \(error)")
+				Task {
+					await load(errorTitle: Text("Could not sign in!", comment: "Login Form: error title")) {
+						throw error
+					}
+				}
 			}
 		}
 		.sheet(caching: $accountManager.multifactorPrompt) {

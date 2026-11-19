@@ -19,6 +19,7 @@ struct RiotWebAuthView: View {
     @Environment(\.dismiss) private var dismiss
     var onSuccess: (WebAuthTokens) -> Void
     var onFailure: (Error) -> Void
+    var usePersistentStore: Bool = true
     
     var body: some View {
         NavigationView {
@@ -28,7 +29,7 @@ struct RiotWebAuthView: View {
             }, onFailure: { error in
                 onFailure(error)
                 dismiss()
-            })
+            }, usePersistentStore: usePersistentStore)
             .navigationTitle("Sign In to Riot")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -49,6 +50,11 @@ struct RiotWebAuthView: View {
 struct RiotWebAuthRepresentable: UIViewRepresentable {
     var onSuccess: (WebAuthTokens) -> Void
     var onFailure: (Error) -> Void
+    /// Whether to use the persistent (default) web data store so Riot's session cookies
+    /// survive across app launches. Set to `false` when signing in a *new* account so the
+    /// user always sees Riot's login page instead of being auto-authenticated as the
+    /// previously signed-in account.
+    var usePersistentStore: Bool = true
     
     // Riot OAuth2 authorize URL
     // Uses the same parameters as the original CookiesRequest but via browser
@@ -70,9 +76,11 @@ struct RiotWebAuthRepresentable: UIViewRepresentable {
     
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
-        // Use the default persistent store so Riot session cookies survive app restarts.
-        // Previously used .nonPersistent() which discarded cookies on every launch.
-        config.websiteDataStore = .default()
+        // Use the persistent store when re-authenticating an existing session (so Riot's
+        // cookies let the user sign in silently), but a non-persistent store when adding a
+        // *new* account — otherwise the web view stays logged in as the previous account
+        // and the user can never pick a different one.
+        config.websiteDataStore = usePersistentStore ? .default() : .nonPersistent()
         
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
