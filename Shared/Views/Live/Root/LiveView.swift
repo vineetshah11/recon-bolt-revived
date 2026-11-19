@@ -141,10 +141,19 @@ struct LiveView: View {
 						localized: "Riot didn't return a loadout for this account (404). Loadouts are only available for the signed-in account, in its own region.",
 						comment: "Loadout box: reason shown when Riot answers with 404"
 					)
+					let riotErrorCode: String?
+					let errorDescription: String
+					if let riotError = error {
+						riotErrorCode = "\(riotError.errorCode)"
+						errorDescription = "\(riotError.message)"
+					} else {
+						riotErrorCode = nil
+						errorDescription = String(localized: "Riot returned a 404 for this loadout request.", comment: "Loadout box: 404 without details")
+					}
 					errorMessage = ErrorMessage(
 						status: 404,
-						riotErrorCode: error.map { "\($0.errorCode)" },
-						description: error.map { "\($0.message)" } ?? String(localized: "Riot returned a 404 for this loadout request.", comment: "Loadout box: 404 without details"),
+						riotErrorCode: riotErrorCode,
+						description: errorDescription,
 						requestURL: "https://pd.pvp.net/personalization/v2/players/\(userID)/playerloadout"
 					)
 					rawErrorDump = dump(error)
