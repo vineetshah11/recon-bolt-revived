@@ -8,6 +8,7 @@ struct AccountSettingsView: View {
 	@State var isConfirmingSignOut = false
 	@State var isRefreshingSession = false
 	@State var isPresentingWebAuth = false
+	@State var isPendingWebAuth = false
 	@Environment(\.ownsProVersion) private var ownsProVersion
 	@Environment(\.loadWithErrorAlerts) private var load
 	
@@ -20,13 +21,20 @@ struct AccountSettingsView: View {
 			} footer: {
 				legalBoilerplate
 			}
-			.sheet(item: $loginTarget) { target in
+			.sheet(item: $loginTarget, onDismiss: {
+				// iOS 15 tears a fullScreenCover down if it's presented while the sheet is
+				// still dismissing, so wait for the dismissal to finish before showing it.
+				if isPendingWebAuth {
+					isPendingWebAuth = false
+					isPresentingWebAuth = true
+				}
+			}) { target in
 				let storedCredentals = accountManager.activeAccount?.session.credentials
 				LoginForm(
 					accountManager: accountManager,
 					onStartWebAuth: {
+						isPendingWebAuth = true
 						loginTarget = nil
-						isPresentingWebAuth = true
 					},
 					credentials: (target.shouldRestoreCredentials ? storedCredentals : nil) ?? .init()
 				)
