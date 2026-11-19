@@ -1,14 +1,23 @@
 ## Xcode User Data
+## (per-machine: window sizes, breakpoints, last-opened files, scheme state)
+Recon Bolt.xcodeproj/project.xcworkspace/xcuserdata/
 xcuserdata/
 
 ## macOS
 .DS_Store
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.Trashes
+.com.apple.timemachine.donotpresent
 
 ## Build output
 build/
 DerivedData/
 *.ipa
 *.xcarchive
+*.dSYM.zip
+*.bcsymbolmap
 
 ## Swift Package Manager
 /.swiftpm
@@ -16,3 +25,8 @@ DerivedData/
 
 ## Local tooling
 /tools/
+
+## Crash/debug logs (machine-local)
+*.crash
+*.ips
+*.log
