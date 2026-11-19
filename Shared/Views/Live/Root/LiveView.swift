@@ -16,6 +16,7 @@ struct LiveView: View {
 	@State fileprivate var loadoutInfo: LoadoutInfo?
 	@State fileprivate var loadoutError: String?
 	@State fileprivate var errorMessage: ErrorMessage?
+	@State fileprivate var rawErrorDump: String?
 
 	@UserDefault.State("LiveView.expandedBoxes")
 	var expandedBoxes: Set<Box> = [.party]
@@ -44,6 +45,28 @@ struct LiveView: View {
 						Divider()
 						ErrorMessageView(errorMessage: errorMessage)
 							.padding(.vertical, 8)
+					}
+
+					if let rawErrorDump {
+						Divider()
+						Text("Raw error dump")
+							.font(.headline)
+						ScrollView {
+							Text(rawErrorDump)
+								.font(.system(.caption, design: .monospaced))
+								.frame(maxWidth: .infinity, alignment: .leading)
+						}
+						.padding(8)
+						.background(Color.secondary.opacity(0.08))
+						.clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+						.button {
+							UIPasteboard.general.string = rawErrorDump
+						} label: {
+							Label("Copy", systemImage: "doc.on.doc")
+						}
+						.buttonStyle(.bordered)
+						.tint(.primary)
+						.padding(.vertical, 8)
 					}
 
 					storeBox
@@ -78,17 +101,19 @@ struct LiveView: View {
 				LoadoutDetailsView(loadout: loadoutInfo.loadout, inventory: loadoutInfo.inventory)
 			} else {
 				Divider()
-				LoadoutUnavailableView(reason: loadoutError, errorMessage: errorMessage)
+				LoadoutUnavailableView(errorMessage: errorMessage, rawErrorDump: rawErrorDump != nil ? String(localized: "A raw error dump is available below the error box.") : nil)
 			}
 		} refresh: {
 			do {
 				loadoutInfo = try await .init(using: $0)
 				loadoutError = nil
 				errorMessage = nil
+				rawErrorDump = nil
 			} catch Loadout.FetchError.uninitialized {
 				loadoutInfo = nil
 				loadoutError = nil
 				errorMessage = nil
+				rawErrorDump = nil
 				throw WrongAccountError(user: user)
 			} catch APIError.badResponseCode(404, _, let error) where error.errorCode == "RESOURCE_NOT_FOUND" || error.errorCode == "PERMISSION_DENIED" || error.errorCode == "INVALID_CLIENT_VERSION" {
 				// Riot's personalization service can't find anything for requests carrying an outdated
@@ -96,6 +121,7 @@ struct LiveView: View {
 				loadoutInfo = nil
 				loadoutError = nil
 				errorMessage = nil
+				rawErrorDump = nil
 				if
 					let version = await AccountManager.fetchLatestClientVersion(),
 					version != $0.clientVersion
@@ -119,10 +145,12 @@ struct LiveView: View {
 						description: error.localizedDescription,
 						requestURL: "https://pd.pvp.net/personalization/v2/players/\(user.puuid)/playerloadout"
 					)
+					rawErrorDump = dump(error)
 				}
 			} catch let error as APIError {
 				guard !Task.isCancelled else { return }
 				loadoutInfo = nil
+				rawErrorDump = dump(error)
 				let (status, riotErrorCode, description) = errorMessage(for: error)
 				if let description, description.isEmpty {
 					errorMessage = ErrorMessage(status: status, riotErrorCode: error.errorCode, description: error.localizedDescription, requestURL: nil)
@@ -141,6 +169,7 @@ struct LiveView: View {
 			} catch {
 				guard !Task.isCancelled else { return }
 				loadoutInfo = nil
+				rawErrorDump = dump(error)
 				let description = String(
 					localized: "The loadout request failed: \(error.localizedDescription)",
 					table: "Errors",
@@ -238,10 +267,6 @@ private struct ErrorMessageView: View {
 					.multilineTextAlignment(.leading)
 			}
 			.padding(.top, 4)
-			.button { UIPasteboard.general.string = errorMessage.description }
-				.label { Label("Copy Raw Error", systemImage: "doc.on.doc") }
-				.buttonStyle(.bordered)
-				.tint(.primary)
 		}
 		.frame(maxWidth: .infinity, alignment: .leading)
 		.padding()
@@ -255,8 +280,8 @@ private struct ErrorMessageView: View {
 }
 
 private struct LoadoutUnavailableView: View {
-	var reason: String?
 	var errorMessage: ErrorMessage?
+	var rawErrorDump: String?
 
 	var body: some View {
 		VStack(spacing: 8) {
@@ -267,16 +292,16 @@ private struct LoadoutUnavailableView: View {
 			Text("Loadout didn't load", comment: "Live: loadout box placeholder")
 				.font(.headline)
 
-			if let reason {
-				Text(reason)
-					.font(.caption)
-					.foregroundColor(.secondary)
-					.multilineTextAlignment(.center)
-			}
-
 			if let errorMessage {
 				ErrorMessageView(errorMessage: errorMessage)
 					.padding(.top, 8)
+			}
+
+			if rawErrorDump != nil {
+				Divider()
+				Text("Raw error dump available below the error box")
+					.font(.caption)
+					.foregroundColor(.secondary)
 			}
 
 			Text("Tap the refresh button above to try again.", comment: "Live: loadout box placeholder hint")
