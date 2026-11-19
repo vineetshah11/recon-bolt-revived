@@ -67,6 +67,7 @@ struct ExchangeInfo: Encodable {
 			dumped = "" <- { dump(error, to: &$0) }
 		}
 	}
+}
 
 struct ExchangeErrorView: View {
 	var error: Error
@@ -255,6 +256,7 @@ struct ClientLogView: View {
 			.disabled(body.isEmpty)
 		}
 	}
+}
 
 #if DEBUG
 struct ClientLogView_Previews: PreviewProvider {
