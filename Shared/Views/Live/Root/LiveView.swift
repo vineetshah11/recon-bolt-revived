@@ -143,8 +143,8 @@ struct LiveView: View {
 					)
 					errorMessage = ErrorMessage(
 						status: 404,
-						riotErrorCode: error?.errorCode,
-						description: error?.message ?? String(localized: "Riot returned a 404 for this loadout request.", comment: "Loadout box: 404 without details"),
+						riotErrorCode: error.map { "\($0.errorCode)" },
+						description: error.map { "\($0.message)" } ?? String(localized: "Riot returned a 404 for this loadout request.", comment: "Loadout box: 404 without details"),
 						requestURL: "https://pd.pvp.net/personalization/v2/players/\(userID)/playerloadout"
 					)
 					rawErrorDump = dump(error)
