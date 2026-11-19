@@ -5,8 +5,8 @@ import ValorantAPI
 struct LoginForm: View {
 	@ObservedObject var accountManager: AccountManager
 	@State var isSigningIn = false
-	@State var isShowingWebAuth = false
-	
+	var onStartWebAuth: () -> Void = {}
+
 	@State var credentials = Credentials()
 	
 	@FocusState private var isPasswordFieldFocused
@@ -25,7 +25,7 @@ struct LoginForm: View {
 				VStack(spacing: 24) {
 					VStack(spacing: 16) {
 						Button {
-							isShowingWebAuth = true
+							onStartWebAuth()
 						} label: {
 							HStack {
 								Image(systemName: "globe")
@@ -116,24 +116,7 @@ struct LoginForm: View {
 				.padding()
 			}
 		}
-		.sheet(isPresented: $isShowingWebAuth) {
-			RiotWebAuthView(usePersistentStore: false) { tokens in
-				Task {
-					await load(errorTitle: Text("Could not sign in!", comment: "Login Form: error title")) {
-						do {
-							try await accountManager.addAccount(using: tokens)
-							dismiss()
-						} catch {}
-					}
-				}
-			} onFailure: { error in
-				Task {
-					await load(errorTitle: Text("Could not sign in!", comment: "Login Form: error title")) {
-						throw error
-					}
-				}
-			}
-		}
+		
 		.sheet(caching: $accountManager.multifactorPrompt) {
 			MultifactorPromptView(prompt: $0)
 		} onDismiss: {

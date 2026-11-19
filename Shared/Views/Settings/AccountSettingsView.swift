@@ -7,7 +7,9 @@ struct AccountSettingsView: View {
 	@State var loginTarget: LoginTarget?
 	@State var isConfirmingSignOut = false
 	@State var isRefreshingSession = false
+	@State var isPresentingWebAuth = false
 	@Environment(\.ownsProVersion) private var ownsProVersion
+	@Environment(\.loadWithErrorAlerts) private var load
 	
 	var body: some View {
 		Group {
@@ -22,7 +24,11 @@ struct AccountSettingsView: View {
 				let storedCredentals = accountManager.activeAccount?.session.credentials
 				LoginForm(
 					accountManager: accountManager,
-					credentials: (target.shouldRestoreCredentials ? storedCredentals : nil) ?? .init()
+					credentials: (target.shouldRestoreCredentials ? storedCredentals : nil) ?? .init(),
+					onStartWebAuth: {
+						loginTarget = nil
+						isPresentingWebAuth = true
+					}
 				)
 				.withLoadErrorAlerts()
 			}
@@ -68,6 +74,22 @@ struct AccountSettingsView: View {
 				}
 			} header: {
 				Text("Management", comment: "Settings: section")
+			}
+		}
+		.fullScreenCover(isPresented: $isPresentingWebAuth) {
+			RiotWebAuthView(usePersistentStore: false) { tokens in
+				Task {
+					await load(errorTitle: Text("Could not sign in!", comment: "Account Settings: error title")) {
+						try await accountManager.addAccount(using: tokens)
+					}
+					isPresentingWebAuth = false
+				}
+			} onFailure: { error in
+				Task {
+					await load(errorTitle: Text("Could not sign in!", comment: "Account Settings: error title")) {
+						throw error
+					}
+				}
 			}
 		}
 		.fullScreenCover(isPresented: $isRefreshingSession) {
