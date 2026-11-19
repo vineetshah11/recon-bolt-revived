@@ -4,6 +4,85 @@ import HandyOperators
 import UniformTypeIdentifiers
 import Protoquest
 
+struct ExchangeInfo: Encodable {
+	var time: Date
+	var request: Request
+	var result: Result
+
+	init(_ exchange: ClientLog.Exchange) {
+		time = exchange.time
+		request = .init(exchange.request)
+		result = .init(exchange.result)
+	}
+
+	struct Request: Encodable {
+		var method: String
+		var url: URL
+		var headers: [String: String]
+		var body: Data
+
+		init(_ raw: URLRequest) {
+			method = raw.httpMethod!
+			url = raw.url!
+			headers = raw.allHTTPHeaderFields ?? [:]
+			body = raw.httpBody ?? .init()
+		}
+	}
+
+	enum Result: Encodable {
+		case response(Response)
+		case error(ErrorInfo)
+
+		init(_ raw: Protoresult) {
+			switch raw {
+			case .success(let response):
+				self = .response(.init(response))
+			case .failure(let error):
+				self = .error(.init(error))
+			}
+		}
+	}
+
+	struct Response: Encodable {
+		var statusCode: Int
+		var headers: [String: String]
+		var body: Data
+
+		init(_ raw: Protoresponse) {
+			statusCode = raw.httpMetadata!.statusCode
+			let rawHeaders = raw.httpMetadata?.allHeaderFields ?? [:]
+			headers = .init(uniqueKeysWithValues: rawHeaders.map {
+				(String(describing: $0), String(describing: $1))
+			})
+			body = raw.body
+		}
+	}
+
+	struct ErrorInfo: Encodable {
+		var description: String
+		var dumped: String
+
+		init(_ error: any Error) {
+			description = error.localizedDescription
+			dumped = "" <- { dump(error, to: &$0) }
+		}
+	}
+
+struct ExchangeErrorView: View {
+	var error: Error
+
+	var body: some View {
+		ScrollView {
+			Text(error.localizedDescription)
+				.font(.body.monospaced())
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.padding()
+		}
+		.navigationTitle("Error Details")
+	}
+}
+
+
 struct ClientLogView: View {
 	var client: ValorantClient
 	@State var log: ClientLog?
@@ -62,43 +141,38 @@ struct ClientLogView: View {
 	
 	struct ExchangeView: View {
 		var exchange: ClientLog.Exchange
-		
-		var body: some View {
-			Form {
-				Section {
-					Text(exchange.time, format: .dateTime)
-				}
-				
-				Section(header: Text("Request", comment: "Request Log: header")) {
-					LabeledRow(Text("Method", comment: "Request Log"), describing: exchange.request.httpMethod!)
-					LabeledRow(Text("URL", comment: "Request Log"), describing: exchange.request.url!)
-					
-					bodyDetailsView(for: exchange.request.httpBody)
-				}
-				
-				Section(header: Text("Response", comment: "Request Log: header")) {
-					switch exchange.result {
-					case .success(let response):
-						LabeledRow("Response Code", describing: response.httpMetadata!.statusCode)
-						
-						bodyDetailsView(for: response.body)
-					case .failure(let error):
-						NavigationLink {
-							ScrollView {
-								Text(error.localizedDescription)
-									.font(.body.monospaced())
-									.frame(maxWidth: .infinity, alignment: .leading)
-									.padding()
-							}
+
+	var body: some View {
+		Form {
+			Section {
+				Text(exchange.time, format: .dateTime)
+			}
+
+			Section(header: Text("Request", comment: "Request Log: header")) {
+				LabeledRow(Text("Method", comment: "Request Log"), describing: exchange.request.httpMethod!)
+				LabeledRow(Text("URL", comment: "Request Log"), describing: exchange.request.url!)
+
+				bodyDetailsView(for: exchange.request.httpBody)
+			}
+
+			Section(header: Text("Response", comment: "Request Log: header")) {
+				switch exchange.result {
+				case .success(let response):
+					LabeledRow("Response Code", describing: response.httpMetadata!.statusCode)
+
+					bodyDetailsView(for: response.body)
+				case .failure(let error):
+					NavigationLink {
+						ExchangeErrorView(error: error)
 							.navigationTitle("Error Details")
-						} label: {
-							LabeledRow(Text("Error", comment: "Request Log"), describing: error.localizedDescription.prefix(1000))
-								.lineLimit(1)
-						}
+					} label: {
+						LabeledRow(Text("Error", comment: "Request Log"), describing: error.localizedDescription.prefix(1000))
+							.lineLimit(1)
 					}
 				}
-				
-				let info = ExchangeInfo(exchange)
+			}
+
+			let info = ExchangeInfo(exchange)
 				let encodedInfo = try! JSONEncoder().encode(info)
 				let infoString = String(bytes: encodedInfo, encoding: .utf8)!
 				let mailBody = String(
@@ -187,19 +261,19 @@ struct ExchangeInfo: Encodable {
 	var time: Date
 	var request: Request
 	var result: Result
-	
+
 	init(_ exchange: ClientLog.Exchange) {
 		time = exchange.time
 		request = .init(exchange.request)
 		result = .init(exchange.result)
 	}
-	
+
 	struct Request: Encodable {
 		var method: String
 		var url: URL
 		var headers: [String: String]
 		var body: Data
-		
+
 		init(_ raw: URLRequest) {
 			method = raw.httpMethod!
 			url = raw.url!
@@ -207,11 +281,11 @@ struct ExchangeInfo: Encodable {
 			body = raw.httpBody ?? .init()
 		}
 	}
-	
+
 	enum Result: Encodable {
 		case response(Response)
 		case error(ErrorInfo)
-		
+
 		init(_ raw: Protoresult) {
 			switch raw {
 			case .success(let response):
@@ -221,12 +295,12 @@ struct ExchangeInfo: Encodable {
 			}
 		}
 	}
-	
+
 	struct Response: Encodable {
 		var statusCode: Int
 		var headers: [String: String]
 		var body: Data
-		
+
 		init(_ raw: Protoresponse) {
 			statusCode = raw.httpMetadata!.statusCode
 			let rawHeaders = raw.httpMetadata?.allHeaderFields ?? [:]
@@ -236,15 +310,29 @@ struct ExchangeInfo: Encodable {
 			body = raw.body
 		}
 	}
-	
+
 	struct ErrorInfo: Encodable {
 		var description: String
 		var dumped: String
-		
+
 		init(_ error: any Error) {
 			description = error.localizedDescription
 			dumped = "" <- { dump(error, to: &$0) }
 		}
+	}
+}
+
+struct ExchangeErrorView: View {
+	var error: Error
+
+	var body: some View {
+		ScrollView {
+			Text(error.localizedDescription)
+				.font(.body.monospaced())
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.padding()
+		}
+		.navigationTitle("Error Details")
 	}
 }
 
