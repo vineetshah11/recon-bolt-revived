@@ -46,7 +46,7 @@ struct PlayerIdentityCell: View {
 							.foregroundColor(.white)
 							.lineLimit(1)
 						
-						if let user, !isNameHidden {
+						if let user, !isNameHidden, !user.tagLine.isEmpty {
 							Text(verbatim: "#\(user.tagLine)")
 								.font(.system(.subheadline, design: .rounded).weight(.medium))
 								.foregroundColor(.white.opacity(0.65))
@@ -90,7 +90,7 @@ struct PlayerIdentityCell: View {
 	}
 	
 	private var userName: String {
-		guard let user, !isNameHidden else { return String(localized: "Player") }
+		guard let user, !isNameHidden, !user.gameName.isEmpty else { return String(localized: "Player") }
 		return user.gameName
 	}
 	

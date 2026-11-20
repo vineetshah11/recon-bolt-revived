@@ -33,6 +33,16 @@ struct ScoreboardView: View {
 			.buttonStyle(.plain)
 		}
 		.padding(.horizontal)
+		.task {
+			// match details often omit names—resolve them through the name service
+			await load {
+				let ids = data.details.players
+					.filter { $0.gameName.isEmpty || $0.tagLine.isEmpty }
+					.map(\.id)
+				guard !ids.isEmpty else { return }
+				try await $0.refreshUsers(for: ids)
+			}
+		}
 	}
 	
 	private func teamSection(_ team: Team) -> some View {
@@ -127,11 +137,24 @@ struct ScoreboardRowView: View {
 	@Binding var highlight: PlayerHighlightInfo
 	
 	@LocalData var summary: CareerSummary?
+	@LocalData var playerUser: User?
 	
 	@Environment(\.shouldAnonymize) private var shouldAnonymize
 	
 	private var isMyself: Bool {
 		player.id == data.myself?.id
+	}
+	
+	/// The name from the match itself, falling back to the name service when it was omitted.
+	private var displayName: String {
+		let name = player.gameName.isEmpty ? playerUser?.gameName : player.gameName
+		return name ?? ""
+	}
+	
+	private var displayTag: String? {
+		let tag = player.tagLine.isEmpty ? playerUser?.tagLine : player.tagLine
+		guard let tag, !tag.isEmpty else { return nil }
+		return tag
 	}
 	
 	private var acs: Int? {
@@ -175,6 +198,7 @@ struct ScoreboardRowView: View {
 			highlight.switchHighlight(to: player)
 		}
 		.withLocalData($summary, id: player.id)
+		.withLocalData($playerUser, id: player.id)
 	}
 	
 	private var identity: some View {
@@ -184,7 +208,7 @@ struct ScoreboardRowView: View {
 					Text("Player", comment: "Scoreboard: anonymized player name")
 						.foregroundColor(ReconTheme.secondary)
 				} else {
-					Text(player.gameName)
+					Text(displayName.isEmpty ? String(localized: "Player") : displayName)
 						.foregroundColor(.white)
 				}
 			}
@@ -197,8 +221,10 @@ struct ScoreboardRowView: View {
 						.foregroundColor(accent.opacity(0.9))
 				}
 				
-				Text(verbatim: "#\(player.tagLine)")
-					.foregroundColor(ReconTheme.secondary)
+				if let displayTag {
+					Text(verbatim: "#\(displayTag)")
+						.foregroundColor(ReconTheme.secondary)
+				}
 			}
 			.font(.system(.caption2, design: .rounded))
 			.lineLimit(1)
@@ -286,7 +312,8 @@ extension ScoreboardRowView {
 			player: player, data: data,
 			accent: data.relativeColor(of: player) ?? .valorantBlue,
 			highlight: highlight,
-			summary: .init(id: player.id)
+			summary: .init(id: player.id),
+			playerUser: .init(id: player.id)
 		)
 	}
 }

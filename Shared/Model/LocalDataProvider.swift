@@ -170,6 +170,29 @@ extension ValorantClient {
 			try await getMatchDetails(matchID: $0)
 				<- LocalDataProvider.dataFetched
 		}
+		
+		if let details = await manager.loadedObject(for: matchID) {
+			await resolveMissingNames(for: details.players)
+		}
+	}
+	
+	/// Fetches the given users straight from Riot's name service, bypassing the cache's freshness check.
+	/// Use this to repair cached users whose names were stored while empty.
+	func refreshUsers(for ids: [User.ID]) async throws {
+		guard !ids.isEmpty else { return }
+		let users = try await getUsers(for: ids)
+		guard !users.isEmpty else { return }
+		await LocalDataProvider.shared.userManager.store(users, asOf: .now)
+	}
+	
+	/// Riot's match details omit `gameName`/`tagLine` for many players, leaving them blank.
+	/// Resolve those players through the name service so their real Riot IDs can be shown.
+	func resolveMissingNames(for players: [Player]) async {
+		let ids = players.lazy
+			.filter { $0.gameName.isEmpty || $0.tagLine.isEmpty }
+			.map(\.id)
+		guard !ids.isEmpty else { return }
+		try? await refreshUsers(for: Array(ids))
 	}
 	
 	func fetchMatchDetails(for matchIDs: [Match.ID]) async throws {

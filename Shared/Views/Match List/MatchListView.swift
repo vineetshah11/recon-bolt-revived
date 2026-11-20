@@ -99,6 +99,10 @@ struct MatchListView: View {
 		.withLocalData($matchList, id: userID, shouldAutoUpdate: true)
 		.withLocalData($summary, id: userID, shouldAutoUpdate: true)
 		.withLocalData($identity, id: userID)
+		.task(id: userID) {
+			// always resolve the real Riot ID through the name service, even if a blank one was cached
+			await load { try await $0.refreshUsers(for: [userID]) }
+		}
 		.anonymizing(additionally: shouldAnonymize(userID) ? .all : .none)
 		.navigationTitle(title)
 	}
