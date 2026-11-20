@@ -54,6 +54,8 @@
 		B927614B266284B700CF2100 /* PlayerHighlightInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B927614A266284B700CF2100 /* PlayerHighlightInfo.swift */; };
 		B927719C284DBA1D00F25FC3 /* SprayAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B927719B284DBA1D00F25FC3 /* SprayAssets.swift */; };
 		B927719E284DBAF600F25FC3 /* BuddyAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B927719D284DBAF600F25FC3 /* BuddyAssets.swift */; };
+		AA1B2C3D4E5F60718293A102 /* TotemAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60718293A101 /* TotemAssets.swift */; };
+		AA1B2C3D4E5F60718293A105 /* ExpressionIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60718293A104 /* ExpressionIcon.swift */; };
 		B9298FA329BF9F6900DC7778 /* StatisticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9298FA229BF9F6900DC7778 /* StatisticsView.swift */; };
 		B9298FA529C0287C00DC7778 /* QueueAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9298FA429C0287C00DC7778 /* QueueAssets.swift */; };
 		B9298FA629C0290700DC7778 /* QueueAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9298FA429C0287C00DC7778 /* QueueAssets.swift */; };
@@ -188,6 +190,7 @@
 		B97C8F4B293C421F002F6A07 /* MissionAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96A0CA9265AE32200844674 /* MissionAssets.swift */; };
 		B97C8F4C293C421F002F6A07 /* PlayerCardAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90B4B57267C167B00CACB95 /* PlayerCardAssets.swift */; };
 		B97C8F4D293C421F002F6A07 /* BuddyAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B927719D284DBAF600F25FC3 /* BuddyAssets.swift */; };
+		AA1B2C3D4E5F60718293A103 /* TotemAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60718293A101 /* TotemAssets.swift */; };
 		B97C8F4E293C421F002F6A07 /* BundleAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F7A54027DD1E7D00636DAF /* BundleAssets.swift */; };
 		B97C8F4F293C421F002F6A07 /* CurrencyAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F7A53E27DD091F00636DAF /* CurrencyAssets.swift */; };
 		B97C8F50293C421F002F6A07 /* AgentAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9485F83264B1DD300AC3456 /* AgentAssets.swift */; };
@@ -307,7 +310,6 @@
 		B9F174FA29C97AF7008722B1 /* AssetLabels.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F174F929C97AF7008722B1 /* AssetLabels.swift */; };
 		B9F3D94926A4F9C800052F2E /* CareerSummaryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F3D94826A4F9C800052F2E /* CareerSummaryView.swift */; };
 		B9F5232F266ED96600DFF8DD /* LiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F5232E266ED96600DFF8DD /* LiveView.swift */; };
-		AA1B2C3D4E5F60718293A002 /* ProfileSummaryBox.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60718293A001 /* ProfileSummaryBox.swift */; };
 		B9F52332266EE57900DFF8DD /* example_contracts.json in Resources */ = {isa = PBXBuildFile; fileRef = B9F52331266EE57900DFF8DD /* example_contracts.json */; };
 		B9F5CEDE267CD199009CF906 /* GameModeAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F5CEDD267CD199009CF906 /* GameModeAssets.swift */; };
 		B9F5CEE1267CD548009CF906 /* NamespacedID.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F5CEE0267CD548009CF906 /* NamespacedID.swift */; };
@@ -444,6 +446,8 @@
 		B927614A266284B700CF2100 /* PlayerHighlightInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerHighlightInfo.swift; sourceTree = "<group>"; };
 		B927719B284DBA1D00F25FC3 /* SprayAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SprayAssets.swift; sourceTree = "<group>"; };
 		B927719D284DBAF600F25FC3 /* BuddyAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuddyAssets.swift; sourceTree = "<group>"; };
+		AA1B2C3D4E5F60718293A101 /* TotemAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TotemAssets.swift; sourceTree = "<group>"; };
+		AA1B2C3D4E5F60718293A104 /* ExpressionIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpressionIcon.swift; sourceTree = "<group>"; };
 		B9298FA229BF9F6900DC7778 /* StatisticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatisticsView.swift; sourceTree = "<group>"; };
 		B9298FA429C0287C00DC7778 /* QueueAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueAssets.swift; sourceTree = "<group>"; };
 		B92DC20026A33C3600200A01 /* ActRankView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActRankView.swift; sourceTree = "<group>"; };
@@ -740,7 +744,6 @@
 		B9F174F929C97AF7008722B1 /* AssetLabels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetLabels.swift; sourceTree = "<group>"; };
 		B9F3D94826A4F9C800052F2E /* CareerSummaryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CareerSummaryView.swift; sourceTree = "<group>"; };
 		B9F5232E266ED96600DFF8DD /* LiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveView.swift; sourceTree = "<group>"; };
-		AA1B2C3D4E5F60718293A001 /* ProfileSummaryBox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileSummaryBox.swift; sourceTree = "<group>"; };
 		B9F52331266EE57900DFF8DD /* example_contracts.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = example_contracts.json; sourceTree = "<group>"; };
 		B9F5CEDD267CD199009CF906 /* GameModeAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GameModeAssets.swift; sourceTree = "<group>"; };
 		B9F5CEE0267CD548009CF906 /* NamespacedID.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NamespacedID.swift; sourceTree = "<group>"; };
@@ -856,7 +859,6 @@
 			isa = PBXGroup;
 			children = (
 				B9F5232E266ED96600DFF8DD /* LiveView.swift */,
-				AA1B2C3D4E5F60718293A001 /* ProfileSummaryBox.swift */,
 				B90FFF3726B47FFD007BE950 /* LiveGameBox.swift */,
 				B9AEB7D627B0A03F0090A203 /* PartyInfoBox.swift */,
 				B90FFF3D26B4BC57007BE950 /* ContractDetailsView.swift */,
@@ -1127,6 +1129,7 @@
 				B9F7A54027DD1E7D00636DAF /* BundleAssets.swift */,
 				B927719B284DBA1D00F25FC3 /* SprayAssets.swift */,
 				B927719D284DBAF600F25FC3 /* BuddyAssets.swift */,
+				AA1B2C3D4E5F60718293A101 /* TotemAssets.swift */,
 				B9FF792C2995FED300DFE90E /* ContentTierAssets.swift */,
 			);
 			path = "Concrete Assets";
@@ -1187,6 +1190,7 @@
 			isa = PBXGroup;
 			children = (
 				B914AE86284809D50001781F /* LoadoutDetailsView.swift */,
+				AA1B2C3D4E5F60718293A104 /* ExpressionIcon.swift */,
 				B9C2E912284E3B9F0007FC55 /* SearchableAssetPicker.swift */,
 				B9C2E914284E3BEE0007FC55 /* WeaponLoadoutView.swift */,
 				B9A11F4C28518B1C00599719 /* GunCustomizer.swift */,
@@ -1724,7 +1728,6 @@
 				B9C3499D267AA6DE00BE39B1 /* LiveMatchView.swift in Sources */,
 				B9F174F829C93B86008722B1 /* DateBinSize.swift in Sources */,
 				B9F5232F266ED96600DFF8DD /* LiveView.swift in Sources */,
-				AA1B2C3D4E5F60718293A002 /* ProfileSummaryBox.swift in Sources */,
 				B9F5CEDE267CD199009CF906 /* GameModeAssets.swift in Sources */,
 				B91FF85426C7072400D0DFAA /* MagnifiableView.swift in Sources */,
 				B98E4705269B40DB003C9088 /* CircularProgressView.swift in Sources */,
@@ -1805,6 +1808,8 @@
 				B95FA88229C2D839001D1998 /* UserLabel.swift in Sources */,
 				B932A10C279122FF009FAEE5 /* UpcomingMissionsList.swift in Sources */,
 				B927719C284DBA1D00F25FC3 /* SprayAssets.swift in Sources */,
+				AA1B2C3D4E5F60718293A102 /* TotemAssets.swift in Sources */,
+				AA1B2C3D4E5F60718293A105 /* ExpressionIcon.swift in Sources */,
 				B99302E228A9884800F7295D /* ImageManager.swift in Sources */,
 				B9EE6E6226589FAA007E28B5 /* PreviewData.swift in Sources */,
 				B9F174FA29C97AF7008722B1 /* AssetLabels.swift in Sources */,
@@ -1890,6 +1895,7 @@
 				B99AA18F294B8BBA00115120 /* MatchViewData.swift in Sources */,
 				B997FF2E29D3B6DE00BB09FF /* LocalDataProvider.swift in Sources */,
 				B97C8F51293C421F002F6A07 /* SprayAssets.swift in Sources */,
+				AA1B2C3D4E5F60718293A103 /* TotemAssets.swift in Sources */,
 				B99AA192294B8BCE00115120 /* MatchList.swift in Sources */,
 				B97C8F4B293C421F002F6A07 /* MissionAssets.swift in Sources */,
 				B97C8F4E293C421F002F6A07 /* BundleAssets.swift in Sources */,

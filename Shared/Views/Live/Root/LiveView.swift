@@ -36,8 +36,6 @@ struct LiveView: View {
 		ScrollViewReader { scrollView in
 			ScrollView {
 				VStack(spacing: 16) {
-					ProfileSummaryBox(userID: userID, contractsProgress: contractsProgress)
-
 					LiveGameBox(userID: userID, isExpanded: $expandedBoxes.contains(.party))
 
 					missionsBox
@@ -82,7 +80,7 @@ struct LiveView: View {
 			.background(Color.groupedBackground)
 			.deepLinkHandler { handle($0, scrollView: scrollView) }
 		}
-		.navigationTitle("Live & Profile")
+		.navigationTitle("Live")
 		.withLocalData($user, id: userID)
 		.id(userID) // when user changes, current state is bound to become invalid/irrelevant
 		.updatingGameConfig()

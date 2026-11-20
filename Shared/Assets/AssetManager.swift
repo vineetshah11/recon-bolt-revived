@@ -67,7 +67,8 @@ final class AssetManager: ObservableObject {
 		let client = AssetClient(language: language)
 		
 		let version = try await client.getCurrentVersion()
-		if let stored = storage.assets, stored.version == version, stored.language == language {
+		// totems are re-fetched until they load, since a cache from before they existed has none
+		if let stored = storage.assets, stored.version == version, stored.language == language, stored.totems?.isEmpty == false {
 			return stored
 		} else {
 			return try await client.collectAssets(for: version)

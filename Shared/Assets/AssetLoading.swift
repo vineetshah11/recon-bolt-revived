@@ -20,6 +20,15 @@ extension AssetClient {
 		async let bundles = getBundleInfo()
 		async let contentTiers = getContentTiers()
 		
+		// Totems are a newer content type — has been intermittently 404 on valorant-api.com
+		let totems: [TotemInfo]
+		do {
+			totems = try await getTotemInfo()
+		} catch {
+			print("⚠️ Failed to fetch totems (non-fatal):", error)
+			totems = []
+		}
+		
 		// Queues endpoint is optional — has been intermittently 404 on valorant-api.com
 		let queues: [QueueInfo]
 		do {
@@ -63,6 +72,7 @@ extension AssetClient {
 			seasons: seasons,
 			skinsByLevelID: skinsByLevelID,
 			sprays: .init(values: sprays),
+			totems: .init(values: totems),
 			buddies: .init(values: buddies),
 			buddiesByLevelID: buddiesByLevelID,
 			currencies: .init(values: currencies),

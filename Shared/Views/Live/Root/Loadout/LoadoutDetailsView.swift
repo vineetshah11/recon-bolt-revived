@@ -79,8 +79,8 @@ private struct LoadoutOverview: View {
 			RoundedRectangle(cornerRadius: 12, style: .continuous)
 				.fill(Color(uiColor: .secondarySystemFill))
 			
-			if let spray = loadout.sprays[slot] {
-				(assets?.sprays[spray]?.bestIcon).view()
+			if let expression = loadout.sprays[slot] {
+				ExpressionIcon(id: expression)
 					.padding(8)
 			} else {
 				Image(systemName: "nosign")
@@ -113,8 +113,6 @@ private struct LoadoutOverview: View {
 private struct LoadoutCustomizer: View {
 	@Binding var loadout: UpdatableLoadout
 	var inventory: Inventory
-	
-	@Environment(\.assets) private var assets
 	
 	var body: some View {
 		cardPicker
@@ -233,12 +231,8 @@ private struct LoadoutCustomizer: View {
 	
 	@ViewBuilder
 	func sprayIcon(for slot: Spray.Slot.ID) -> some View {
-		if let spray = loadout.sprays[slot] {
-			(assets?.sprays[spray]?.bestIcon).view()
-				.frame(maxWidth: .infinity, maxHeight: .infinity)
-		} else {
-			Color.clear
-		}
+		ExpressionIcon(id: loadout.sprays[slot])
+			.frame(maxWidth: .infinity, maxHeight: .infinity)
 	}
 	
 	struct SprayCell: View {
@@ -246,18 +240,12 @@ private struct LoadoutCustomizer: View {
 		@Binding var spray: Spray.ID?
 		var inventory: Inventory
 		
-		@Environment(\.assets) private var assets
-		
 		var body: some View {
 			NavigationLink {
 				SprayPicker(selection: $spray, inventory: inventory)
 			} label: {
-				if let spray {
-					(assets?.sprays[spray]?.bestIcon).view()
-						.frame(maxWidth: .infinity, maxHeight: .infinity)
-				} else {
-					Color.clear
-				}
+				ExpressionIcon(id: spray)
+					.frame(maxWidth: .infinity, maxHeight: .infinity)
 			}
 			.buttonStyle(.plain)
 		}
