@@ -16,27 +16,22 @@ import ValorantAPI
 //   4. We intercept the redirect, extract tokens, close the sheet
 
 struct RiotWebAuthView: View {
-    @Environment(\.dismiss) private var dismiss
     var onSuccess: (WebAuthTokens) -> Void
     var onFailure: (Error) -> Void
     var usePersistentStore: Bool = true
     
+    // this view never dismisses itself: the caller presents it through a binding and hides it in
+    // the very same callbacks. Calling dismiss() here as well dismissed the same cover twice in one
+    // run loop, which SwiftUI on iOS 15 sometimes crashed on right after a successful sign-in.
     var body: some View {
         NavigationView {
-            RiotWebAuthRepresentable(onSuccess: { tokens in
-                onSuccess(tokens)
-                dismiss()
-            }, onFailure: { error in
-                onFailure(error)
-                dismiss()
-            }, usePersistentStore: usePersistentStore)
+            RiotWebAuthRepresentable(onSuccess: onSuccess, onFailure: onFailure, usePersistentStore: usePersistentStore)
             .navigationTitle("Sign In to Riot")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
                         onFailure(RiotWebAuthError.userCancelled)
-                        dismiss()
                     }
                 }
             }
@@ -58,7 +53,7 @@ struct RiotWebAuthRepresentable: UIViewRepresentable {
     
     // Riot OAuth2 authorize URL
     // Uses the same parameters as the original CookiesRequest but via browser
-    private static let authURL: URL = {
+    fileprivate static let authURL: URL = {
         var components = URLComponents(string: "https://auth.riotgames.com/authorize")!
         components.queryItems = [
             .init(name: "redirect_uri",  value: "https://playvalorant.com/opt_in"),
@@ -129,17 +124,43 @@ struct RiotWebAuthRepresentable: UIViewRepresentable {
         }
         
         		func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-			report(error)
+			report(error, in: webView)
 		}
 		
 		func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-			report(error)
+			report(error, in: webView)
 		}
 		
-		private func report(_ error: Error) {
-			// Ignore "cancelled" errors from our own decisionHandler(.cancel)
+		func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+			// iOS can kill the web content process while the app is in the background—exactly what happens
+			// when you go into your mail app to grab the 2FA code. Reloading keeps the sign-in alive
+			// instead of leaving the sheet sitting on a blank page.
+			webView.reload()
+		}
+		
+		private func report(_ error: Error, in webView: WKWebView) {
 			let nsError = error as NSError
-			if nsError.domain == NSURLErrorDomain, nsError.code == NSURLErrorCancelled { return }
+			
+			// our own decisionHandler(.cancel) also lands here
+			if nsError.domain == NSURLErrorDomain {
+				switch nsError.code {
+				case NSURLErrorCancelled:
+					return
+				case NSURLErrorNetworkConnectionLost, NSURLErrorTimedOut, NSURLErrorCannotConnectToHost:
+					// leaving the app to read the code can interrupt the page load; that's not a reason to
+					// throw the whole sign-in away, so reload if the page never came up
+					if webView.url == nil {
+						webView.load(URLRequest(url: RiotWebAuthRepresentable.authURL))
+					}
+					return
+				default:
+					break
+				}
+			}
+			
+			// WebKit's own load errors are already rendered in the page itself
+			if nsError.domain == WKErrorDomain { return }
+			
 			onFailure(RiotWebAuthError.navigationFailed(error))
 		}
     }

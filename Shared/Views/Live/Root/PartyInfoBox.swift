@@ -10,9 +10,11 @@ struct PartyInfoBox: View {
 	@State var isChangingQueue = false
 	@State var isConfirmingMatchakingStart = false
 	
-	var member: Party.Member {
+	/// nil while the party is being refreshed (or when switching accounts)—don't force-unwrap it,
+	/// the UI just stays read-only for that moment.
+	var member: Party.Member? {
 		party.members.firstElement(withID: userID)
-		?? party.members.first! // can be nil while switching accounts
+		?? party.members.first
 	}
 	
 	var body: some View {
@@ -40,7 +42,7 @@ struct PartyInfoBox: View {
 						}
 					}
 					.disabled(isChangingQueue)
-					.disabled(!member.isOwner)
+					.disabled(member?.isOwner != true)
 					.disabled(party.state == .inMatchmaking)
 					.disabled(party.eligibleQueues == nil)
 					
@@ -73,7 +75,7 @@ struct PartyInfoBox: View {
 				isConfirmingMatchakingStart = true
 			}
 			.disabled(!party.members.allSatisfy(\.isReady))
-			.disabled(!member.isOwner)
+			.disabled(member?.isOwner != true)
 			.confirmationDialog(
 				"Start Matchmaking?",
 				isPresented: $isConfirmingMatchakingStart,
