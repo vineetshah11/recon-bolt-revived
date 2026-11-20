@@ -8,7 +8,7 @@ import WidgetKit
 final class AssetManager: ObservableObject {
 	@Published private(set) var assets: AssetCollection?
 	@Published private(set) var error: Error?
-	private var isDownloading = false
+	@Published private(set) var isDownloading: Bool = false
 	
 	var languageOverride: String? {
 		storage.languageOverride
@@ -83,6 +83,7 @@ final class AssetManager: ObservableObject {
 		var languageOverride: String?
 	}
 }
+
 
 extension AssetCollection: DefaultsValueConvertible {}
 

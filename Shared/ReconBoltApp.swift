@@ -7,7 +7,7 @@ typealias FloatLiteralType = CGFloat
 @main
 struct ReconBoltApp: App {
 	@StateObject var accountManager = AccountManager()
-	@StateObject var assetManager = AssetManager()
+	@StateObject private var assetManager = AssetManager()
 	@StateObject var bookmarkList = BookmarkList()
 	@StateObject var imageManager = ImageManager()
 	@StateObject var settings = AppSettings()
@@ -33,7 +33,8 @@ struct ReconBoltApp: App {
 				.environmentObject(settings)
 				.environmentObject(configManager)
 				.environment(\.configs, configManager.configs())
-				.environment(\.assets, assetManager.assets)
+				.environmentObject(assetManager)
+		.environment(\.assets, assetManager.assets)
 				.environment(\.location, accountManager.activeAccount?.location)
 				.environment(\.ownsProVersion, store.ownsProVersion)
 				.preferredColorScheme(settings.theme.colorScheme)

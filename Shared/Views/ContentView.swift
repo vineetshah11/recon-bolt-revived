@@ -5,7 +5,7 @@ import WidgetKit
 
 struct ContentView: View {
 	@ObservedObject var accountManager: AccountManager
-	@ObservedObject var assetManager: AssetManager
+	@ObservedObject private var assetManager: AssetManager
 	@ObservedObject var settings: AppSettings
 	@ObservedObject var store: InAppStore
 	
@@ -50,7 +50,8 @@ struct ContentView: View {
 				.tag(Tab.settings)
 		}
 		.environmentObject(assetManager)
-		.environment(\.assets, assetManager.assets)
+		.environmentObject(assetManager)
+	.environment(\.assets, assetManager.assets)
 		.task(id: accountManager.requiresAction) {
 			if accountManager.requiresAction {
 				tab = .settings
@@ -64,6 +65,12 @@ struct ContentView: View {
 			// web sign-in only stores tokens, so the stored session can't refresh itself;
 			// grab a fresh one from Riot's login page (usually silent, since its cookies persist)
 			isReauthenticating = true
+		}
+		.task {
+			// make sure the reference and settings tabs see a loading/error state even when the user
+			// is not signed in; the app root already injects assetManager.assets, but this keeps the
+			// ContentView tree self-contained if it is ever hosted somewhere without the App-level env.
+			await assetManager.tryLoadAssets()
 		}
 		.sheet(caching: $accountManager.multifactorPrompt) {
 			MultifactorPromptView(prompt: $0, didSessionExpire: true)

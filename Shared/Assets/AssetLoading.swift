@@ -4,42 +4,30 @@ extension AssetClient {
 	func collectAssets(for version: AssetVersion) async throws -> AssetCollection {
 		print("loading assets for version \(version) in language \(language)")
 		
+		// Core assets: a failure here is fatal because the app can't present much without them.
 		async let maps = getMapInfo()
 		async let agents = getAgentInfo()
-		async let missions = getMissionInfo()
-		async let contracts = getContractInfo()
 		async let gameModes = getGameModeInfo()
-		async let objectives = getObjectiveInfo()
 		async let playerCards = getPlayerCardInfo()
-		async let playerTitles = getPlayerTitleInfo()
 		async let weapons = getWeaponInfo()
 		async let seasons = getSeasons()
-		async let sprays = getSprayInfo()
-		async let buddies = getBuddyInfo()
-		async let currencies = getCurrencyInfo()
-		async let bundles = getBundleInfo()
-		async let contentTiers = getContentTiers()
 		
-		// Totems are a newer content type — has been intermittently 404 on valorant-api.com
-		let totems: [TotemInfo]
-		do {
-			totems = try await getTotemInfo()
-		} catch {
-			print("⚠️ Failed to fetch totems (non-fatal):", error)
-			totems = []
-		}
-		
-		// Queues endpoint is optional — has been intermittently 404 on valorant-api.com
-		let queues: [QueueInfo]
-		do {
-			queues = try await getQueues()
-		} catch {
-			print("⚠️ Failed to fetch queues (non-fatal):", error)
-			queues = []
-		}
+		// Secondary assets: a 404 or decode error on any one of these must not abort the whole collection.
+		let objectives = await safeSecondary { try await getObjectiveInfo() } ?? []
+		let missions = await safeSecondary { try await getMissionInfo() } ?? []
+		let contracts = await safeSecondary { try await getContractInfo() } ?? []
+		let playerTitles = await safeSecondary { try await getPlayerTitleInfo() } ?? []
+		let sprays = await safeSecondary { try await getSprayInfo() } ?? []
+		let buddies = await safeSecondary { try await getBuddyInfo() } ?? []
+		let currencies = await safeSecondary { try await getCurrencyInfo() } ?? []
+		let bundles = await safeSecondary { try await getBundleInfo() } ?? []
+		let contentTiers = await safeSecondary { try await getContentTiers() } ?? []
+		let totems = await safeSecondary { try await getTotemInfo() } ?? []
+		let queues = await safeSecondary { try await getQueues() } ?? []
 		
 		// this seems to be what skins are actually referred to by…
-		let skinsByLevelID = try await Dictionary(
+		let skinsByLevelID: [WeaponSkin.Level.ID: WeaponSkin.Level.Path]
+		try? skinsByLevelID = Dictionary(
 			uniqueKeysWithValues: weapons.lazy.flatMap { weapon in
 				weapon.skins.enumerated().lazy.flatMap { skinIndex, skin in
 					skin.levels.enumerated().map { levelIndex, level in
@@ -49,7 +37,8 @@ extension AssetClient {
 			}
 		)
 		
-		let buddiesByLevelID = try await Dictionary(
+		let buddiesByLevelID: [Weapon.Buddy.Level.ID: Weapon.Buddy.ID]
+		try? buddiesByLevelID = Dictionary(
 			uniqueKeysWithValues: buddies.lazy.flatMap { buddy in
 				buddy.levels.map { ($0.id, buddy.id) }
 			}
@@ -80,5 +69,13 @@ extension AssetClient {
 			contentTiers: .init(values: contentTiers)
 		)
 	}
+	
+	private func safeSecondary<T>(_ fetch: @escaping () async throws -> T) async -> T? {
+		do {
+			return try await fetch()
+		} catch {
+			print("⚠️ Failed to fetch a secondary asset (non-fatal):", error)
+			return nil
+		}
+	}
 }
-
