@@ -26,7 +26,7 @@ extension AssetClient {
 		let queues = await safeSecondary { try await getQueues() } ?? []
 		
 		// this seems to be what skins are actually referred to by…
-		let skinsByLevelID = Dictionary(
+		let skinsByLevelID = await Dictionary(
 			uniqueKeysWithValues: weapons.lazy.flatMap { weapon in
 				weapon.skins.enumerated().lazy.flatMap { skinIndex, skin in
 					skin.levels.enumerated().map { levelIndex, level in
