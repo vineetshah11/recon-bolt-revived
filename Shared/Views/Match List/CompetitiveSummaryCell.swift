@@ -54,10 +54,10 @@ struct CompetitiveSummaryCell: View {
 		VStack {
 			let act = seasons?.currentAct()
 			let info: CareerSummary.SeasonInfo?
-			if let raw = summary?.competitiveInfo?.inSeason(act?.id) {
-				info = raw.isBlankCurrentActSnapshot ? bestRankedSeasonInfo(in: summary) : raw
+			if let raw = summary?.competitiveInfo?.inSeason(act?.id), !raw.isBlankCurrentActSnapshot {
+				info = raw
 			} else {
-				info = bestRankedSeasonInfo(in: summary)
+				info = seasons?.mostRecentRankedSeasonInfo(in: summary?.competitiveInfo?.bySeason)
 			}
 			let tier = info?.competitiveTier ?? 0
 			let tierInfo = seasons?.tierInfo(number: tier, in: act)
@@ -97,12 +97,6 @@ struct CompetitiveSummaryCell: View {
 				LeaderboardRankView(rank: info.leaderboardRank, tierInfo: tierInfo)
 			}
 		}
-	}
-
-	private func bestRankedSeasonInfo(in summary: CareerSummary?) -> CareerSummary.SeasonInfo? {
-		summary?.competitiveInfo?.bySeason?.values
-			.filter { $0.competitiveTier > 0 }
-			.max(by: { $0.seasonID < $1.seasonID })
 	}
 
 	@ViewBuilder

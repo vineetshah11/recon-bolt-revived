@@ -5,7 +5,7 @@ import WidgetKit
 
 struct ContentView: View {
 	@ObservedObject var accountManager: AccountManager
-	@ObservedObject private var assetManager: AssetManager
+	@ObservedObject var assetManager: AssetManager
 	@ObservedObject var settings: AppSettings
 	@ObservedObject var store: InAppStore
 	
@@ -49,7 +49,6 @@ struct ContentView: View {
 				) }
 				.tag(Tab.settings)
 		}
-		.environmentObject(assetManager)
 		.environmentObject(assetManager)
 	.environment(\.assets, assetManager.assets)
 		.task(id: accountManager.requiresAction) {

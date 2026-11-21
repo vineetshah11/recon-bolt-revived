@@ -101,6 +101,20 @@ struct SeasonCollection: AssetItem, Codable {
 			act.flatMap(collection.tiers(in:))?.tier(number)
 		}
 		
+		/// The most recent act (in in-game chronology) whose seasonal info has a competitive tier set.
+		/// Riot can leave the active act's entry blank at act start, so rank displays fall back to this.
+		func mostRecentRankedSeasonInfo(
+			in bySeason: [Season.ID: CareerSummary.SeasonInfo]?
+		) -> CareerSummary.SeasonInfo? {
+			guard let bySeason else { return nil }
+			for act in collection.actsInOrder.reversed() {
+				if let info = bySeason[act.id], info.competitiveTier > 0 {
+					return info
+				}
+			}
+			return nil
+		}
+		
 		func tierCollections(relevantTo range: ClosedRange<Date>) -> [Act.WithTiers] {
 			collection.tierCollections(relevantTo: adjust(range.lowerBound)...adjust(range.upperBound))
 				.map { $0 <- { adjust(&$0.act) } }
