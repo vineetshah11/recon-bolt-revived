@@ -97,7 +97,7 @@ struct AccountSettingsView: View {
 	}
 	
 	var legalBoilerplate: some View {
-		Text(verbatim: "Recon Bolt is not endorsed by Riot Games and does not reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.") // legally best not to translate this ig, couldn't find versions in other languages
+		Text(verbatim: "Vantage is not endorsed by Riot Games and does not reflect the views or opinions of Riot Games or anyone officially involved in producing or managing Riot Games properties. Riot Games and all associated properties are trademarks or registered trademarks of Riot Games, Inc.") // legally best not to translate this ig, couldn't find versions in other languages
 			.font(.footnote)
 			.foregroundStyle(.secondary)
 			.frame(maxWidth: .infinity, alignment: .leading)

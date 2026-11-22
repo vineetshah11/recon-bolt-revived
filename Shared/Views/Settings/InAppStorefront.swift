@@ -8,7 +8,7 @@ struct InAppStorefront: View {
 	var body: some View {
 		HStack {
 			VStack(alignment: .leading, spacing: 12) {
-				Text("Recon Bolt Pro")
+				Text("Vantage Pro")
 					.font(.title2.bold())
 					.foregroundColor(.blue)
 				
@@ -178,7 +178,7 @@ struct ProFeaturesOverview: View {
 			
 			Section {
 				description(Text("Family Sharing", comment: "Pro Features List")) {
-					Text("Recon Bolt Pro supports Family Sharing, meaning if just one member of your iCloud family buys it, everyone can use it!", comment: "Pro Features List")
+					Text("Vantage Pro supports Family Sharing, meaning if just one member of your iCloud family buys it, everyone can use it!", comment: "Pro Features List")
 				}
 			}
 		}
