@@ -29,11 +29,14 @@ struct MatchPerformanceTabView: View {
 	let data: MatchViewData
 	let analytics: MatchAnalytics
 	let focusedPlayer: Player
+	var resolvedUsers: [Player.ID: User] = [:]
 	
 	@Environment(\.assets) private var assets
 	@State private var metric: Metric = .acs
 	@State private var sideFilter: SideFilter = .all
 	@State private var expandedRounds: Set<Int> = []
+	@State private var expandedMatchups: Set<Player.ID> = []
+	@State private var expandedSites: Set<String> = []
 	
 	var body: some View {
 		let stats = analytics.byPlayer[focusedPlayer.id]
@@ -84,6 +87,12 @@ struct MatchPerformanceTabView: View {
 			chartCard(entries: entries, lobbyAvg: lobbyAvg)
 			
 			roundsSection(entries: entries)
+			
+			opponentMatchupsSection
+			
+			sitePreferenceSection
+			
+			weaponsUsedSection(stats: stats)
 		}
 	}
 	
@@ -249,6 +258,248 @@ struct MatchPerformanceTabView: View {
 			Text(value)
 				.font(.caption.weight(.bold).monospacedDigit())
 		}
+	}
+	
+	@ViewBuilder
+	private var opponentMatchupsSection: some View {
+		let rows = analytics.opponentMatchups(for: focusedPlayer.id)
+		if !rows.isEmpty {
+			VStack(alignment: .leading, spacing: 8) {
+				Text("OPPONENT MATCHUPS")
+					.font(.caption.weight(.semibold))
+					.foregroundStyle(.secondary)
+					.padding(.horizontal, 4)
+				
+				VStack(spacing: 0) {
+					ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+						let isExpanded = expandedMatchups.contains(row.id)
+						VStack(spacing: 0) {
+							Button {
+								withAnimation(.easeInOut(duration: 0.2)) {
+									if isExpanded {
+										expandedMatchups.remove(row.id)
+									} else {
+										expandedMatchups.insert(row.id)
+									}
+								}
+							} label: {
+								HStack(spacing: 10) {
+									Group {
+										if let agentID = row.opponent.agentID {
+											AgentImage.icon(
+												agentID,
+												teamID: row.opponent.teamID,
+												isOVariant: data.isGauntletOVariant(for: row.opponent)
+											)
+										} else {
+											Image(systemName: "person.fill")
+												.foregroundStyle(.secondary)
+										}
+									}
+									.frame(width: 28, height: 28)
+									.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+									.clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+									
+									Text(row.opponent.resolvedDisplayName(using: resolvedUsers))
+										.font(.subheadline.weight(.semibold))
+										.foregroundStyle(.primary)
+										.lineLimit(1)
+									
+									Spacer()
+									
+									HStack(spacing: 4) {
+										Text("\(row.myKills)")
+											.foregroundStyle(
+												row.myKills > row.theirKills
+												? Color.valorantBlue
+												: (row.myKills < row.theirKills ? Color.valorantRed : .primary)
+											)
+										Text(":")
+											.foregroundStyle(.secondary)
+										Text("\(row.theirKills)")
+											.foregroundStyle(.primary)
+									}
+									.font(.subheadline.weight(.bold).monospacedDigit())
+									
+									Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+										.font(.caption2.weight(.semibold))
+										.foregroundStyle(.secondary)
+								}
+								.padding(.vertical, 12)
+								.contentShape(Rectangle())
+							}
+							.buttonStyle(.plain)
+							
+							if isExpanded {
+								HStack(spacing: 16) {
+									roundDetailMetric("Dmg Dealt", "\(row.damageDealt)")
+									roundDetailMetric("Dmg Taken", "\(row.damageTaken)")
+									roundDetailMetric("HS Dealt", "\(row.headshotsDealt)")
+									roundDetailMetric("FK / FD", "\(row.firstBloodsWon) / \(row.firstBloodsLost)")
+									Spacer()
+								}
+								.padding(.bottom, 12)
+							}
+						}
+						.padding(.horizontal, 14)
+						
+						if index < rows.count - 1 {
+							Divider()
+								.opacity(0.25)
+								.padding(.leading, 14)
+						}
+					}
+				}
+				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+			}
+		}
+	}
+	
+	@ViewBuilder
+	private var sitePreferenceSection: some View {
+		let sites = analytics.sitePreferences(for: focusedPlayer.teamID, focusedPlayerID: focusedPlayer.id)
+		if !sites.isEmpty {
+			VStack(alignment: .leading, spacing: 8) {
+				Text("SITE PREFERENCE")
+					.font(.caption.weight(.semibold))
+					.foregroundStyle(.secondary)
+					.padding(.horizontal, 4)
+				
+				VStack(spacing: 0) {
+					ForEach(Array(sites.enumerated()), id: \.element.id) { index, site in
+						let isExpanded = expandedSites.contains(site.id)
+						VStack(spacing: 0) {
+							Button {
+								withAnimation(.easeInOut(duration: 0.2)) {
+									if isExpanded {
+										expandedSites.remove(site.id)
+									} else {
+										expandedSites.insert(site.id)
+									}
+								}
+							} label: {
+								HStack(spacing: 12) {
+									Text(site.site)
+										.font(.title3.weight(.bold))
+										.foregroundStyle(.primary)
+										.frame(width: 24, alignment: .leading)
+									
+									Text(site.plants == 1 ? "1 plant" : "\(site.plants) plants")
+										.font(.subheadline)
+										.foregroundStyle(.secondary)
+									
+									Spacer()
+									
+									VStack(alignment: .trailing, spacing: 1) {
+										Text("\(Int((site.conversionRate * Double(100)).rounded())) %")
+											.font(.subheadline.weight(.bold).monospacedDigit())
+											.foregroundStyle(.primary)
+										Text("Conversion")
+											.font(.system(size: 10, weight: .medium))
+											.foregroundStyle(.secondary)
+									}
+									
+									Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+										.font(.caption2.weight(.semibold))
+										.foregroundStyle(.secondary)
+								}
+								.padding(.vertical, 12)
+								.contentShape(Rectangle())
+							}
+							.buttonStyle(.plain)
+							
+							if isExpanded {
+								HStack(spacing: 16) {
+									roundDetailMetric("Converted", "\(site.wins)")
+									roundDetailMetric("Lost", "\(site.losses)")
+									if site.focusedPlayerPlants > 0 {
+										roundDetailMetric("Your Plants", "\(site.focusedPlayerPlants)")
+									}
+									Spacer()
+								}
+								.padding(.bottom, 12)
+							}
+						}
+						.padding(.horizontal, 14)
+						
+						if index < sites.count - 1 {
+							Divider()
+								.opacity(0.25)
+								.padding(.leading, 14)
+						}
+					}
+				}
+				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+			}
+		}
+	}
+	
+	@ViewBuilder
+	private func weaponsUsedSection(stats: MatchAnalytics.PlayerMatchAnalytics?) -> some View {
+		let weapons = stats?.weaponsUsed ?? []
+		if !weapons.isEmpty {
+			VStack(alignment: .leading, spacing: 8) {
+				Text("WEAPONS USED")
+					.font(.caption.weight(.semibold))
+					.foregroundStyle(.secondary)
+					.padding(.horizontal, 4)
+				
+				VStack(spacing: 0) {
+					ForEach(Array(weapons.enumerated()), id: \.element.id) { index, weapon in
+						HStack(spacing: 12) {
+							WeaponImage.killStreamIcon(weapon.weaponID)
+								.scaledToFit()
+								.foregroundStyle(.secondary)
+								.frame(width: 56, height: 22)
+							
+							Text(weaponDisplayName(for: weapon.weaponID))
+								.font(.subheadline.weight(.semibold))
+								.foregroundStyle(.primary)
+								.lineLimit(1)
+							
+							Spacer()
+							
+							VStack(spacing: 1) {
+								Text("\(weapon.kills)")
+									.font(.subheadline.weight(.bold).monospacedDigit())
+								Text("KILLS")
+									.font(.system(size: 9, weight: .semibold))
+									.foregroundStyle(.secondary)
+							}
+							.frame(minWidth: 42)
+							
+							VStack(spacing: 1) {
+								Text("\(weapon.damage)")
+									.font(.subheadline.weight(.bold).monospacedDigit())
+								Text("DMG")
+									.font(.system(size: 9, weight: .semibold))
+									.foregroundStyle(.secondary)
+							}
+							.frame(minWidth: 50)
+						}
+						.padding(.horizontal, 14)
+						.padding(.vertical, 12)
+						
+						if index < weapons.count - 1 {
+							Divider()
+								.opacity(0.25)
+								.padding(.leading, 14)
+						}
+					}
+				}
+				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+			}
+		}
+	}
+	
+	private func weaponDisplayName(for id: Weapon.ID) -> String {
+		if let name = assets?.weapons[id]?.displayName, !name.isEmpty {
+			return name
+		}
+		if id == .melee {
+			return "Melee"
+		}
+		return "Weapon"
 	}
 }
 

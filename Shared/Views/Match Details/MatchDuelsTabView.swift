@@ -5,6 +5,7 @@ struct MatchDuelsTabView: View {
 	let data: MatchViewData
 	let analytics: MatchAnalytics
 	let focusedTeamID: Team.ID
+	var resolvedUsers: [Player.ID: User] = [:]
 	
 	@State private var selectedMatchup: MatchAnalytics.DuelMatchup?
 	
@@ -31,7 +32,7 @@ struct MatchDuelsTabView: View {
 			}
 			.sheet(item: $selectedMatchup) { matchup in
 				NavigationView {
-					DuelBreakdownSheet(data: data, matchup: matchup)
+					DuelBreakdownSheet(data: data, matchup: matchup, resolvedUsers: resolvedUsers)
 				}
 			}
 		} else {
@@ -233,17 +234,20 @@ struct MatchDuelsTabView: View {
 private struct DuelBreakdownSheet: View {
 	let data: MatchViewData
 	let matchup: MatchAnalytics.DuelMatchup
+	var resolvedUsers: [Player.ID: User] = [:]
 	
 	@Environment(\.dismiss) private var dismiss
 	@Environment(\.assets) private var assets
 	
 	var body: some View {
+		let allyName = matchup.allyPlayer.resolvedDisplayName(using: resolvedUsers)
+		let enemyName = matchup.enemyPlayer.resolvedDisplayName(using: resolvedUsers)
 		ScrollView {
 			VStack(spacing: 16) {
 				HStack(spacing: 16) {
 					VStack(spacing: 6) {
 						agentPortrait(matchup.allyPlayer)
-						Text(matchup.allyPlayer.gameName.isEmpty ? "Ally" : matchup.allyPlayer.gameName)
+						Text(allyName)
 							.font(.subheadline.weight(.bold))
 							.lineLimit(1)
 					}
@@ -259,7 +263,7 @@ private struct DuelBreakdownSheet: View {
 					
 					VStack(spacing: 6) {
 						agentPortrait(matchup.enemyPlayer)
-						Text(matchup.enemyPlayer.gameName.isEmpty ? "Enemy" : matchup.enemyPlayer.gameName)
+						Text(enemyName)
 							.font(.subheadline.weight(.bold))
 							.lineLimit(1)
 					}
@@ -298,8 +302,8 @@ private struct DuelBreakdownSheet: View {
 									)
 								
 								Text(event.killerIsAlly
-									? "\(matchup.allyPlayer.gameName) eliminated \(matchup.enemyPlayer.gameName)"
-									: "\(matchup.enemyPlayer.gameName) eliminated \(matchup.allyPlayer.gameName)")
+									? "\(allyName) eliminated \(enemyName)"
+									: "\(enemyName) eliminated \(allyName)")
 									.font(.caption.weight(.medium))
 									.lineLimit(1)
 								

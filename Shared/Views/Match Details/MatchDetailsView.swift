@@ -21,7 +21,9 @@ struct MatchDetailsView: View {
 	@State private var focusedPlayerID: Player.ID
 	@State private var highlight = PlayerHighlightInfo()
 	@State private var groupedByTeam = true
+	@State private var isCompactScoreboard = false
 	@State private var scoreboardSort: MatchScoreboardSort = .acs
+	@State private var resolvedUsers: [Player.ID: User] = [:]
 	@State private var isRefreshingProfiles = false
 	@State private var isShowingShareSheet = false
 	
@@ -69,7 +71,8 @@ struct MatchDetailsView: View {
 						MatchSummaryTabView(
 							data: focusedData,
 							analytics: analytics,
-							focusedPlayer: focusedPlayer
+							focusedPlayer: focusedPlayer,
+							resolvedUsers: resolvedUsers
 						)
 						
 					case .scoreboard:
@@ -78,7 +81,9 @@ struct MatchDetailsView: View {
 							analytics: analytics,
 							focusedPlayerID: focusedPlayer.id,
 							groupedByTeam: groupedByTeam,
+							isCompact: isCompactScoreboard,
 							sort: scoreboardSort,
+							resolvedUsers: resolvedUsers,
 							highlight: $highlight,
 							onSelectFocus: { newID in
 								focusedPlayerID = newID
@@ -92,14 +97,16 @@ struct MatchDetailsView: View {
 						MatchDuelsTabView(
 							data: focusedData,
 							analytics: analytics,
-							focusedTeamID: focusedPlayer.teamID
+							focusedTeamID: focusedPlayer.teamID,
+							resolvedUsers: resolvedUsers
 						)
 						
 					case .performance:
 						MatchPerformanceTabView(
 							data: focusedData,
 							analytics: analytics,
-							focusedPlayer: focusedPlayer
+							focusedPlayer: focusedPlayer,
+							resolvedUsers: resolvedUsers
 						)
 						
 					case .economy:
@@ -141,8 +148,12 @@ struct MatchDetailsView: View {
 			MatchShareSheet(
 				data: focusedData,
 				analytics: analytics,
-				focusedPlayer: focusedPlayer
+				focusedPlayer: focusedPlayer,
+				resolvedUsers: resolvedUsers
 			)
+		}
+		.task(id: data.details.id) {
+			await ensurePlayerNamesLoaded()
 		}
 	}
 	
@@ -280,18 +291,42 @@ struct MatchDetailsView: View {
 		
 		return Menu {
 			if activeTab == .scoreboard {
-				Button {
-					withAnimation(.easeInOut(duration: 0.2)) { groupedByTeam = true }
-				} label: {
-					Label("Group by Team", systemImage: groupedByTeam ? "checkmark" : "person.2")
+				ControlGroup {
+					Button {
+						withAnimation(.easeInOut(duration: 0.2)) {
+							groupedByTeam.toggle()
+						}
+					} label: {
+						Label(
+							groupedByTeam ? "Combined Lobby" : "Group by Team",
+							systemImage: groupedByTeam ? "person.2.fill" : "person.2"
+						)
+					}
+					
+					Button {
+						withAnimation(.easeInOut(duration: 0.2)) {
+							isCompactScoreboard.toggle()
+						}
+					} label: {
+						Label(
+							isCompactScoreboard ? "Standard View" : "Compact View",
+							systemImage: isCompactScoreboard
+								? "arrow.up.and.line.horizontal.and.arrow.down"
+								: "arrow.down.and.line.horizontal.and.arrow.up"
+						)
+					}
 				}
 				
-				Button {
-					withAnimation(.easeInOut(duration: 0.2)) { groupedByTeam = false }
-				} label: {
-					Label("Combined Lobby", systemImage: !groupedByTeam ? "checkmark" : "arrow.up.and.down")
-				}
-				
+				Divider()
+			}
+			
+			Button {
+				Task { await refreshAllProfiles() }
+			} label: {
+				Label("Refresh Profiles", systemImage: "arrow.clockwise")
+			}
+			
+			if activeTab == .scoreboard {
 				Divider()
 				
 				Menu {
@@ -311,22 +346,25 @@ struct MatchDetailsView: View {
 				}
 			}
 			
-			Button {
-				Task { await refreshAllProfiles() }
-			} label: {
-				Label("Refresh Profiles", systemImage: "arrow.clockwise")
-			}
-			
 			Menu {
 				ForEach(menuPlayers) { player in
-					Button {
-						focusedPlayerID = player.id
-					} label: {
-						let name = player.gameName.isEmpty ? "Player" : player.gameName
-						if player.id == focusedPlayer.id {
-							Label(name, systemImage: "checkmark")
-						} else {
-							Text(name)
+					let displayName = player.resolvedDisplayName(using: resolvedUsers)
+					let tag = player.resolvedTagLine(using: resolvedUsers)
+					let labelText = tag.isEmpty ? displayName : "\(displayName)#\(tag)"
+					let isCurrent = player.id == focusedPlayer.id
+					
+					Toggle(isOn: Binding(
+						get: { isCurrent },
+						set: { _ in focusedPlayerID = player.id }
+					)) {
+						Label {
+							Text(labelText)
+						} icon: {
+							if let uiIcon = menuAgentIcon(for: player) {
+								Image(uiImage: uiIcon)
+							} else {
+								Image(systemName: "person.fill")
+							}
 						}
 					}
 				}
@@ -356,13 +394,15 @@ struct MatchDetailsView: View {
 						.font(.system(size: 9, weight: .semibold))
 						.foregroundStyle(.secondary)
 					
+					let focusName = focusedPlayer.resolvedDisplayName(using: resolvedUsers)
+					let focusTag = focusedPlayer.resolvedTagLine(using: resolvedUsers)
 					HStack(spacing: 0) {
-						Text(focusedPlayer.gameName.isEmpty ? "Player" : focusedPlayer.gameName)
+						Text(focusName)
 							.font(.subheadline.weight(.semibold))
 							.foregroundStyle(.primary)
 							.lineLimit(1)
-						if !focusedPlayer.tagLine.isEmpty {
-							Text("#\(focusedPlayer.tagLine)")
+						if !focusTag.isEmpty {
+							Text("#\(focusTag)")
 								.font(.subheadline)
 								.foregroundStyle(.secondary)
 								.lineLimit(1)
@@ -401,9 +441,63 @@ struct MatchDetailsView: View {
 			)
 			.shadow(color: .black.opacity(0.35), radius: 10, y: 4)
 		}
+		.menuOrder(.fixed)
 		.buttonStyle(.plain)
 		.padding(.horizontal, 20)
 		.padding(.bottom, 6)
+	}
+	
+	private func menuAgentIcon(for player: Player) -> UIImage? {
+		let source: UIImage?
+		if player.agentID == .abilityDraftAgent {
+			let name = player.teamID.gauntletRoboAssetName(
+				isOVariant: data.isGauntletOVariant(for: player),
+				isKillfeed: false
+			) ?? "gauntlet/robo_grey_x"
+			source = UIImage.bundledAsset(named: name)
+		} else if let aid = player.agentID {
+			source = assets?.agents[aid]?.displayIcon.load()
+		} else {
+			source = nil
+		}
+		guard let source else { return nil }
+		let side = CGFloat(22)
+		let size = CGSize(width: side, height: side)
+		let renderer = UIGraphicsImageRenderer(size: size)
+		return renderer.image { _ in
+			UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 5).addClip()
+			source.draw(in: CGRect(origin: .zero, size: size))
+		}.withRenderingMode(.alwaysOriginal)
+	}
+	
+	private func syncCachedUsers() async {
+		var updated = resolvedUsers
+		var changed = false
+		let manager = LocalDataProvider.shared.userManager
+		for player in data.details.players where player.gameName.isEmpty {
+			if let cached = await manager.cachedObject(for: player.id), !cached.gameName.isEmpty {
+				if updated[player.id]?.gameName != cached.gameName || updated[player.id]?.tagLine != cached.tagLine {
+					updated[player.id] = cached
+					changed = true
+				}
+			}
+		}
+		if changed {
+			resolvedUsers = updated
+		}
+	}
+	
+	private func ensurePlayerNamesLoaded() async {
+		await syncCachedUsers()
+		let missingIDs = data.details.players
+			.filter { $0.gameName.isEmpty && (resolvedUsers[$0.id]?.gameName.isEmpty ?? true) }
+			.map(\.id)
+		guard !missingIDs.isEmpty else { return }
+		await load { client in
+			let fetched = try await client.getUsers(for: missingIDs)
+			await LocalDataProvider.shared.userManager.store(fetched, asOf: .now)
+		}
+		await syncCachedUsers()
 	}
 	
 	private func refreshAllProfiles() async {
@@ -412,11 +506,14 @@ struct MatchDetailsView: View {
 		defer { isRefreshingProfiles = false }
 		await load { client in
 			let ids = data.details.players.map(\.id)
-			try? await client.fetchUsers(for: ids)
+			if let fetched = try? await client.getUsers(for: ids) {
+				await LocalDataProvider.shared.userManager.store(fetched, asOf: .now)
+			}
 			for playerID in ids {
 				try? await client.fetchCareerSummary(for: playerID, forceFetch: true)
 			}
 		}
+		await syncCachedUsers()
 	}
 }
 
@@ -426,6 +523,7 @@ private struct MatchShareSheet: View {
 	let data: MatchViewData
 	let analytics: MatchAnalytics
 	let focusedPlayer: Player
+	var resolvedUsers: [Player.ID: User] = [:]
 	
 	@Environment(\.assets) private var assets
 	@Environment(\.dismiss) private var dismiss
@@ -506,7 +604,7 @@ private struct MatchShareSheet: View {
 					.clipShape(RoundedRectangle(cornerRadius: 10))
 					
 					VStack(alignment: .leading, spacing: 3) {
-						Text(focusedPlayer.gameName.isEmpty ? "Player" : focusedPlayer.gameName)
+						Text(focusedPlayer.resolvedDisplayName(using: resolvedUsers))
 							.font(.headline.bold())
 							.foregroundStyle(.white)
 						Text(mapName)

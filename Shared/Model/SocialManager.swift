@@ -1,6 +1,30 @@
 import Foundation
 import ValorantAPI
 
+enum FriendChangeKind: String, Codable, Sendable {
+	case acceptedRequest
+	case removedFriend
+	case requestNoLongerPending
+	case addedFriend
+}
+
+struct FriendListChangeEvent: Identifiable, Codable, Equatable, Sendable {
+	var id: UUID = UUID()
+	var jid: String
+	var puuid: User.ID?
+	var gameName: String
+	var tagLine: String
+	var kind: FriendChangeKind
+	var timestamp: Date
+	
+	var displayName: String {
+		if !gameName.isEmpty {
+			return tagLine.isEmpty ? gameName : "\(gameName)#\(tagLine)"
+		}
+		return jid
+	}
+}
+
 @MainActor
 final class SocialManager: ObservableObject {
 	enum ConnectionState: Equatable {
@@ -10,16 +34,38 @@ final class SocialManager: ObservableObject {
 		case failed(String)
 	}
 	
+	private struct CachedSocialAccount: Codable {
+		var friendsByJID: [String: XMPPFriend] = [:]
+		var snapshotSubscriptions: [String: String] = [:]
+		var changeEvents: [FriendListChangeEvent] = []
+		var lastSyncedAt: Date?
+		var lastPresenceAt: Date?
+	}
+	
+	private static let cacheFilename = "SocialCache.v1.json"
+	private static let backgroundRefreshInterval: TimeInterval = 300
+	private static let offlineDemoteInterval: TimeInterval = 1800
+	
 	@Published var connectionState: ConnectionState = .disconnected
 	@Published var friendsByJID: [String: XMPPFriend] = [:]
 	@Published var messagesByJID: [String: [XMPPChatMessage]] = [:]
 	@Published var unreadByJID: [String: Int] = [:]
+	@Published var changeEvents: [FriendListChangeEvent] = []
 	@Published var activeChatJID: String?
 	@Published var myJID: String = ""
+	@Published var myPresence: XMPPPresenceUpdate?
+	@Published var lastSyncedAt: Date?
+	@Published var isRefreshing = false
 	
 	private let client = XMPPClient()
 	private var connectedUserID: User.ID?
+	private var loadedCacheUserID: User.ID?
 	private var connectAttempt = 0
+	private var snapshotSubscriptions: [String: String] = [:]
+	private var locallyRemovedJIDs: Set<String> = []
+	private var lastPresenceAt: Date?
+	private var deferredSaveTask: Task<Void, Never>?
+	private var refreshResetTask: Task<Void, Never>?
 	
 	var friends: [XMPPFriend] {
 		friendsByJID.values.sorted { lhs, rhs in
@@ -39,24 +85,51 @@ final class SocialManager: ObservableObject {
 		}.count
 	}
 	
+	var confirmedFriendCount: Int {
+		friendsByJID.values.filter { !$0.isIncomingRequest && !$0.isOutgoingRequest }.count
+	}
+	
+	var outgoingRequestCount: Int {
+		friendsByJID.values.filter(\.isOutgoingRequest).count
+	}
+	
+	var incomingRequestCount: Int {
+		friendsByJID.values.filter(\.isIncomingRequest).count
+	}
+	
 	func connectIfNeeded(using apiClient: ValorantClient?) async {
 		guard let apiClient else {
 			await disconnect()
 			return
 		}
-		if connectedUserID == apiClient.userID && (connectionState == .connected || connectionState == .connecting) {
-			return
+		
+		loadCacheIfNeeded(for: apiClient.userID)
+		
+		if connectedUserID == apiClient.userID {
+			if connectionState == .connected {
+				if isBackgroundRefreshDue {
+					await refreshRosterInBackground()
+				}
+				return
+			}
+			if connectionState == .connecting {
+				return
+			}
 		}
-		await reconnect(using: apiClient)
+		
+		await reconnect(using: apiClient, clearExisting: false)
 	}
 	
-	func reconnect(using apiClient: ValorantClient) async {
+	func reconnect(using apiClient: ValorantClient, clearExisting: Bool = false) async {
 		connectAttempt += 1
 		let attempt = connectAttempt
 		await client.disconnect() // cancels any stuck in-flight attempt
+		loadCacheIfNeeded(for: apiClient.userID)
 		connectedUserID = apiClient.userID
 		connectionState = .connecting
-		friendsByJID = [:]
+		if clearExisting {
+			friendsByJID = [:]
+		}
 		do {
 			try await client.connect(client: apiClient) { [weak self] event in
 				await self?.handle(event)
@@ -68,12 +141,54 @@ final class SocialManager: ObservableObject {
 		}
 	}
 	
+	func refreshNow(using apiClient: ValorantClient) async {
+		if connectionState == .connected {
+			isRefreshing = true
+			refreshResetTask?.cancel()
+			refreshResetTask = Task { [weak self] in
+				try? await Task.sleep(for: .seconds(6))
+				guard !Task.isCancelled else { return }
+				self?.isRefreshing = false
+			}
+			do {
+				try await client.requestRosterRefresh()
+			} catch {
+				refreshResetTask?.cancel()
+				isRefreshing = false
+				await reconnect(using: apiClient, clearExisting: false)
+			}
+		} else {
+			await reconnect(using: apiClient, clearExisting: false)
+		}
+	}
+	
+	private var isBackgroundRefreshDue: Bool {
+		guard let lastSyncedAt else { return true }
+		return Date().timeIntervalSince(lastSyncedAt) >= Self.backgroundRefreshInterval
+	}
+	
+	private func refreshRosterInBackground() async {
+		guard connectionState == .connected else { return }
+		try? await client.requestRosterRefresh()
+	}
+	
 	func disconnect() async {
+		refreshResetTask?.cancel()
+		deferredSaveTask?.cancel()
 		await client.disconnect()
 		connectedUserID = nil
+		loadedCacheUserID = nil
 		connectionState = .disconnected
 		friendsByJID = [:]
+		snapshotSubscriptions = [:]
+		locallyRemovedJIDs = []
+		changeEvents = []
 		unreadByJID = [:]
+		myJID = ""
+		myPresence = nil
+		lastSyncedAt = nil
+		lastPresenceAt = nil
+		isRefreshing = false
 	}
 	
 	func sendMessage(to jid: String, body: String) async throws {
@@ -102,11 +217,16 @@ final class SocialManager: ObservableObject {
 	func acceptFriend(_ friend: XMPPFriend) async throws {
 		try await client.acceptFriend(jid: friend.jid)
 		friendsByJID[friend.jid]?.subscription = "both"
+		snapshotSubscriptions[friend.jid] = "both"
+		scheduleCacheSave()
 	}
 	
 	func removeFriend(_ friend: XMPPFriend) async throws {
+		locallyRemovedJIDs.insert(friend.jid)
 		try await client.removeFriend(jid: friend.jid)
 		friendsByJID.removeValue(forKey: friend.jid)
+		snapshotSubscriptions.removeValue(forKey: friend.jid)
+		scheduleCacheSave()
 	}
 	
 	func markRead(jid: String) {
@@ -120,13 +240,16 @@ final class SocialManager: ObservableObject {
 			self.connectionState = .connected
 			
 		case .disconnected(let error):
+			self.isRefreshing = false
 			if let error {
 				self.connectionState = .failed(error.localizedDescription)
 			} else {
 				self.connectionState = .disconnected
 			}
 			
-		case .rosterReceived(let list):
+		case let .rosterReceived(list, isFullSnapshot):
+			let previousFriends = friendsByJID
+			
 			for item in list {
 				if item.subscription == "remove" {
 					friendsByJID.removeValue(forKey: item.jid)
@@ -135,32 +258,77 @@ final class SocialManager: ObservableObject {
 					if !item.tagLine.isEmpty { existing.tagLine = item.tagLine }
 					existing.subscription = item.subscription
 					existing.puuid = existing.puuid ?? item.puuid
+					if isFullSnapshot || item.note != nil {
+						existing.note = item.note
+					}
 					friendsByJID[item.jid] = existing
 				} else {
 					friendsByJID[item.jid] = item
 				}
 			}
 			
-		case let .presenceUpdated(jid, status, gameTitle, statusText, mapPath, queueID, allyScore, enemyScore, partySize, maxPartySize, competitiveTier, accountLevel):
-			var friend = friendsByJID[jid] ?? XMPPFriend(
-				jid: jid,
-				puuid: jid.components(separatedBy: "@").first.flatMap(User.ID.init),
+			if isFullSnapshot {
+				let activeItems = list.filter { $0.subscription != "remove" }
+				let activeJIDs = Set(activeItems.map(\.jid))
+				let newSubs = Dictionary(
+					activeItems.map { ($0.jid, $0.subscription) },
+					uniquingKeysWith: { _, latest in latest }
+				)
+				
+				if !snapshotSubscriptions.isEmpty {
+					diffRosterForChanges(
+						oldSubs: snapshotSubscriptions,
+						oldFriends: previousFriends,
+						newSubs: newSubs
+					)
+				}
+				
+				for jid in Array(friendsByJID.keys) where !activeJIDs.contains(jid) {
+					friendsByJID.removeValue(forKey: jid)
+				}
+				
+				snapshotSubscriptions = newSubs
+				locallyRemovedJIDs.removeAll()
+				lastSyncedAt = Date()
+				refreshResetTask?.cancel()
+				isRefreshing = false
+				saveCacheNow()
+			} else {
+				scheduleCacheSave()
+			}
+			
+		case .presenceUpdated(let update):
+			if isOwnPresenceJID(update.jid) {
+				self.myPresence = update
+				return
+			}
+			var friend = friendsByJID[update.jid] ?? XMPPFriend(
+				jid: update.jid,
+				puuid: update.jid.components(separatedBy: "@").first.flatMap(User.ID.init),
 				gameName: "",
 				tagLine: "",
 				subscription: "both"
 			)
-			friend.status = status
-			friend.gameTitle = gameTitle
-			friend.statusText = statusText
-			friend.mapPath = mapPath
-			friend.queueID = queueID
-			friend.allyScore = allyScore
-			friend.enemyScore = enemyScore
-			friend.partySize = partySize
-			friend.maxPartySize = maxPartySize
-			friend.competitiveTier = competitiveTier
-			friend.accountLevel = accountLevel
-			friendsByJID[jid] = friend
+			friend.status = update.status
+			friend.gameTitle = update.gameTitle
+			friend.statusText = update.statusText
+			friend.mapPath = update.mapPath
+			friend.queueID = update.queueID
+			friend.provisioningFlow = update.provisioningFlow
+			friend.allyScore = update.allyScore
+			friend.enemyScore = update.enemyScore
+			friend.partyID = update.partyID
+			friend.partySize = update.partySize
+			friend.maxPartySize = update.maxPartySize
+			friend.isPartyOwner = update.isPartyOwner
+			friend.competitiveTier = update.competitiveTier
+			friend.accountLevel = update.accountLevel
+			if let cardID = update.playerCardID {
+				friend.playerCardID = cardID
+			}
+			friendsByJID[update.jid] = friend
+			lastPresenceAt = Date()
+			scheduleCacheSave()
 			
 		case .messageReceived(let msg):
 			appendMessage(msg, for: msg.peerJID)
@@ -175,6 +343,145 @@ final class SocialManager: ObservableObject {
 				.sorted { $0.timestamp < $1.timestamp }
 			messagesByJID[peerJID] = merged
 		}
+	}
+	
+	private func isOwnPresenceJID(_ jid: String) -> Bool {
+		if !myJID.isEmpty && jid.caseInsensitiveCompare(myJID) == .orderedSame {
+			return true
+		}
+		if let uid = connectedUserID?.description,
+		   let node = jid.components(separatedBy: "@").first,
+		   node.caseInsensitiveCompare(uid) == .orderedSame {
+			return true
+		}
+		return false
+	}
+	
+	private func diffRosterForChanges(
+		oldSubs: [String: String],
+		oldFriends: [String: XMPPFriend],
+		newSubs: [String: String]
+	) {
+		let now = Date()
+		var appended: [FriendListChangeEvent] = []
+		
+		for (jid, oldSub) in oldSubs {
+			if locallyRemovedJIDs.contains(jid) { continue }
+			let oldFriend = oldFriends[jid]
+			let name = oldFriend?.gameName ?? ""
+			let tag = oldFriend?.tagLine ?? ""
+			let puuid = oldFriend?.puuid
+			let newSub = newSubs[jid]
+			
+			if oldSub == "both" && newSub == nil {
+				appended.append(FriendListChangeEvent(
+					jid: jid, puuid: puuid, gameName: name, tagLine: tag,
+					kind: .removedFriend, timestamp: now
+				))
+			} else if oldSub == "pending_out" && newSub == "both" {
+				let current = friendsByJID[jid]
+				appended.append(FriendListChangeEvent(
+					jid: jid,
+					puuid: current?.puuid ?? puuid,
+					gameName: (current?.gameName.isEmpty == false ? current?.gameName : nil) ?? name,
+					tagLine: (current?.tagLine.isEmpty == false ? current?.tagLine : nil) ?? tag,
+					kind: .acceptedRequest,
+					timestamp: now
+				))
+			} else if oldSub == "pending_out" && newSub == nil {
+				appended.append(FriendListChangeEvent(
+					jid: jid, puuid: puuid, gameName: name, tagLine: tag,
+					kind: .requestNoLongerPending, timestamp: now
+				))
+			}
+		}
+		
+		for (jid, newSub) in newSubs where oldSubs[jid] == nil && newSub == "both" {
+			let current = friendsByJID[jid]
+			appended.append(FriendListChangeEvent(
+				jid: jid,
+				puuid: current?.puuid,
+				gameName: current?.gameName ?? "",
+				tagLine: current?.tagLine ?? "",
+				kind: .addedFriend,
+				timestamp: now
+			))
+		}
+		
+		guard !appended.isEmpty else { return }
+		changeEvents.insert(contentsOf: appended, at: 0)
+		if changeEvents.count > 200 {
+			changeEvents = Array(changeEvents.prefix(200))
+		}
+	}
+	
+	private func cacheKey(for userID: User.ID) -> String {
+		userID.description.lowercased()
+	}
+	
+	private func loadCacheIfNeeded(for userID: User.ID) {
+		guard loadedCacheUserID != userID else { return }
+		loadedCacheUserID = userID
+		myPresence = nil
+		locallyRemovedJIDs = []
+		
+		let allCaches = LocalJSONStore.load([String: CachedSocialAccount].self, from: Self.cacheFilename) ?? [:]
+		guard let cached = allCaches[cacheKey(for: userID)] else {
+			friendsByJID = [:]
+			snapshotSubscriptions = [:]
+			changeEvents = []
+			lastSyncedAt = nil
+			lastPresenceAt = nil
+			return
+		}
+		
+		var restoredFriends = cached.friendsByJID
+		let stalePresence = cached.lastPresenceAt.map {
+			Date().timeIntervalSince($0) >= Self.offlineDemoteInterval
+		} ?? true
+		if stalePresence {
+			for jid in restoredFriends.keys {
+				restoredFriends[jid]?.status = .offline
+				restoredFriends[jid]?.gameTitle = nil
+				restoredFriends[jid]?.mapPath = nil
+				restoredFriends[jid]?.queueID = nil
+				restoredFriends[jid]?.provisioningFlow = nil
+				restoredFriends[jid]?.allyScore = nil
+				restoredFriends[jid]?.enemyScore = nil
+				restoredFriends[jid]?.partyID = nil
+				restoredFriends[jid]?.partySize = nil
+				restoredFriends[jid]?.maxPartySize = nil
+				restoredFriends[jid]?.isPartyOwner = false
+			}
+		}
+		
+		friendsByJID = restoredFriends
+		snapshotSubscriptions = cached.snapshotSubscriptions
+		changeEvents = cached.changeEvents
+		lastSyncedAt = cached.lastSyncedAt
+		lastPresenceAt = cached.lastPresenceAt
+	}
+	
+	private func scheduleCacheSave() {
+		deferredSaveTask?.cancel()
+		deferredSaveTask = Task { [weak self] in
+			try? await Task.sleep(for: .seconds(2))
+			guard !Task.isCancelled else { return }
+			self?.saveCacheNow()
+		}
+	}
+	
+	private func saveCacheNow() {
+		guard let userID = connectedUserID ?? loadedCacheUserID else { return }
+		var allCaches = LocalJSONStore.load([String: CachedSocialAccount].self, from: Self.cacheFilename) ?? [:]
+		allCaches[cacheKey(for: userID)] = CachedSocialAccount(
+			friendsByJID: friendsByJID,
+			snapshotSubscriptions: snapshotSubscriptions,
+			changeEvents: changeEvents,
+			lastSyncedAt: lastSyncedAt,
+			lastPresenceAt: lastPresenceAt
+		)
+		LocalJSONStore.save(allCaches, to: Self.cacheFilename)
 	}
 	
 	private func appendMessage(_ msg: XMPPChatMessage, for jid: String) {

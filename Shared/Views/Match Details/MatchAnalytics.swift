@@ -85,6 +85,42 @@ struct MatchAnalytics {
 		var avgSpent: Double
 		var totalSpent: Int
 		var damagePer1kCredits: Double
+		var weaponsUsed: [WeaponUsageStat]
+	}
+	
+	struct WeaponUsageStat: Identifiable {
+		var id: Weapon.ID { weaponID }
+		var weaponID: Weapon.ID
+		var kills: Int
+		var damage: Int
+		var headshots: Int
+		var roundsUsed: Int
+	}
+	
+	struct SitePreferenceStat: Identifiable {
+		var id: String { site }
+		var site: String
+		var plants: Int
+		var wins: Int
+		var losses: Int
+		var focusedPlayerPlants: Int
+		
+		var conversionRate: Double {
+			plants > 0 ? Double(wins) / Double(plants) : Double(0)
+		}
+	}
+	
+	struct OpponentMatchupRow: Identifiable {
+		var id: Player.ID { opponent.id }
+		var opponent: Player
+		var myKills: Int
+		var theirKills: Int
+		var damageDealt: Int
+		var damageTaken: Int
+		var headshotsDealt: Int
+		var firstBloodsWon: Int
+		var firstBloodsLost: Int
+		var events: [DuelKillEvent]
 	}
 	
 	struct LobbyComparison {
@@ -266,6 +302,10 @@ struct MatchAnalytics {
 			var totalLoadout = 0
 			var totalSpent = 0
 			var economyRoundCount = 0
+			var killsByWeapon: [Weapon.ID: Int] = [:]
+			var damageByWeapon: [Weapon.ID: Int] = [:]
+			var headshotsByWeapon: [Weapon.ID: Int] = [:]
+			var roundsUsedByWeapon: [Weapon.ID: Int] = [:]
 			
 			for round in details.roundResults {
 				let won = round.winningTeam == player.teamID
@@ -311,12 +351,20 @@ struct MatchAnalytics {
 				var roundAssists = 0
 				var diedTime: Int?
 				var killerOfPlayer: Player.ID?
+				var weaponKillsInRound: [Weapon.ID: Int] = [:]
 				
 				for k in allKills {
 					if k.killer == player.id && teamByPlayer[k.victim] != player.teamID {
 						roundKills += 1
 						if let victimAgent = agentByPlayer[k.victim] {
 							killedAgents.append(victimAgent)
+						}
+						if k.finishingDamage.type == .weapon, let wid = Weapon.ID(k.finishingDamage.source) {
+							weaponKillsInRound[wid, default: 0] += 1
+							killsByWeapon[wid, default: 0] += 1
+						} else if k.finishingDamage.type == .melee {
+							weaponKillsInRound[Weapon.ID.melee, default: 0] += 1
+							killsByWeapon[Weapon.ID.melee, default: 0] += 1
 						}
 					}
 					if k.assistants.contains(player.id) {
@@ -427,6 +475,33 @@ struct MatchAnalytics {
 					economyRoundCount += 1
 				}
 				
+				let totalWK = weaponKillsInRound.values.reduce(0, +)
+				if totalWK > 0 {
+					var allocatedDmg = 0
+					var allocatedHS = 0
+					let sortedWK = weaponKillsInRound.sorted { $0.value > $1.value }
+					for (idx, item) in sortedWK.enumerated() {
+						roundsUsedByWeapon[item.key, default: 0] += 1
+						if idx == sortedWK.count - 1 {
+							damageByWeapon[item.key, default: 0] += max(0, rDmg - allocatedDmg)
+							headshotsByWeapon[item.key, default: 0] += max(0, rHS - allocatedHS)
+						} else {
+							let shareD = Int((Double(rDmg) * Double(item.value) / Double(totalWK)).rounded())
+							let shareH = Int((Double(rHS) * Double(item.value) / Double(totalWK)).rounded())
+							allocatedDmg += shareD
+							allocatedHS += shareH
+							damageByWeapon[item.key, default: 0] += shareD
+							headshotsByWeapon[item.key, default: 0] += shareH
+						}
+					}
+				} else if let heldWeapon = econ?.weapon {
+					roundsUsedByWeapon[heldWeapon, default: 0] += 1
+					if rDmg > 0 {
+						damageByWeapon[heldWeapon, default: 0] += rDmg
+						headshotsByWeapon[heldWeapon, default: 0] += rHS
+					}
+				}
+				
 				roundEntries.append(PlayerRoundEntry(
 					roundNumber: round.number,
 					won: won,
@@ -531,6 +606,25 @@ struct MatchAnalytics {
 			let avgSpent = economyRoundCount > 0 ? Double(totalSpent) / Double(economyRoundCount) : Double(0)
 			let dmgPer1k = totalSpent > 0 ? (Double(totalDamage) * Double(1000) / Double(totalSpent)) : Double(0)
 			
+			let allWeapons = Set(killsByWeapon.keys).union(damageByWeapon.keys)
+			let weaponsUsed: [WeaponUsageStat] = allWeapons.compactMap { wid in
+				let kCount = killsByWeapon[wid, default: 0]
+				let dCount = damageByWeapon[wid, default: 0]
+				guard kCount > 0 || dCount > 0 else { return nil }
+				return WeaponUsageStat(
+					weaponID: wid,
+					kills: kCount,
+					damage: dCount,
+					headshots: headshotsByWeapon[wid, default: 0],
+					roundsUsed: roundsUsedByWeapon[wid, default: 0]
+				)
+			}
+			.sorted { lhs, rhs in
+				if lhs.kills != rhs.kills { return lhs.kills > rhs.kills }
+				if lhs.damage != rhs.damage { return lhs.damage > rhs.damage }
+				return lhs.roundsUsed > rhs.roundsUsed
+			}
+			
 			tempStats[player.id] = PlayerMatchAnalytics(
 				playerID: player.id,
 				kills: kills,
@@ -567,7 +661,8 @@ struct MatchAnalytics {
 				avgLoadout: avgLoadout,
 				avgSpent: avgSpent,
 				totalSpent: totalSpent,
-				damagePer1kCredits: dmgPer1k
+				damagePer1kCredits: dmgPer1k,
+				weaponsUsed: weaponsUsed
 			)
 			
 			totalLobbyACS += acs
@@ -852,6 +947,70 @@ struct MatchAnalytics {
 		)
 	}
 	
+	func opponentMatchups(for playerID: Player.ID) -> [OpponentMatchupRow] {
+		guard let player = details.players.first(where: { $0.id == playerID }),
+			  let matrix = duelMatrix(for: player.teamID) else {
+			return []
+		}
+		return matrix.enemyPlayers.compactMap { enemy in
+			let key = DuelPairKey(allyID: playerID, enemyID: enemy.id)
+			guard let m = matrix.cells[key] else { return nil }
+			return OpponentMatchupRow(
+				opponent: enemy,
+				myKills: m.allyKills,
+				theirKills: m.enemyKills,
+				damageDealt: m.allyDamage,
+				damageTaken: m.enemyDamage,
+				headshotsDealt: m.allyHeadshots,
+				firstBloodsWon: m.allyFirstBloods,
+				firstBloodsLost: m.enemyFirstBloods,
+				events: m.events
+			)
+		}
+		.sorted { lhs, rhs in
+			let lTotal = lhs.myKills + lhs.theirKills
+			let rTotal = rhs.myKills + rhs.theirKills
+			if lTotal != rTotal { return lTotal > rTotal }
+			return lhs.myKills > rhs.myKills
+		}
+	}
+	
+	func sitePreferences(for teamID: Team.ID, focusedPlayerID: Player.ID) -> [SitePreferenceStat] {
+		let teamByPlayer = Dictionary(uniqueKeysWithValues: details.players.map { ($0.id, $0.teamID) })
+		var buckets: [String: (plants: Int, wins: Int, losses: Int, selfPlants: Int)] = [:]
+		
+		for round in details.roundResults {
+			guard let site = round.plantSite, !site.isEmpty,
+				  let planter = round.plant?.actor,
+				  teamByPlayer[planter] == teamID else {
+				continue
+			}
+			let key = site.uppercased()
+			var b = buckets[key] ?? (0, 0, 0, 0)
+			b.plants += 1
+			if round.winningTeam == teamID {
+				b.wins += 1
+			} else {
+				b.losses += 1
+			}
+			if planter == focusedPlayerID {
+				b.selfPlants += 1
+			}
+			buckets[key] = b
+		}
+		
+		return buckets.keys.sorted().map { site in
+			let b = buckets[site]!
+			return SitePreferenceStat(
+				site: site,
+				plants: b.plants,
+				wins: b.wins,
+				losses: b.losses,
+				focusedPlayerPlants: b.selfPlants
+			)
+		}
+	}
+	
 	static func parseServerName(from gamePodID: String?) -> String? {
 		guard let gamePodID = gamePodID?.lowercased(), !gamePodID.isEmpty else { return nil }
 		let mapping: [(String, String)] = [
@@ -887,5 +1046,27 @@ struct MatchAnalytics {
 			return name
 		}
 		return nil
+	}
+}
+
+extension Player {
+	@MainActor
+	func resolvedDisplayName(using resolvedUsers: [Player.ID: User]) -> String {
+		if !gameName.isEmpty { return gameName }
+		if let u = resolvedUsers[id], !u.gameName.isEmpty { return u.gameName }
+		if let cached = LocalDataProvider.shared.userManager.loadedObject(for: id), !cached.gameName.isEmpty {
+			return cached.gameName
+		}
+		return "Player"
+	}
+	
+	@MainActor
+	func resolvedTagLine(using resolvedUsers: [Player.ID: User]) -> String {
+		if !tagLine.isEmpty { return tagLine }
+		if let u = resolvedUsers[id], !u.tagLine.isEmpty { return u.tagLine }
+		if let cached = LocalDataProvider.shared.userManager.loadedObject(for: id), !cached.tagLine.isEmpty {
+			return cached.tagLine
+		}
+		return ""
 	}
 }

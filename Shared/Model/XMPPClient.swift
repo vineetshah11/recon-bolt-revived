@@ -97,7 +97,7 @@ enum XMPPError: Error, LocalizedError {
 	}
 }
 
-enum XMPPFriendStatus: String, Comparable {
+enum XMPPFriendStatus: String, Comparable, Codable, Sendable {
 	case inGame
 	case pregame
 	case online
@@ -119,24 +119,29 @@ enum XMPPFriendStatus: String, Comparable {
 	}
 }
 
-struct XMPPFriend: Identifiable, Equatable {
+struct XMPPFriend: Identifiable, Equatable, Codable, Sendable {
 	var id: String { jid }
 	var jid: String
 	var puuid: User.ID?
 	var gameName: String
 	var tagLine: String
 	var subscription: String
+	var note: String? = nil
 	var status: XMPPFriendStatus = .offline
-	var gameTitle: String?
-	var statusText: String?
-	var mapPath: String?
-	var queueID: String?
-	var allyScore: Int?
-	var enemyScore: Int?
-	var partySize: Int?
-	var maxPartySize: Int?
-	var competitiveTier: Int?
-	var accountLevel: Int?
+	var gameTitle: String? = nil
+	var statusText: String? = nil
+	var mapPath: String? = nil
+	var queueID: String? = nil
+	var provisioningFlow: String? = nil
+	var allyScore: Int? = nil
+	var enemyScore: Int? = nil
+	var partyID: String? = nil
+	var partySize: Int? = nil
+	var maxPartySize: Int? = nil
+	var isPartyOwner: Bool = false
+	var competitiveTier: Int? = nil
+	var accountLevel: Int? = nil
+	var playerCardID: PlayerCard.ID? = nil
 	
 	var displayName: String {
 		if !gameName.isEmpty {
@@ -147,6 +152,25 @@ struct XMPPFriend: Identifiable, Equatable {
 	
 	var isIncomingRequest: Bool { subscription == "pending_in" }
 	var isOutgoingRequest: Bool { subscription == "pending_out" }
+}
+
+struct XMPPPresenceUpdate: Equatable, Sendable {
+	var jid: String
+	var status: XMPPFriendStatus
+	var gameTitle: String?
+	var statusText: String?
+	var mapPath: String?
+	var queueID: String?
+	var provisioningFlow: String?
+	var allyScore: Int?
+	var enemyScore: Int?
+	var partyID: String?
+	var partySize: Int?
+	var maxPartySize: Int?
+	var isPartyOwner: Bool
+	var competitiveTier: Int?
+	var accountLevel: Int?
+	var playerCardID: PlayerCard.ID?
 }
 
 struct XMPPChatMessage: Identifiable, Equatable {
@@ -160,8 +184,8 @@ struct XMPPChatMessage: Identifiable, Equatable {
 enum XMPPEvent {
 	case connected(myJID: String)
 	case disconnected(Error?)
-	case rosterReceived([XMPPFriend])
-	case presenceUpdated(jid: String, status: XMPPFriendStatus, gameTitle: String?, statusText: String?, mapPath: String?, queueID: String?, allyScore: Int?, enemyScore: Int?, partySize: Int?, maxPartySize: Int?, competitiveTier: Int?, accountLevel: Int?)
+	case rosterReceived([XMPPFriend], isFullSnapshot: Bool)
+	case presenceUpdated(XMPPPresenceUpdate)
 	case messageReceived(XMPPChatMessage)
 	case archiveReceived(peerJID: String, messages: [XMPPChatMessage])
 }
@@ -254,6 +278,13 @@ actor XMPPClient {
 		connection?.cancel()
 		connection = nil
 		buffer = ""
+	}
+	
+	func requestRosterRefresh() async throws {
+		guard isRunning else { throw XMPPError.notConnected }
+		let id = "roster_request_\(UUID().uuidString.prefix(8))"
+		let xml = "<iq type=\"get\" id=\"\(id)\"><query xmlns=\"jabber:iq:riotgames:roster\" last_state=\"true\" /></iq>"
+		try await sendRaw(xml)
 	}
 	
 	func sendMessage(to jid: String, body: String) async throws {
@@ -524,9 +555,12 @@ actor XMPPClient {
 	private func handleStanza(_ stanza: String) async {
 		if stanza.hasPrefix("<iq") {
 			if stanza.contains("jabber:iq:riotgames:roster") || stanza.contains("jabber:iq:roster") {
+				let iqID = extractAttribute("id", from: stanza) ?? ""
+				let iqType = extractAttribute("type", from: stanza) ?? ""
+				let isFullSnapshot = (iqType == "result" && iqID.hasPrefix("roster_request"))
 				let friends = parseRosterItems(from: stanza)
-				if !friends.isEmpty {
-					await eventHandler?(.rosterReceived(friends))
+				if !friends.isEmpty || isFullSnapshot {
+					await eventHandler?(.rosterReceived(friends, isFullSnapshot: isFullSnapshot))
 				}
 			} else if stanza.contains("jabber:iq:riotgames:archive") {
 				let (peer, messages) = parseArchiveMessages(from: stanza)
@@ -575,6 +609,10 @@ actor XMPPClient {
 				?? extractNestedAttribute("item", attr: "tagline", from: itemXML)
 				?? ""
 			)
+			let rawNote = extractTagContent(from: itemXML, tag: "note")
+				.map(unescapeXML)?
+				.trimmingCharacters(in: .whitespacesAndNewlines)
+			let note = (rawNote?.isEmpty == false) ? rawNote : nil
 			
 			guard !jid.isEmpty else { continue }
 			result.append(XMPPFriend(
@@ -582,7 +620,8 @@ actor XMPPClient {
 				puuid: puuid,
 				gameName: gameName,
 				tagLine: tagLine,
-				subscription: subscription
+				subscription: subscription,
+				note: note
 			))
 		}
 		return result
@@ -593,11 +632,24 @@ actor XMPPClient {
 		let bareJID = rawFrom.components(separatedBy: "/").first ?? rawFrom
 		let typeAttr = extractAttribute("type", from: xml)
 		if typeAttr == "unavailable" {
-			return .presenceUpdated(
-				jid: bareJID, status: .offline, gameTitle: nil, statusText: nil,
-				mapPath: nil, queueID: nil, allyScore: nil, enemyScore: nil,
-				partySize: nil, maxPartySize: nil, competitiveTier: nil, accountLevel: nil
-			)
+			return .presenceUpdated(XMPPPresenceUpdate(
+				jid: bareJID,
+				status: .offline,
+				gameTitle: nil,
+				statusText: nil,
+				mapPath: nil,
+				queueID: nil,
+				provisioningFlow: nil,
+				allyScore: nil,
+				enemyScore: nil,
+				partyID: nil,
+				partySize: nil,
+				maxPartySize: nil,
+				isPartyOwner: false,
+				competitiveTier: nil,
+				accountLevel: nil,
+				playerCardID: nil
+			))
 		}
 		
 		let show = extractTagContent(from: xml, tag: "show")
@@ -608,21 +660,30 @@ actor XMPPClient {
 		
 		var mapPath: String?
 		var queueID: String?
+		var provisioningFlow: String?
 		var allyScore: Int?
 		var enemyScore: Int?
+		var partyID: String?
 		var partySize: Int?
 		var maxPartySize: Int?
+		var isPartyOwner = false
 		var competitiveTier: Int?
 		var accountLevel: Int?
+		var playerCardID: PlayerCard.ID?
 		
 		if let valBlock = extractTagContent(from: xml, tag: "valorant"),
 		   let b64 = extractTagContent(from: valBlock, tag: "p"),
 		   let decoded = Data(base64Encoded: b64.trimmingCharacters(in: .whitespacesAndNewlines)),
 		   let json = try? JSONSerialization.jsonObject(with: decoded) as? [String: Any] {
 			gameTitle = "VALORANT"
+			let matchData = json["matchPresenceData"] as? [String: Any]
+			let partyData = json["partyPresenceData"] as? [String: Any]
+			let playerData = json["playerPresenceData"] as? [String: Any]
+			
 			let loopState = (json["sessionLoopState"] as? String)
-				?? ((json["matchPresenceData"] as? [String: Any])?["sessionLoopState"] as? String)
-				?? ((json["playerPresenceData"] as? [String: Any])?["sessionLoopState"] as? String)
+				?? (matchData?["sessionLoopState"] as? String)
+				?? (playerData?["sessionLoopState"] as? String)
+				?? (json["partyOwnerSessionLoopState"] as? String)
 			switch loopState {
 			case "INGAME":
 				status = .inGame
@@ -631,38 +692,64 @@ actor XMPPClient {
 			default:
 				break
 			}
-			let matchData = json["matchPresenceData"] as? [String: Any]
-			let partyData = json["partyPresenceData"] as? [String: Any]
-			let playerData = json["playerPresenceData"] as? [String: Any]
 			
-			mapPath = (matchData?["matchMap"] as? String) ?? (json["matchMap"] as? String)
-			queueID = (matchData?["queueId"] as? String) ?? (partyData?["queueId"] as? String) ?? (json["queueId"] as? String)
+			let rawMap = (matchData?["matchMap"] as? String)
+				?? (json["matchMap"] as? String)
+				?? (json["partyOwnerMatchMap"] as? String)
+			mapPath = (rawMap?.isEmpty == false) ? rawMap : nil
+			
+			let rawQueue = (matchData?["queueId"] as? String)
+				?? (partyData?["queueId"] as? String)
+				?? (json["queueId"] as? String)
+			queueID = (rawQueue?.isEmpty == false) ? rawQueue : nil
+			
+			let rawFlow = (matchData?["provisioningFlow"] as? String)
+				?? (json["provisioningFlow"] as? String)
+				?? (json["partyOwnerProvisioningFlow"] as? String)
+			provisioningFlow = (rawFlow?.isEmpty == false && rawFlow != "Invalid") ? rawFlow : nil
+			
 			allyScore = (json["partyOwnerMatchScoreAllyTeam"] as? Int) ?? (matchData?["partyOwnerMatchScoreAllyTeam"] as? Int)
 			enemyScore = (json["partyOwnerMatchScoreEnemyTeam"] as? Int) ?? (matchData?["partyOwnerMatchScoreEnemyTeam"] as? Int)
+			
+			let rawParty = (partyData?["partyId"] as? String) ?? (json["partyId"] as? String)
+			if let rawParty, !rawParty.isEmpty, rawParty != "00000000-0000-0000-0000-000000000000" {
+				partyID = rawParty
+			}
 			partySize = (partyData?["partySize"] as? Int) ?? (json["partySize"] as? Int)
 			maxPartySize = (partyData?["maxPartySize"] as? Int) ?? (json["maxPartySize"] as? Int)
+			isPartyOwner = (partyData?["isPartyOwner"] as? Bool) ?? (json["isPartyOwner"] as? Bool) ?? false
+			
 			competitiveTier = (playerData?["competitiveTier"] as? Int) ?? (json["competitiveTier"] as? Int)
 			accountLevel = (playerData?["accountLevel"] as? Int) ?? (json["accountLevel"] as? Int)
+			
+			let rawCard = (playerData?["playerCardId"] as? String) ?? (json["playerCardId"] as? String)
+			if let rawCard, !rawCard.isEmpty, rawCard != "00000000-0000-0000-0000-000000000000" {
+				playerCardID = PlayerCard.ID(rawCard)
+			}
 		} else if xml.contains("<league_of_legends") {
 			gameTitle = "League of Legends"
 		} else if xml.contains("<bacon") {
 			gameTitle = "Legends of Runeterra"
 		}
 		
-		return .presenceUpdated(
+		return .presenceUpdated(XMPPPresenceUpdate(
 			jid: bareJID,
 			status: status,
 			gameTitle: gameTitle,
 			statusText: statusText,
 			mapPath: mapPath,
 			queueID: queueID,
+			provisioningFlow: provisioningFlow,
 			allyScore: allyScore,
 			enemyScore: enemyScore,
+			partyID: partyID,
 			partySize: partySize,
 			maxPartySize: maxPartySize,
+			isPartyOwner: isPartyOwner,
 			competitiveTier: competitiveTier,
-			accountLevel: accountLevel
-		)
+			accountLevel: accountLevel,
+			playerCardID: playerCardID
+		))
 	}
 	
 	private func parseIncomingMessage(from xml: String) -> XMPPChatMessage? {

@@ -6,6 +6,7 @@ struct MatchSummaryTabView: View {
 	let data: MatchViewData
 	let analytics: MatchAnalytics
 	let focusedPlayer: Player
+	var resolvedUsers: [Player.ID: User] = [:]
 	
 	@LocalData var focusedSummary: CareerSummary?
 	
@@ -15,10 +16,16 @@ struct MatchSummaryTabView: View {
 	@State private var showBreakdown = false
 	@State private var expandedMetrics: Set<String> = []
 	
-	init(data: MatchViewData, analytics: MatchAnalytics, focusedPlayer: Player) {
+	init(
+		data: MatchViewData,
+		analytics: MatchAnalytics,
+		focusedPlayer: Player,
+		resolvedUsers: [Player.ID: User] = [:]
+	) {
 		self.data = data
 		self.analytics = analytics
 		self.focusedPlayer = focusedPlayer
+		self.resolvedUsers = resolvedUsers
 		self._focusedSummary = .init(id: focusedPlayer.id)
 	}
 	
@@ -200,12 +207,14 @@ struct MatchSummaryTabView: View {
 			.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 			
 			VStack(alignment: .leading, spacing: 3) {
+				let name = focusedPlayer.resolvedDisplayName(using: resolvedUsers)
+				let tag = focusedPlayer.resolvedTagLine(using: resolvedUsers)
 				HStack(spacing: 0) {
-					Text(focusedPlayer.gameName.isEmpty ? "Player" : focusedPlayer.gameName)
+					Text(name)
 						.font(.headline)
 						.lineLimit(1)
-					if !focusedPlayer.tagLine.isEmpty {
-						Text("#\(focusedPlayer.tagLine)")
+					if !tag.isEmpty {
+						Text("#\(tag)")
 							.font(.subheadline)
 							.foregroundStyle(.secondary)
 							.lineLimit(1)

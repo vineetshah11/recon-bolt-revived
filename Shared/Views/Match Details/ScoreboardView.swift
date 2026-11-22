@@ -17,7 +17,9 @@ struct ScoreboardView: View {
 	let analytics: MatchAnalytics
 	let focusedPlayerID: Player.ID
 	var groupedByTeam: Bool = true
+	var isCompact: Bool = false
 	var sort: MatchScoreboardSort = .acs
+	var resolvedUsers: [Player.ID: User] = [:]
 	@Binding var highlight: PlayerHighlightInfo
 	var onSelectFocus: ((Player.ID) -> Void)? = nil
 	
@@ -32,15 +34,6 @@ struct ScoreboardView: View {
 				teamSections
 			} else {
 				combinedSection
-			}
-		}
-		.task(id: data.details.id) {
-			let missingIDs = data.details.players
-				.filter(\.gameName.isEmpty)
-				.map(\.id)
-			guard !missingIDs.isEmpty else { return }
-			await load {
-				try await $0.fetchUsers(for: missingIDs)
 			}
 		}
 	}
@@ -71,8 +64,9 @@ struct ScoreboardView: View {
 						data: data,
 						analytics: analytics,
 						isFocused: player.id == focusedPlayerID,
-						isCompact: false,
+						isCompact: isCompact,
 						isExpanded: expandedPlayers.contains(player.id),
+						resolvedUsers: resolvedUsers,
 						highlight: $highlight,
 						onToggleExpand: { toggleExpand(player.id) },
 						onFocus: { onSelectFocus?(player.id) }
@@ -92,8 +86,9 @@ struct ScoreboardView: View {
 					data: data,
 					analytics: analytics,
 					isFocused: player.id == focusedPlayerID,
-					isCompact: true,
+					isCompact: isCompact,
 					isExpanded: expandedPlayers.contains(player.id),
+					resolvedUsers: resolvedUsers,
 					highlight: $highlight,
 					onToggleExpand: { toggleExpand(player.id) },
 					onFocus: { onSelectFocus?(player.id) }
@@ -117,8 +112,9 @@ struct ScoreboardView: View {
 					analytics: analytics,
 					placement: placement,
 					isFocused: player.id == focusedPlayerID,
-					isCompact: !groupedByTeam,
+					isCompact: isCompact,
 					isExpanded: expandedPlayers.contains(player.id),
+					resolvedUsers: resolvedUsers,
 					highlight: $highlight,
 					onToggleExpand: { toggleExpand(player.id) },
 					onFocus: { onSelectFocus?(player.id) }
@@ -177,8 +173,9 @@ struct ScoreboardView: View {
 							data: data,
 							analytics: analytics,
 							isFocused: player.id == focusedPlayerID,
-							isCompact: false,
+							isCompact: isCompact,
 							isExpanded: expandedPlayers.contains(player.id),
+							resolvedUsers: resolvedUsers,
 							highlight: $highlight,
 							onToggleExpand: { toggleExpand(player.id) },
 							onFocus: { onSelectFocus?(player.id) }
@@ -246,6 +243,7 @@ struct ScoreboardRowView: View {
 	var isFocused: Bool = false
 	var isCompact: Bool = false
 	var isExpanded: Bool = false
+	var resolvedUsers: [Player.ID: User] = [:]
 	@Binding var highlight: PlayerHighlightInfo
 	var onToggleExpand: () -> Void = {}
 	var onFocus: () -> Void = {}
@@ -255,6 +253,9 @@ struct ScoreboardRowView: View {
 	
 	@Environment(\.shouldAnonymize) private var shouldAnonymize
 	@Environment(\.seasons) private var seasons
+	@Environment(\.valorantLoad) private var load
+	@State private var agentMasteryLevel: Int?
+	@State private var didAttemptMasteryLoad = false
 	
 	private static let partyPalette: [Color] = [
 		Color.orange,
@@ -272,6 +273,7 @@ struct ScoreboardRowView: View {
 		isFocused: Bool = false,
 		isCompact: Bool = false,
 		isExpanded: Bool = false,
+		resolvedUsers: [Player.ID: User] = [:],
 		highlight: Binding<PlayerHighlightInfo>,
 		onToggleExpand: @escaping () -> Void = {},
 		onFocus: @escaping () -> Void = {}
@@ -283,6 +285,7 @@ struct ScoreboardRowView: View {
 		self.isFocused = isFocused
 		self.isCompact = isCompact
 		self.isExpanded = isExpanded
+		self.resolvedUsers = resolvedUsers
 		self._highlight = highlight
 		self.onToggleExpand = onToggleExpand
 		self.onFocus = onFocus
@@ -328,6 +331,23 @@ struct ScoreboardRowView: View {
 		.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 		.withLocalData($playerUser, id: player.id)
 		.withLocalData($summary, id: player.id)
+		.task(id: isExpanded) {
+			guard isExpanded, !didAttemptMasteryLoad, let agentID = player.agentID else { return }
+			didAttemptMasteryLoad = true
+			await load { client in
+				if let mastery = try? await client.getAgentMastery(userID: player.id),
+				   let entry = mastery.entry(for: agentID) {
+					let lifetime = max(
+						entry.flourish?.longLevel ?? 0,
+						entry.trackProgressList.first?.trackLevel ?? 0,
+						entry.flourish?.shortLevel ?? 0
+					)
+					if lifetime > 0 {
+						agentMasteryLevel = lifetime
+					}
+				}
+			}
+		}
 	}
 	
 	private var leadingAccentColor: Color {
@@ -345,15 +365,17 @@ struct ScoreboardRowView: View {
 	private var resolvedName: String {
 		if shouldAnonymize(player.id) { return "Player" }
 		if !player.gameName.isEmpty { return player.gameName }
+		if let u = resolvedUsers[player.id], !u.gameName.isEmpty { return u.gameName }
 		if let u = playerUser, !u.gameName.isEmpty { return u.gameName }
-		return "Player"
+		return player.resolvedDisplayName(using: resolvedUsers)
 	}
 	
 	private var resolvedTag: String {
 		if shouldAnonymize(player.id) { return "" }
 		if !player.tagLine.isEmpty { return player.tagLine }
+		if let u = resolvedUsers[player.id], !u.tagLine.isEmpty { return u.tagLine }
 		if let u = playerUser, !u.tagLine.isEmpty { return u.tagLine }
-		return ""
+		return player.resolvedTagLine(using: resolvedUsers)
 	}
 	
 	private var resolvedTier: Int {
@@ -419,7 +441,7 @@ struct ScoreboardRowView: View {
 	
 	private func compactHeader(stats: MatchAnalytics.PlayerMatchAnalytics?) -> some View {
 		HStack(spacing: 8) {
-			agentAvatar(size: 34)
+			agentAvatar(size: 36)
 			
 			VStack(alignment: .leading, spacing: 2) {
 				HStack(spacing: 3) {
@@ -427,26 +449,42 @@ struct ScoreboardRowView: View {
 						Image(systemName: "crown.fill")
 							.font(.caption2.bold())
 							.foregroundStyle(.yellow)
+					} else if analytics.teamMVPByTeam[player.teamID] == player.id {
+						Image(systemName: "crown.fill")
+							.font(.caption2.bold())
+							.foregroundStyle(.secondary)
 					}
-					Text(resolvedName)
-						.font(.caption.weight(.bold))
-						.lineLimit(1)
+					HStack(spacing: 0) {
+						Text(resolvedName)
+							.font(.subheadline.weight(.bold))
+							.lineLimit(1)
+						if !resolvedTag.isEmpty {
+							Text("#\(resolvedTag)")
+								.font(.caption)
+								.foregroundStyle(.secondary)
+								.lineLimit(1)
+								.layoutPriority(-1)
+						}
+					}
 				}
-				rankLine
+				if resolvedTier >= 3 {
+					rankLine
+				}
 			}
-			.frame(minWidth: 88, alignment: .leading)
+			.frame(minWidth: 92, alignment: .leading)
 			
 			Spacer(minLength: 4)
 			
 			if let stats {
 				VStack(spacing: 1) {
-					Text("\(stats.kills)/\(stats.deaths)/\(stats.assists)")
+					Text("\(stats.kills) / \(stats.deaths) / \(stats.assists)")
 						.font(.caption.weight(.bold).monospacedDigit())
+						.lineLimit(1)
 					Text("K/D/A")
 						.font(.system(size: 9, weight: .semibold))
 						.foregroundStyle(.secondary)
 				}
-				.frame(minWidth: 54)
+				.frame(minWidth: 56)
 				
 				VStack(spacing: 1) {
 					Text(stats.performanceScore > 0 ? "\(stats.performanceScore)" : "—")
@@ -581,43 +619,130 @@ struct ScoreboardRowView: View {
 	
 	private func expandedDetails(stats: MatchAnalytics.PlayerMatchAnalytics) -> some View {
 		VStack(spacing: 10) {
-			LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4), spacing: 8) {
-				detailCell("ADR", "\(Int(stats.adr.rounded()))")
-				detailCell("HS%", String(format: "%.0f%%", stats.hsPercent))
-				detailCell("KAST", String(format: "%.0f%%", stats.kastPercent))
-				detailCell("FK / FD", "\(stats.firstBloods) / \(stats.firstDeaths)")
+			TransparentNavigationLink {
+				MatchListView(userID: player.id)
+			} label: {
+				HStack(spacing: 8) {
+					Image(systemName: "person.circle")
+						.font(.subheadline.weight(.medium))
+						.foregroundStyle(.secondary)
+					Text("Open profile")
+						.font(.subheadline.weight(.medium))
+						.foregroundStyle(.primary)
+					Spacer()
+					Image(systemName: "chevron.right")
+						.font(.caption.weight(.semibold))
+						.foregroundStyle(.secondary)
+				}
+				.padding(.horizontal, 12)
+				.padding(.vertical, 10)
+				.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+			}
+			.buttonStyle(.plain)
+			
+			VStack(spacing: 8) {
+				expandedStatRow("ADR", value: "\(Int(stats.adr.rounded()))")
+				expandedStatRow("Headshot Rate", value: "\(Int(stats.hsPercent.rounded())) %")
+				expandedStatRow("KAST", value: "\(Int(stats.kastPercent.rounded())) %")
+				expandedStatRow("First Bloods", value: "\(stats.firstBloods)")
+				expandedStatRow("First Deaths", value: "\(stats.firstDeaths)")
 			}
 			
+			Divider().opacity(0.28)
+			
+			VStack(spacing: 8) {
+				HStack {
+					Text("Performance Score")
+						.font(.subheadline)
+						.foregroundStyle(.secondary)
+					Spacer()
+					Text("\(stats.performanceScore)")
+						.font(.subheadline.weight(.bold).monospacedDigit())
+				}
+				
+				subScoreStatRow("Fights", value: stats.fightsScore)
+				subScoreStatRow("Support", value: stats.supportScore)
+			}
+			
+			Divider().opacity(0.28)
+			
+			let accountLevel = player.accountLevel ?? 0
 			HStack {
-				Text("Plants: \(stats.plants) · Defuses: \(stats.defuses) · Casts: \(stats.abilityCasts)")
-					.font(.caption2.monospacedDigit())
+				Text(agentMasteryLevel != nil || accountLevel <= 0 ? "Agent Mastery Level" : "Account Level")
+					.font(.subheadline)
 					.foregroundStyle(.secondary)
-				
 				Spacer()
-				
-				if !isFocused {
-					Button {
-						onFocus()
-					} label: {
-						Label("Focus", systemImage: "scope")
+				if let mastery = agentMasteryLevel {
+					Text("\(mastery)")
+						.font(.subheadline.weight(.bold).monospacedDigit())
+				} else if accountLevel > 0 {
+					Text("\(accountLevel)")
+						.font(.subheadline.weight(.bold).monospacedDigit())
+				} else {
+					Text(didAttemptMasteryLoad ? "—" : "...")
+						.font(.subheadline.weight(.bold).monospacedDigit())
+						.foregroundStyle(.secondary)
+				}
+			}
+			
+			if !isFocused {
+				Button {
+					onFocus()
+				} label: {
+					HStack {
+						Label("Focus Player", systemImage: "scope")
 							.font(.caption.weight(.semibold))
 							.foregroundStyle(Color.accentColor)
+						Spacer()
 					}
-					.buttonStyle(.plain)
+					.padding(.top, 2)
 				}
+				.buttonStyle(.plain)
 			}
 		}
 	}
 	
-	private func detailCell(_ label: String, _ value: String) -> some View {
-		VStack(spacing: 2) {
-			Text(value)
-				.font(.caption.weight(.bold).monospacedDigit())
+	private func expandedStatRow(_ label: String, value: String) -> some View {
+		HStack {
 			Text(label)
-				.font(.system(size: 10, weight: .medium))
+				.font(.subheadline)
 				.foregroundStyle(.secondary)
+			Spacer()
+			Text(value)
+				.font(.subheadline.weight(.bold).monospacedDigit())
+				.foregroundStyle(.primary)
 		}
-		.frame(maxWidth: .infinity)
+	}
+	
+	private func subScoreStatRow(_ label: String, value: Int) -> some View {
+		HStack(spacing: 6) {
+			Text(label)
+				.font(.subheadline)
+				.foregroundStyle(.secondary)
+			Spacer()
+			Text("\(value)")
+				.font(.subheadline.weight(.bold).monospacedDigit())
+			Group {
+				if value >= 330 {
+					Image(systemName: "chevron.up.2")
+						.foregroundStyle(.green)
+				} else if value >= 270 {
+					Image(systemName: "chevron.up")
+						.foregroundStyle(.green)
+				} else if value >= 210 {
+					Image(systemName: "minus")
+						.foregroundStyle(.secondary)
+				} else if value >= 170 {
+					Image(systemName: "chevron.down")
+						.foregroundStyle(Color.valorantRed)
+				} else {
+					Image(systemName: "chevron.down.2")
+						.foregroundStyle(Color.valorantRed)
+				}
+			}
+			.font(.caption.weight(.bold))
+			.frame(width: 14)
+		}
 	}
 }
 
