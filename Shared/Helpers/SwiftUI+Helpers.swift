@@ -58,12 +58,13 @@ extension View {
 }
 
 extension UIImage {
-	/// Loads an asset image from either the compiled asset catalog or `Bundle.module/BundledAssets`.
+	/// Loads an asset image from either the compiled asset catalog or BundledAssets.
 	static func bundledAsset(named name: String) -> UIImage? {
 		if let assetImage = UIImage(named: name) {
 			return assetImage
 		}
-		guard let baseURL = Bundle.module.url(forResource: "BundledAssets", withExtension: nil) else {
+		let bundle = Bundle.main
+		guard let baseURL = bundle.url(forResource: "BundledAssets", withExtension: nil) ?? bundle.resourceURL?.appendingPathComponent("BundledAssets") else {
 			return nil
 		}
 		let fileURL = baseURL.appendingPathComponent("\(name).png")
