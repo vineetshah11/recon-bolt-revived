@@ -23,11 +23,12 @@ jobs:
         with:
           swift-version: "5.10"
 
-      - name: Install xtool & build dependencies
+      - name: Install xtool & system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libssl-dev libxml2 libcurl4 zip
-          curl -sL https://github.com/kabiroberai/xtool/releases/latest/download/xtool-linux-x86_64.tar.gz | sudo tar -xz -C /usr/local/bin
+          sudo apt-get install -y libssl-dev libxml2 libcurl4 zip libfuse2
+          curl -sL https://github.com/xtool-org/xtool/releases/download/1.24.0/xtool-x86_64.AppImage -o /usr/local/bin/xtool
+          sudo chmod +x /usr/local/bin/xtool
 
       - name: Build IPA using xtool
         run: |
