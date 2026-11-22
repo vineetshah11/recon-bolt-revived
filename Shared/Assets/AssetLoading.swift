@@ -21,16 +21,6 @@ extension AssetClient {
 		async let currencies = getCurrencyInfo()
 		async let bundles = getBundleInfo()
 		async let contentTiers = getContentTiers()
-		
-		// totems share loadout slots with sprays but live under their own endpoint, which has been intermittently 404 on valorant-api.com
-		let totems: [TotemInfo]
-		do {
-			totems = try await getTotemInfo()
-		} catch {
-			print("⚠️ Failed to fetch totems (non-fatal):", error)
-			totems = []
-		}
-		
 		// this seems to be what skins are actually referred to by…
 		let skinsByLevelID = try await Dictionary(
 			uniqueKeysWithValues: weapons.lazy.flatMap { weapon in
@@ -65,7 +55,6 @@ extension AssetClient {
 			seasons: seasons,
 			skinsByLevelID: skinsByLevelID,
 			sprays: .init(values: sprays),
-			totems: Dictionary(totems.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first }),
 			buddies: .init(values: buddies),
 			buddiesByLevelID: buddiesByLevelID,
 			currencies: .init(values: currencies),
