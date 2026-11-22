@@ -23,6 +23,7 @@ struct MatchListView: View {
 	@EnvironmentObject private var goalStore: SeasonGoalStore
 	@EnvironmentObject private var accountManager: AccountManager
 	@EnvironmentObject private var settings: AppSettings
+	@EnvironmentObject private var socialManager: SocialManager
 	
 	private var shownMatches: [CompetitiveUpdate] {
 		matchList?.matches ?? []
@@ -235,8 +236,33 @@ struct MatchListView: View {
 		.valorantLoadTask(id: userID) { client in
 			agentMastery = try? await client.getAgentMastery(userID: userID)
 		}
+		.onAppear {
+			cacheLoadedIdentityToSocial()
+		}
+		.onChange(of: identity?.cardID) { _ in
+			cacheLoadedIdentityToSocial()
+		}
+		.onChange(of: cachedMatchDetails.count) { _ in
+			cacheLoadedIdentityToSocial()
+		}
+		.onChange(of: summary?.competitiveInfo?.bySeason?.count ?? 0) { _ in
+			cacheLoadedIdentityToSocial()
+		}
 		.anonymizing(additionally: shouldAnonymize(userID) ? .all : .none)
 		.navigationTitle(title)
+	}
+	
+	private func cacheLoadedIdentityToSocial() {
+		let fallbackMatch = cachedMatchDetails.lazy.compactMap { match -> (Player.Identity, Date)? in
+			guard let pIdentity = match.players.first(where: { $0.id == userID })?.identity else { return nil }
+			return (pIdentity, match.matchInfo.gameStart)
+		}.first
+		guard let resolvedIdentity = identity ?? fallbackMatch?.0 else { return }
+		let updateTime = identity != nil ? Date() : (fallbackMatch?.1 ?? .distantPast)
+		let currentActID = seasons?.currentAct()?.id
+		let tier = summary?.competitiveInfo?.inSeason(currentActID)?.competitiveTier
+			?? summary?.competitiveInfo?.bySeason?.values.first(where: { $0.competitiveTier >= 3 })?.competitiveTier
+		socialManager.cacheIdentity(resolvedIdentity, competitiveTier: tier, asOf: updateTime)
 	}
 	
 	var title: Text {
@@ -524,6 +550,7 @@ struct MatchListView_Previews: PreviewProvider {
 		.environmentObject(SeasonGoalStore())
 		.environmentObject(AccountManager.mocked)
 		.environmentObject(AppSettings())
+		.environmentObject(SocialManager())
 	}
 }
 #endif

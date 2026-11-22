@@ -54,6 +54,8 @@ extension Player.Identity: LocalDataAutoUpdatable {
 final class LocalDataProvider {
 	static let shared = LocalDataProvider()
 	
+	static var onIdentitiesStored: (@Sendable ([Player.Identity], Date) -> Void)?
+	
 	var matchListManager = LocalDataManager<MatchList>(ageCausingAutoUpdate: .minutes(5))
 	var careerSummaryManager = LocalDataManager<CareerSummary>(ageCausingAutoUpdate: .minutes(5))
 	var userManager = LocalDataManager<User>(ageCausingAutoUpdate: .hours(1))
@@ -70,6 +72,9 @@ final class LocalDataProvider {
 	
 	func store(_ identities: [Player.Identity], asOf updateTime: Date) {
 		Task { await playerIdentityManager.store(identities, asOf: updateTime) }
+		if !identities.isEmpty {
+			Self.onIdentitiesStored?(identities, updateTime)
+		}
 	}
 	
 	// MARK: - updates from other sources
@@ -108,6 +113,7 @@ final class LocalDataProvider {
 				isIncognito: loadout.isIncognito
 			)
 			await shared.playerIdentityManager.store(identity, asOf: .now)
+			onIdentitiesStored?([identity], .now)
 		}
 	}
 }

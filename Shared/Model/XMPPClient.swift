@@ -176,7 +176,7 @@ struct XMPPPresenceUpdate: Equatable, Sendable {
 	var lastOnline: Date? = nil
 }
 
-struct XMPPChatMessage: Identifiable, Equatable {
+struct XMPPChatMessage: Identifiable, Equatable, Codable, Sendable {
 	var id: String
 	var peerJID: String
 	var isOutgoing: Bool
@@ -201,6 +201,7 @@ actor XMPPClient {
 	private var isRunning = false
 	private var receiveTask: Task<Void, Never>?
 	private var eventHandler: (@Sendable (XMPPEvent) async -> Void)?
+	private var pendingArchivePeerByIQID: [String: String] = [:]
 	
 	private let queue = DispatchQueue(label: "com.reconbolt.xmpp")
 	private let maxBufferBytes = 2_000_000
@@ -278,6 +279,7 @@ actor XMPPClient {
 		isRunning = false
 		receiveTask?.cancel()
 		receiveTask = nil
+		pendingArchivePeerByIQID.removeAll()
 		connection?.cancel()
 		connection = nil
 		buffer = ""
@@ -290,17 +292,22 @@ actor XMPPClient {
 		try await sendRaw(xml)
 	}
 	
-	func sendMessage(to jid: String, body: String) async throws {
+	@discardableResult
+	func sendMessage(to jid: String, body: String, id: String? = nil) async throws -> String {
 		guard isRunning else { throw XMPPError.notConnected }
-		let id = "msg_\(UUID().uuidString.prefix(8))"
-		let xml = "<message id=\"\(id)\" to=\"\(escapeXML(jid))\" type=\"chat\"><body>\(escapeXML(body))</body></message>"
+		let bare = jid.components(separatedBy: "/").first ?? jid
+		let msgID = id ?? "msg_\(UUID().uuidString.prefix(8))"
+		let xml = "<message id=\"\(escapeXML(msgID))\" to=\"\(escapeXML(bare))\" type=\"chat\"><body>\(escapeXML(body))</body></message>"
 		try await sendRaw(xml)
+		return msgID
 	}
 	
 	func requestArchive(with jid: String) async throws {
 		guard isRunning else { throw XMPPError.notConnected }
-		let id = "arch_\(UUID().uuidString.prefix(8))"
-		let xml = "<iq type=\"get\" id=\"\(id)\"><query xmlns=\"jabber:iq:riotgames:archive\"><with>\(escapeXML(jid))</with></query></iq>"
+		let bare = jid.components(separatedBy: "/").first ?? jid
+		let id = "get_archive_\(Int.random(in: 1...9999))_\(UUID().uuidString.prefix(6))"
+		pendingArchivePeerByIQID[id] = bare
+		let xml = "<iq type=\"get\" id=\"\(id)\"><query xmlns=\"jabber:iq:riotgames:archive\"><with>\(escapeXML(bare))</with></query></iq>"
 		try await sendRaw(xml)
 	}
 	
@@ -538,37 +545,74 @@ actor XMPPClient {
 		guard let match = earliest else { return nil }
 		
 		let searchStart = match.start
-		if let selfClose = buffer.range(of: "/>", range: searchStart..<buffer.endIndex),
-		   let firstGT = buffer.range(of: ">", range: searchStart..<buffer.endIndex),
-		   selfClose.upperBound == firstGT.upperBound {
-			let stanza = String(buffer[searchStart..<selfClose.upperBound])
-			buffer.removeSubrange(buffer.startIndex..<selfClose.upperBound)
-			return stanza
-		}
-		
+		let openPrefix = "<\(match.tag)"
 		let closeTag = "</\(match.tag)>"
-		if let closeRange = buffer.range(of: closeTag, range: searchStart..<buffer.endIndex) {
-			let stanza = String(buffer[searchStart..<closeRange.upperBound])
-			buffer.removeSubrange(buffer.startIndex..<closeRange.upperBound)
-			return stanza
+		var depth = 0
+		var scan = searchStart
+		
+		while scan < buffer.endIndex {
+			guard let ltIndex = buffer.range(of: "<", range: scan..<buffer.endIndex)?.lowerBound else {
+				break
+			}
+			if buffer[ltIndex...].hasPrefix(closeTag) {
+				let afterClose = buffer.index(ltIndex, offsetBy: closeTag.count)
+				depth -= 1
+				if depth <= 0 {
+					let stanza = String(buffer[searchStart..<afterClose])
+					buffer.removeSubrange(buffer.startIndex..<afterClose)
+					return stanza
+				}
+				scan = afterClose
+				continue
+			}
+			if buffer[ltIndex...].hasPrefix(openPrefix) {
+				let afterName = buffer.index(ltIndex, offsetBy: openPrefix.count)
+				if afterName < buffer.endIndex {
+					let next = buffer[afterName]
+					if next == " " || next == ">" || next == "/" {
+						guard let gtIndex = buffer.range(of: ">", range: afterName..<buffer.endIndex)?.lowerBound else {
+							return nil
+						}
+						let isSelfClosing = gtIndex > afterName && buffer[buffer.index(before: gtIndex)] == "/"
+						let gtEnd = buffer.index(after: gtIndex)
+						if !isSelfClosing {
+							depth += 1
+						} else if depth == 0 {
+							let stanza = String(buffer[searchStart..<gtEnd])
+							buffer.removeSubrange(buffer.startIndex..<gtEnd)
+							return stanza
+						}
+						scan = gtEnd
+						continue
+					}
+				}
+			}
+			scan = buffer.index(after: ltIndex)
 		}
 		return nil
 	}
 	
 	private func handleStanza(_ stanza: String) async {
 		if stanza.hasPrefix("<iq") {
+			let iqID = extractAttribute("id", from: stanza) ?? ""
+			let iqType = extractAttribute("type", from: stanza) ?? ""
 			if stanza.contains("jabber:iq:riotgames:roster") || stanza.contains("jabber:iq:roster") {
-				let iqID = extractAttribute("id", from: stanza) ?? ""
-				let iqType = extractAttribute("type", from: stanza) ?? ""
 				let isFullSnapshot = (iqType == "result" && iqID.hasPrefix("roster_request"))
 				let friends = parseRosterItems(from: stanza)
 				if !friends.isEmpty || isFullSnapshot {
 					await eventHandler?(.rosterReceived(friends, isFullSnapshot: isFullSnapshot))
 				}
-			} else if stanza.contains("jabber:iq:riotgames:archive") {
-				let (peer, messages) = parseArchiveMessages(from: stanza)
-				if let peer {
-					await eventHandler?(.archiveReceived(peerJID: peer, messages: messages))
+			} else if stanza.contains("jabber:iq:riotgames:archive") || pendingArchivePeerByIQID[iqID] != nil {
+				let trackedPeer = pendingArchivePeerByIQID.removeValue(forKey: iqID)
+				if iqType == "error" {
+					if let trackedPeer {
+						await eventHandler?(.archiveReceived(peerJID: trackedPeer, messages: []))
+					}
+				} else {
+					let (peer, messages) = parseArchiveMessages(from: stanza, expectedPeerJID: trackedPeer)
+					if let peer {
+						await eventHandler?(.archiveReceived(peerJID: peer, messages: messages))
+					}
 				}
 			}
 		} else if stanza.hasPrefix("<presence") {
@@ -867,37 +911,91 @@ actor XMPPClient {
 		}
 	}
 	
-	private func parseIncomingMessage(from xml: String) -> XMPPChatMessage? {
-		guard let rawBody = extractTagContent(from: xml, tag: "body") else { return nil }
+	private func parseIncomingMessage(from xml: String, expectedPeerJID: String? = nil) -> XMPPChatMessage? {
+		var msgXML = xml
+		var carbonForcedOutgoing: Bool? = nil
+		if xml.contains("urn:xmpp:carbons:2"),
+		   let outerEnd = xml.range(of: ">")?.upperBound,
+		   let innerStart = xml.range(of: "<message", range: outerEnd..<xml.endIndex),
+		   let innerEnd = xml.range(of: "</message>", range: innerStart.lowerBound..<xml.endIndex) {
+			msgXML = String(xml[innerStart.lowerBound..<innerEnd.upperBound])
+			if xml.contains("<sent") {
+				carbonForcedOutgoing = true
+			} else if xml.contains("<received") {
+				carbonForcedOutgoing = false
+			}
+		}
+		
+		guard let rawBody = extractTagContent(from: msgXML, tag: "body") else { return nil }
 		let body = unescapeXML(rawBody)
 		guard !body.isEmpty else { return nil }
 		
-		let fromJID = (extractAttribute("from", from: xml) ?? "").components(separatedBy: "/").first ?? ""
-		let toJID = (extractAttribute("to", from: xml) ?? "").components(separatedBy: "/").first ?? ""
-		let stamp = extractAttribute("stamp", from: xml)
-		let timestamp = stamp.flatMap(parseXMPPDate) ?? Date()
-		let isOutgoing = !myJID.isEmpty && fromJID == myJID
-		let peer = isOutgoing ? toJID : fromJID
+		let fromJID = (extractNestedAttribute("message", attr: "from", from: msgXML) ?? extractAttribute("from", from: msgXML) ?? "")
+			.components(separatedBy: "/").first ?? ""
+		let toJID = (extractNestedAttribute("message", attr: "to", from: msgXML) ?? extractAttribute("to", from: msgXML) ?? "")
+			.components(separatedBy: "/").first ?? ""
+		let stamp = extractNestedAttribute("message", attr: "stamp", from: msgXML)
+			?? extractNestedAttribute("delay", attr: "stamp", from: msgXML)
+			?? extractAttribute("stamp", from: msgXML)
+		let timestamp = stamp.flatMap { parseRiotTimestamp($0) } ?? Date()
+		
+		let myNode = myJID.split(separator: "@").first?.lowercased()
+		let fromNode = fromJID.split(separator: "@").first?.lowercased()
+		let isOutgoing = carbonForcedOutgoing ?? (myNode != nil && !myNode!.isEmpty && fromNode == myNode)
+		let peer = expectedPeerJID ?? (isOutgoing ? toJID : fromJID)
 		guard !peer.isEmpty else { return nil }
 		
-		let id = extractAttribute("id", from: xml) ?? UUID().uuidString
+		let rawID = extractNestedAttribute("message", attr: "id", from: msgXML)
+		let id: String
+		if let rawID, !rawID.isEmpty {
+			id = rawID
+		} else {
+			let ms = Int64((timestamp.timeIntervalSince1970 * Double(1000)).rounded())
+			id = "msg:\(peer.lowercased()):\(isOutgoing ? "o" : "i"):\(ms):\(Self.stableHashHex(body))"
+		}
 		return XMPPChatMessage(id: id, peerJID: peer, isOutgoing: isOutgoing, body: body, timestamp: timestamp)
 	}
 	
-	private func parseArchiveMessages(from xml: String) -> (String?, [XMPPChatMessage]) {
-		let withJID = extractTagContent(from: xml, tag: "with")?.components(separatedBy: "/").first
+	private func parseArchiveMessages(from xml: String, expectedPeerJID: String? = nil) -> (String?, [XMPPChatMessage]) {
+		let withJID = expectedPeerJID
+			?? extractTagContent(from: xml, tag: "with")?.components(separatedBy: "/").first
 		var messages: [XMPPChatMessage] = []
 		var cursor = xml.startIndex
-		while let msgStart = xml.range(of: "<message", range: cursor..<xml.endIndex),
-			  let msgEnd = xml.range(of: "</message>", range: msgStart.lowerBound..<xml.endIndex) {
+		while let msgStart = xml.range(of: "<message", range: cursor..<xml.endIndex) {
+			let afterName = msgStart.upperBound
+			guard afterName < xml.endIndex else { break }
+			let next = xml[afterName]
+			guard next == " " || next == ">" || next == "/" else {
+				cursor = afterName
+				continue
+			}
+			guard let firstGT = xml.range(of: ">", range: afterName..<xml.endIndex) else {
+				break
+			}
+			if firstGT.lowerBound > afterName && xml[xml.index(before: firstGT.lowerBound)] == "/" {
+				cursor = firstGT.upperBound
+				continue
+			}
+			guard let msgEnd = xml.range(of: "</message>", range: msgStart.lowerBound..<xml.endIndex) else {
+				break
+			}
 			let msgXML = String(xml[msgStart.lowerBound..<msgEnd.upperBound])
 			cursor = msgEnd.upperBound
-			if let msg = parseIncomingMessage(from: msgXML) {
+			if let msg = parseIncomingMessage(from: msgXML, expectedPeerJID: withJID) {
 				messages.append(msg)
 			}
 		}
 		let peer = withJID ?? messages.first?.peerJID
 		return (peer, messages.sorted { $0.timestamp < $1.timestamp })
+	}
+	
+	private static func stableHashHex(_ text: String) -> String {
+		var hash: UInt64 = 14695981039346656037
+		for byte in text.utf8 {
+			hash ^= UInt64(byte)
+			hash = hash &* 1099511628211
+		}
+		return String(hash, radix: 16)
 	}
 	
 	// MARK: - Small XML Utilities
