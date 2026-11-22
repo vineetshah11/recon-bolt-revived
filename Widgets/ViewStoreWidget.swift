@@ -29,33 +29,36 @@ struct StoreEntryView: TimelineEntryView {
 	var isLarge: Bool { widgetFamily == .systemLarge }
 	
 	func contents(for info: StorefrontInfo) -> some View {
-		if widgetFamily == .systemSmall {
-			VStack(spacing: 0) {
-				if entry.configuration.showRefreshTime != 0 {
-					nextRefreshLabel(target: info.nextRefresh)
-						.font(.caption)
-						.frame(maxWidth: .infinity)
-						.padding(.vertical, 3)
+		Group {
+			if widgetFamily == .systemSmall {
+				VStack(spacing: 0) {
+					if entry.configuration.showRefreshTime != 0 {
+						nextRefreshLabel(target: info.nextRefresh)
+							.font(.caption)
+							.frame(maxWidth: .infinity)
+							.padding(.vertical, 3)
+					}
+					
+					StoreGrid(
+						configuration: entry.configuration, info: info,
+						spacing: 3, columnCount: 1, isCompact: true
+					)
 				}
-				
+				.padding(3)
+			} else {
 				StoreGrid(
 					configuration: entry.configuration, info: info,
-					spacing: 3, columnCount: 1, isCompact: true
+					spacing: 6, columnCount: isLarge ? 1 : 2, isCompact: false
 				)
-			}
-			.padding(3)
-		} else {
-			StoreGrid(
-				configuration: entry.configuration, info: info,
-				spacing: 6, columnCount: isLarge ? 1 : 2, isCompact: false
-			)
-			.padding(6)
-			.overlay(alignment: isLarge ? .leading : .top) {
-				if entry.configuration.showRefreshTime != 0 { // eww NSNumber
-					refreshLabelOverlay(for: info)
+				.padding(6)
+				.overlay(alignment: isLarge ? .leading : .top) {
+					if entry.configuration.showRefreshTime != 0 { // eww NSNumber
+						refreshLabelOverlay(for: info)
+					}
 				}
 			}
 		}
+		.widgetContainerBackground { Color.groupedBackground }
 	}
 	
 	func refreshLabelOverlay(for info: StorefrontInfo) -> some View {

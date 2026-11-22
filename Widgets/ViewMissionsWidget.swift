@@ -48,7 +48,7 @@ struct MissionListView: TimelineEntryView {
 		}
 		.frame(maxWidth: .infinity, maxHeight: .infinity)
 		.padding()
-		.background(Color.groupedBackground)
+		.widgetContainerBackground { Color.groupedBackground }
 	}
 	
 	@ViewBuilder

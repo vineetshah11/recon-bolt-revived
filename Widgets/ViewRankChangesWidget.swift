@@ -34,6 +34,7 @@ struct RankChangesEntryView: TimelineEntryView {
 			matches: info.matches.matches,
 			maxCount: isSmall ? 10 : 20
 		)
+		.widgetContainerBackground { Color.groupedBackground }
 	}
 }
 

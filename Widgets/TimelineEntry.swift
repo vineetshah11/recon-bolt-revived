@@ -35,6 +35,7 @@ extension TimelineEntryView {
 				.multilineTextAlignment(.center)
 				.foregroundColor(.secondary)
 				.padding()
+				.widgetContainerBackground { Color.groupedBackground }
 			}
 		}
 		.accentColor(Color("AccentColor"))
@@ -45,6 +46,19 @@ extension TimelineEntryView {
 extension View {
 	func reloadingOnTap(_ kind: WidgetKind) -> some View {
 		environment(\.reloadKind, kind)
+	}
+	
+	/// iOS 17+ requires widgets to expose their background through `containerBackground`;
+	/// on iOS 16 the same view is used as a plain background instead.
+	@ViewBuilder
+	func widgetContainerBackground<Background: View>(
+		@ViewBuilder _ background: () -> Background
+	) -> some View {
+		if #available(iOSApplicationExtension 17.0, *) {
+			containerBackground(for: .widget, content: background)
+		} else {
+			self.background(background())
+		}
 	}
 }
 

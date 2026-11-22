@@ -42,7 +42,7 @@ struct RankEntryView: TimelineEntryView {
 		}
 		.padding()
 		.foregroundColor(.white)
-		.background {
+		.widgetContainerBackground {
 			RankInfoView.darkenedBackground(for: info.tierInfo)
 		}
 	}
