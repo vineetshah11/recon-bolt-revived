@@ -10,7 +10,7 @@ on:
 jobs:
   build:
     name: Build & Package IPA
-    runs-on: macos-13
+    runs-on: macos-latest
 
     steps:
       - name: Checkout repository
@@ -20,7 +20,7 @@ jobs:
 
       - name: Select Xcode
         run: |
-          sudo xcode-select -s /Applications/Xcode_15.2.app || sudo xcode-select -s /Applications/Xcode.app
+          sudo xcode-select -s /Applications/Xcode_16.app || sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app
           xcodebuild -version
 
       - name: Build Recon_Bolt Package with iOS SDK
