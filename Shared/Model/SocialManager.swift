@@ -42,7 +42,7 @@ final class SocialManager: ObservableObject {
 		var lastPresenceAt: Date?
 	}
 	
-	private static let cacheFilename = "SocialCache.v1.json"
+	private static let cacheFilename = "SocialCache.v2.json"
 	private static let backgroundRefreshInterval: TimeInterval = 300
 	private static let offlineDemoteInterval: TimeInterval = 1800
 	
@@ -63,6 +63,8 @@ final class SocialManager: ObservableObject {
 	private var connectAttempt = 0
 	private var snapshotSubscriptions: [String: String] = [:]
 	private var locallyRemovedJIDs: Set<String> = []
+	private var resourcesByJID: [String: [String: XMPPPresenceUpdate]] = [:]
+	private var ownResources: [String: XMPPPresenceUpdate] = [:]
 	private var lastPresenceAt: Date?
 	private var deferredSaveTask: Task<Void, Never>?
 	private var refreshResetTask: Task<Void, Never>?
@@ -182,6 +184,8 @@ final class SocialManager: ObservableObject {
 		friendsByJID = [:]
 		snapshotSubscriptions = [:]
 		locallyRemovedJIDs = []
+		resourcesByJID = [:]
+		ownResources = [:]
 		changeEvents = []
 		unreadByJID = [:]
 		myJID = ""
@@ -237,6 +241,8 @@ final class SocialManager: ObservableObject {
 		switch event {
 		case .connected(let jid):
 			self.myJID = jid
+			self.resourcesByJID = [:]
+			self.ownResources = [:]
 			self.connectionState = .connected
 			
 		case .disconnected(let error):
@@ -253,6 +259,7 @@ final class SocialManager: ObservableObject {
 			for item in list {
 				if item.subscription == "remove" {
 					friendsByJID.removeValue(forKey: item.jid)
+					resourcesByJID.removeValue(forKey: item.jid)
 				} else if var existing = friendsByJID[item.jid] {
 					if !item.gameName.isEmpty { existing.gameName = item.gameName }
 					if !item.tagLine.isEmpty { existing.tagLine = item.tagLine }
@@ -261,6 +268,7 @@ final class SocialManager: ObservableObject {
 					if isFullSnapshot || item.note != nil {
 						existing.note = item.note
 					}
+					existing.lastOnline = Self.newerDate(existing.lastOnline, item.lastOnline)
 					friendsByJID[item.jid] = existing
 				} else {
 					friendsByJID[item.jid] = item
@@ -285,6 +293,7 @@ final class SocialManager: ObservableObject {
 				
 				for jid in Array(friendsByJID.keys) where !activeJIDs.contains(jid) {
 					friendsByJID.removeValue(forKey: jid)
+					resourcesByJID.removeValue(forKey: jid)
 				}
 				
 				snapshotSubscriptions = newSubs
@@ -299,9 +308,19 @@ final class SocialManager: ObservableObject {
 			
 		case .presenceUpdated(let update):
 			if isOwnPresenceJID(update.jid) {
-				self.myPresence = update
+				if update.status == .offline {
+					if update.resource.isEmpty {
+						ownResources.removeAll()
+					} else {
+						ownResources.removeValue(forKey: update.resource)
+					}
+				} else {
+					ownResources[update.resource] = update
+				}
+				self.myPresence = Self.pickBestPresence(from: ownResources.values) ?? update
 				return
 			}
+			
 			var friend = friendsByJID[update.jid] ?? XMPPFriend(
 				jid: update.jid,
 				puuid: update.jid.components(separatedBy: "@").first.flatMap(User.ID.init),
@@ -309,23 +328,63 @@ final class SocialManager: ObservableObject {
 				tagLine: "",
 				subscription: "both"
 			)
-			friend.status = update.status
-			friend.gameTitle = update.gameTitle
-			friend.statusText = update.statusText
-			friend.mapPath = update.mapPath
-			friend.queueID = update.queueID
-			friend.provisioningFlow = update.provisioningFlow
-			friend.allyScore = update.allyScore
-			friend.enemyScore = update.enemyScore
-			friend.partyID = update.partyID
-			friend.partySize = update.partySize
-			friend.maxPartySize = update.maxPartySize
-			friend.isPartyOwner = update.isPartyOwner
-			friend.competitiveTier = update.competitiveTier
-			friend.accountLevel = update.accountLevel
+			let wasOnline = friend.status != .offline
+			
 			if let cardID = update.playerCardID {
 				friend.playerCardID = cardID
 			}
+			if let tier = update.competitiveTier {
+				friend.competitiveTier = tier
+			}
+			if let level = update.accountLevel {
+				friend.accountLevel = level
+			}
+			friend.lastOnline = Self.newerDate(friend.lastOnline, update.lastOnline)
+			
+			if update.status == .offline {
+				if update.resource.isEmpty {
+					resourcesByJID[update.jid] = [:]
+				} else {
+					resourcesByJID[update.jid]?[update.resource] = nil
+				}
+			} else {
+				resourcesByJID[update.jid, default: [:]][update.resource] = update
+			}
+			
+			if let best = Self.pickBestPresence(from: resourcesByJID[update.jid]?.values ?? Dictionary<String, XMPPPresenceUpdate>().values) {
+				friend.status = best.status
+				friend.gameTitle = best.gameTitle
+				friend.statusText = best.statusText
+				friend.mapPath = best.mapPath
+				friend.queueID = best.queueID
+				friend.provisioningFlow = best.provisioningFlow
+				friend.allyScore = best.allyScore
+				friend.enemyScore = best.enemyScore
+				friend.partyID = best.partyID
+				friend.partySize = best.partySize
+				friend.maxPartySize = best.maxPartySize
+				friend.isPartyOwner = best.isPartyOwner
+				if let tier = best.competitiveTier { friend.competitiveTier = tier }
+				if let level = best.accountLevel { friend.accountLevel = level }
+				if let card = best.playerCardID { friend.playerCardID = card }
+			} else {
+				friend.status = .offline
+				friend.gameTitle = nil
+				friend.statusText = nil
+				friend.mapPath = nil
+				friend.queueID = nil
+				friend.provisioningFlow = nil
+				friend.allyScore = nil
+				friend.enemyScore = nil
+				friend.partyID = nil
+				friend.partySize = nil
+				friend.maxPartySize = nil
+				friend.isPartyOwner = false
+				if friend.lastOnline == nil && (wasOnline || update.lastOnline != nil) {
+					friend.lastOnline = update.lastOnline ?? Date()
+				}
+			}
+			
 			friendsByJID[update.jid] = friend
 			lastPresenceAt = Date()
 			scheduleCacheSave()
@@ -343,6 +402,36 @@ final class SocialManager: ObservableObject {
 				.sorted { $0.timestamp < $1.timestamp }
 			messagesByJID[peerJID] = merged
 		}
+	}
+	
+	private static func newerDate(_ lhs: Date?, _ rhs: Date?) -> Date? {
+		switch (lhs, rhs) {
+		case let (.some(l), .some(r)): return max(l, r)
+		case let (.some(l), .none): return l
+		case let (.none, .some(r)): return r
+		case (.none, .none): return nil
+		}
+	}
+	
+	private static func gamePriority(for title: String?) -> Int {
+		switch title {
+		case "VALORANT": return 0
+		case "League of Legends", "Teamfight Tactics", "Legends of Runeterra": return 1
+		case "Riot Client": return 2
+		default: return 3
+		}
+	}
+	
+	private static func pickBestPresence<S: Sequence>(from updates: S) -> XMPPPresenceUpdate? where S.Element == XMPPPresenceUpdate {
+		updates
+			.filter { $0.status != .offline }
+			.min { lhs, rhs in
+				let lp = gamePriority(for: lhs.gameTitle)
+				let rp = gamePriority(for: rhs.gameTitle)
+				if lp != rp { return lp < rp }
+				if lhs.status != rhs.status { return lhs.status < rhs.status }
+				return lhs.resource < rhs.resource
+			}
 	}
 	
 	private func isOwnPresenceJID(_ jid: String) -> Bool {
@@ -424,6 +513,8 @@ final class SocialManager: ObservableObject {
 		loadedCacheUserID = userID
 		myPresence = nil
 		locallyRemovedJIDs = []
+		resourcesByJID = [:]
+		ownResources = [:]
 		
 		let allCaches = LocalJSONStore.load([String: CachedSocialAccount].self, from: Self.cacheFilename) ?? [:]
 		guard let cached = allCaches[cacheKey(for: userID)] else {

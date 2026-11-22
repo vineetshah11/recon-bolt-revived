@@ -142,6 +142,7 @@ struct XMPPFriend: Identifiable, Equatable, Codable, Sendable {
 	var competitiveTier: Int? = nil
 	var accountLevel: Int? = nil
 	var playerCardID: PlayerCard.ID? = nil
+	var lastOnline: Date? = nil
 	
 	var displayName: String {
 		if !gameName.isEmpty {
@@ -156,6 +157,7 @@ struct XMPPFriend: Identifiable, Equatable, Codable, Sendable {
 
 struct XMPPPresenceUpdate: Equatable, Sendable {
 	var jid: String
+	var resource: String = ""
 	var status: XMPPFriendStatus
 	var gameTitle: String?
 	var statusText: String?
@@ -171,6 +173,7 @@ struct XMPPPresenceUpdate: Equatable, Sendable {
 	var competitiveTier: Int?
 	var accountLevel: Int?
 	var playerCardID: PlayerCard.ID?
+	var lastOnline: Date? = nil
 }
 
 struct XMPPChatMessage: Identifiable, Equatable {
@@ -601,11 +604,13 @@ actor XMPPClient {
 			let subscription = extractAttribute("subscription", from: itemXML) ?? "both"
 			let gameName = unescapeXML(
 				extractNestedAttribute("id", attr: "name", from: itemXML)
+				?? extractNestedAttribute("riot", attr: "name", from: itemXML)
 				?? extractNestedAttribute("item", attr: "name", from: itemXML)
 				?? ""
 			)
 			let tagLine = unescapeXML(
 				extractNestedAttribute("id", attr: "tagline", from: itemXML)
+				?? extractNestedAttribute("riot", attr: "tagline", from: itemXML)
 				?? extractNestedAttribute("item", attr: "tagline", from: itemXML)
 				?? ""
 			)
@@ -613,6 +618,7 @@ actor XMPPClient {
 				.map(unescapeXML)?
 				.trimmingCharacters(in: .whitespacesAndNewlines)
 			let note = (rawNote?.isEmpty == false) ? rawNote : nil
+			let lastOnline = parseRiotTimestamp(extractTagContent(from: itemXML, tag: "last_online"))
 			
 			guard !jid.isEmpty else { continue }
 			result.append(XMPPFriend(
@@ -621,7 +627,8 @@ actor XMPPClient {
 				gameName: gameName,
 				tagLine: tagLine,
 				subscription: subscription,
-				note: note
+				note: note,
+				lastOnline: lastOnline
 			))
 		}
 		return result
@@ -629,11 +636,16 @@ actor XMPPClient {
 	
 	private func parsePresence(from xml: String) -> XMPPEvent? {
 		guard let rawFrom = extractAttribute("from", from: xml) else { return nil }
-		let bareJID = rawFrom.components(separatedBy: "/").first ?? rawFrom
+		let parts = rawFrom.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+		let bareJID = String(parts.first ?? Substring(rawFrom))
+		let resource = parts.count > 1 ? String(parts[1]) : ""
 		let typeAttr = extractAttribute("type", from: xml)
+		var lastOnline = parseRiotTimestamp(extractTagContent(from: xml, tag: "last_online"))
+		
 		if typeAttr == "unavailable" {
 			return .presenceUpdated(XMPPPresenceUpdate(
 				jid: bareJID,
+				resource: resource,
 				status: .offline,
 				gameTitle: nil,
 				statusText: nil,
@@ -648,12 +660,20 @@ actor XMPPClient {
 				isPartyOwner: false,
 				competitiveTier: nil,
 				accountLevel: nil,
-				playerCardID: nil
+				playerCardID: nil,
+				lastOnline: lastOnline
 			))
 		}
 		
-		let show = extractTagContent(from: xml, tag: "show")
-		var status: XMPPFriendStatus = (show == "away" || show == "dnd" || show == "xa") ? .away : .online
+		let show = extractTagContent(from: xml, tag: "show")?
+			.trimmingCharacters(in: .whitespacesAndNewlines)
+			.lowercased()
+		let platform = extractTagContent(from: xml, tag: "platform")?
+			.trimmingCharacters(in: .whitespacesAndNewlines)
+			.lowercased()
+		let baseStatus = resolveBaseStatus(show: show, platform: platform)
+		
+		var status: XMPPFriendStatus = baseStatus
 		var gameTitle: String? = nil
 		var statusText: String? = unescapeXML(extractTagContent(from: xml, tag: "status") ?? "")
 		if statusText?.isEmpty == true { statusText = nil }
@@ -671,72 +691,130 @@ actor XMPPClient {
 		var accountLevel: Int?
 		var playerCardID: PlayerCard.ID?
 		
-		if let valBlock = extractTagContent(from: xml, tag: "valorant"),
-		   let b64 = extractTagContent(from: valBlock, tag: "p"),
-		   let decoded = Data(base64Encoded: b64.trimmingCharacters(in: .whitespacesAndNewlines)),
-		   let json = try? JSONSerialization.jsonObject(with: decoded) as? [String: Any] {
-			gameTitle = "VALORANT"
-			let matchData = json["matchPresenceData"] as? [String: Any]
-			let partyData = json["partyPresenceData"] as? [String: Any]
-			let playerData = json["playerPresenceData"] as? [String: Any]
+		var didSetActiveGame = false
+		
+		if let valBlock = extractTagContent(from: xml, tag: "valorant") {
+			let (gameStatus, stTime) = parseGameBlockStatus(valBlock, fallback: baseStatus)
+			if let stTime, (lastOnline == nil || stTime > lastOnline!) { lastOnline = stTime }
 			
-			let loopState = (json["sessionLoopState"] as? String)
-				?? (matchData?["sessionLoopState"] as? String)
-				?? (playerData?["sessionLoopState"] as? String)
-				?? (json["partyOwnerSessionLoopState"] as? String)
-			switch loopState {
-			case "INGAME":
-				status = .inGame
-			case "PREGAME":
-				status = .pregame
-			default:
-				break
+			var isPresenceValid = true
+			if let b64 = extractTagContent(from: valBlock, tag: "p"),
+			   let decoded = Data(base64Encoded: b64.trimmingCharacters(in: .whitespacesAndNewlines)),
+			   let json = try? JSONSerialization.jsonObject(with: decoded) as? [String: Any] {
+				if let valid = json["isValid"] as? Bool, !valid {
+					isPresenceValid = false
+				}
+				
+				let matchData = json["matchPresenceData"] as? [String: Any]
+				let partyData = json["partyPresenceData"] as? [String: Any]
+				let playerData = json["playerPresenceData"] as? [String: Any]
+				
+				competitiveTier = (playerData?["competitiveTier"] as? Int) ?? (json["competitiveTier"] as? Int)
+				accountLevel = (playerData?["accountLevel"] as? Int) ?? (json["accountLevel"] as? Int)
+				
+				let rawCard = (playerData?["playerCardId"] as? String) ?? (json["playerCardId"] as? String)
+				if let rawCard, !rawCard.isEmpty, rawCard != "00000000-0000-0000-0000-000000000000" {
+					playerCardID = PlayerCard.ID(rawCard)
+				}
+				
+				if gameStatus != .offline && isPresenceValid {
+					didSetActiveGame = true
+					gameTitle = "VALORANT"
+					status = gameStatus
+					
+					let loopState = (json["sessionLoopState"] as? String)
+						?? (matchData?["sessionLoopState"] as? String)
+						?? (playerData?["sessionLoopState"] as? String)
+						?? (json["partyOwnerSessionLoopState"] as? String)
+					switch loopState {
+					case "INGAME":
+						status = .inGame
+					case "PREGAME", "AGENT_SELECT":
+						status = .pregame
+					default:
+						break
+					}
+					
+					let rawMap = (matchData?["matchMap"] as? String)
+						?? (json["matchMap"] as? String)
+						?? (json["partyOwnerMatchMap"] as? String)
+					mapPath = (rawMap?.isEmpty == false) ? rawMap : nil
+					
+					let rawQueue = (matchData?["queueId"] as? String)
+						?? (partyData?["queueId"] as? String)
+						?? (json["queueId"] as? String)
+					queueID = (rawQueue?.isEmpty == false) ? rawQueue : nil
+					
+					let rawFlow = (matchData?["provisioningFlow"] as? String)
+						?? (json["provisioningFlow"] as? String)
+						?? (json["partyOwnerProvisioningFlow"] as? String)
+					provisioningFlow = (rawFlow?.isEmpty == false && rawFlow != "Invalid") ? rawFlow : nil
+					
+					allyScore = (json["partyOwnerMatchScoreAllyTeam"] as? Int) ?? (matchData?["partyOwnerMatchScoreAllyTeam"] as? Int)
+					enemyScore = (json["partyOwnerMatchScoreEnemyTeam"] as? Int) ?? (matchData?["partyOwnerMatchScoreEnemyTeam"] as? Int)
+					
+					let rawParty = (partyData?["partyId"] as? String) ?? (json["partyId"] as? String)
+					if let rawParty, !rawParty.isEmpty, rawParty != "00000000-0000-0000-0000-000000000000" {
+						partyID = rawParty
+					}
+					partySize = (partyData?["partySize"] as? Int) ?? (json["partySize"] as? Int)
+					maxPartySize = (partyData?["maxPartySize"] as? Int) ?? (json["maxPartySize"] as? Int)
+					isPartyOwner = (partyData?["isPartyOwner"] as? Bool) ?? (json["isPartyOwner"] as? Bool) ?? false
+				}
+			} else if gameStatus != .offline {
+				didSetActiveGame = true
+				gameTitle = "VALORANT"
+				status = gameStatus
 			}
-			
-			let rawMap = (matchData?["matchMap"] as? String)
-				?? (json["matchMap"] as? String)
-				?? (json["partyOwnerMatchMap"] as? String)
-			mapPath = (rawMap?.isEmpty == false) ? rawMap : nil
-			
-			let rawQueue = (matchData?["queueId"] as? String)
-				?? (partyData?["queueId"] as? String)
-				?? (json["queueId"] as? String)
-			queueID = (rawQueue?.isEmpty == false) ? rawQueue : nil
-			
-			let rawFlow = (matchData?["provisioningFlow"] as? String)
-				?? (json["provisioningFlow"] as? String)
-				?? (json["partyOwnerProvisioningFlow"] as? String)
-			provisioningFlow = (rawFlow?.isEmpty == false && rawFlow != "Invalid") ? rawFlow : nil
-			
-			allyScore = (json["partyOwnerMatchScoreAllyTeam"] as? Int) ?? (matchData?["partyOwnerMatchScoreAllyTeam"] as? Int)
-			enemyScore = (json["partyOwnerMatchScoreEnemyTeam"] as? Int) ?? (matchData?["partyOwnerMatchScoreEnemyTeam"] as? Int)
-			
-			let rawParty = (partyData?["partyId"] as? String) ?? (json["partyId"] as? String)
-			if let rawParty, !rawParty.isEmpty, rawParty != "00000000-0000-0000-0000-000000000000" {
-				partyID = rawParty
+		}
+		
+		if !didSetActiveGame, let lolBlock = extractTagContent(from: xml, tag: "league_of_legends") {
+			let (gameStatus, stTime) = parseGameBlockStatus(lolBlock, fallback: baseStatus)
+			if let stTime, (lastOnline == nil || stTime > lastOnline!) { lastOnline = stTime }
+			if gameStatus != .offline {
+				didSetActiveGame = true
+				status = gameStatus
+				if let p = extractTagContent(from: lolBlock, tag: "p"), p.contains("TFT") {
+					gameTitle = "Teamfight Tactics"
+				} else {
+					gameTitle = "League of Legends"
+				}
 			}
-			partySize = (partyData?["partySize"] as? Int) ?? (json["partySize"] as? Int)
-			maxPartySize = (partyData?["maxPartySize"] as? Int) ?? (json["maxPartySize"] as? Int)
-			isPartyOwner = (partyData?["isPartyOwner"] as? Bool) ?? (json["isPartyOwner"] as? Bool) ?? false
-			
-			competitiveTier = (playerData?["competitiveTier"] as? Int) ?? (json["competitiveTier"] as? Int)
-			accountLevel = (playerData?["accountLevel"] as? Int) ?? (json["accountLevel"] as? Int)
-			
-			let rawCard = (playerData?["playerCardId"] as? String) ?? (json["playerCardId"] as? String)
-			if let rawCard, !rawCard.isEmpty, rawCard != "00000000-0000-0000-0000-000000000000" {
-				playerCardID = PlayerCard.ID(rawCard)
+		}
+		
+		if !didSetActiveGame, let lorBlock = extractTagContent(from: xml, tag: "bacon") ?? extractTagContent(from: xml, tag: "lor") {
+			let (gameStatus, stTime) = parseGameBlockStatus(lorBlock, fallback: baseStatus)
+			if let stTime, (lastOnline == nil || stTime > lastOnline!) { lastOnline = stTime }
+			if gameStatus != .offline {
+				didSetActiveGame = true
+				status = gameStatus
+				gameTitle = "Legends of Runeterra"
 			}
-		} else if xml.contains("<league_of_legends") {
-			gameTitle = "League of Legends"
-		} else if xml.contains("<bacon") {
-			gameTitle = "Legends of Runeterra"
+		}
+		
+		if !didSetActiveGame, let clientBlock = extractTagContent(from: xml, tag: "keystone") ?? extractTagContent(from: xml, tag: "riot_client") {
+			let (gameStatus, stTime) = parseGameBlockStatus(clientBlock, fallback: baseStatus)
+			if let stTime, (lastOnline == nil || stTime > lastOnline!) { lastOnline = stTime }
+			if gameStatus != .offline {
+				didSetActiveGame = true
+				status = gameStatus
+				gameTitle = "Riot Client"
+			}
+		}
+		
+		if !didSetActiveGame {
+			// If <games> had blocks and none were online, treat friend as offline.
+			if extractTagContent(from: xml, tag: "games") != nil || baseStatus == .offline {
+				status = .offline
+			}
 		}
 		
 		return .presenceUpdated(XMPPPresenceUpdate(
 			jid: bareJID,
+			resource: resource,
 			status: status,
 			gameTitle: gameTitle,
-			statusText: statusText,
+			statusText: status == .offline ? nil : statusText,
 			mapPath: mapPath,
 			queueID: queueID,
 			provisioningFlow: provisioningFlow,
@@ -748,8 +826,45 @@ actor XMPPClient {
 			isPartyOwner: isPartyOwner,
 			competitiveTier: competitiveTier,
 			accountLevel: accountLevel,
-			playerCardID: playerCardID
+			playerCardID: playerCardID,
+			lastOnline: lastOnline
 		))
+	}
+	
+	private func resolveBaseStatus(show: String?, platform: String?) -> XMPPFriendStatus {
+		if platform == "absent" {
+			return .offline
+		}
+		if platform == nil && show == nil {
+			return .offline
+		}
+		switch show {
+		case "away", "xa":
+			return .away
+		case "dnd", "chat":
+			return .online
+		case nil:
+			return platform != nil ? .online : .offline
+		default:
+			return .online
+		}
+	}
+	
+	private func parseGameBlockStatus(_ block: String, fallback: XMPPFriendStatus) -> (XMPPFriendStatus, Date?) {
+		let stTime = parseRiotTimestamp(extractTagContent(from: block, tag: "s.t"))
+		let st = (extractTagContent(from: block, tag: "st") ?? extractTagContent(from: block, tag: "s"))?
+			.trimmingCharacters(in: .whitespacesAndNewlines)
+			.lowercased()
+		switch st {
+		case "offline", "mobile":
+			return (.offline, stTime)
+		case "away", "xa":
+			return (.away, stTime)
+		case "chat", "dnd", "online":
+			return (.online, stTime)
+		default:
+			return (fallback, stTime)
+		}
 	}
 	
 	private func parseIncomingMessage(from xml: String) -> XMPPChatMessage? {
@@ -788,11 +903,61 @@ actor XMPPClient {
 	// MARK: - Small XML Utilities
 	
 	private func extractTagContent(from xml: String, tag: String) -> String? {
-		guard let openStart = xml.range(of: "<\(tag)"),
-			  let openEnd = xml.range(of: ">", range: openStart.upperBound..<xml.endIndex),
-			  let closeStart = xml.range(of: "</\(tag)>", range: openEnd.upperBound..<xml.endIndex)
-		else { return nil }
-		return String(xml[openEnd.upperBound..<closeStart.lowerBound])
+		var searchStart = xml.startIndex
+		while let openStart = xml.range(of: "<\(tag)", range: searchStart..<xml.endIndex) {
+			let afterTag = openStart.upperBound
+			guard afterTag < xml.endIndex else { return nil }
+			let nextChar = xml[afterTag]
+			if nextChar == ">" || nextChar == " " {
+				guard let openEnd = xml.range(of: ">", range: afterTag..<xml.endIndex) else { return nil }
+				// Self-closing tag has no body
+				if xml[xml.index(before: openEnd.lowerBound)] == "/" {
+					return nil
+				}
+				guard let closeStart = xml.range(of: "</\(tag)>", range: openEnd.upperBound..<xml.endIndex) else {
+					return nil
+				}
+				return String(xml[openEnd.upperBound..<closeStart.lowerBound])
+			}
+			searchStart = afterTag
+		}
+		return nil
+	}
+	
+	private static let riotMilliDateFormatter: DateFormatter = {
+		let f = DateFormatter()
+		f.locale = Locale(identifier: "en_US_POSIX")
+		f.timeZone = TimeZone(secondsFromGMT: 0)
+		f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+		return f
+	}()
+	
+	private static let riotDateFormatter: DateFormatter = {
+		let f = DateFormatter()
+		f.locale = Locale(identifier: "en_US_POSIX")
+		f.timeZone = TimeZone(secondsFromGMT: 0)
+		f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+		return f
+	}()
+	
+	private func parseRiotTimestamp(_ raw: String?) -> Date? {
+		guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
+			return nil
+		}
+		if let num = Int64(trimmed) {
+			if num >= 1_000_000_000_000 {
+				return Date(timeIntervalSince1970: Double(num) / Double(1000))
+			} else if num >= 1_000_000_000 {
+				return Date(timeIntervalSince1970: Double(num))
+			}
+		}
+		if let d = Self.riotMilliDateFormatter.date(from: trimmed) {
+			return d
+		}
+		if let d = Self.riotDateFormatter.date(from: trimmed) {
+			return d
+		}
+		return parseXMPPDate(trimmed)
 	}
 	
 	private func extractAttribute(_ name: String, from xml: String) -> String? {

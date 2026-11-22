@@ -44,6 +44,21 @@ struct PlaytimeView: View {
 				}
 			}
 			
+			if !playtime.byAgent.isEmpty {
+				Section(header: Text("By Agent", comment: "Playtime Stats: section")) {
+					ForEach(playtime.byAgent.sorted(), id: \.key) { agent, time in
+						Row(entry: time) {
+							HStack(spacing: 10) {
+								AgentImage.icon(agent, teamID: nil)
+									.frame(width: 28, height: 28)
+									.clipShape(RoundedRectangle(cornerRadius: 6))
+								AgentLabel(agent: agent)
+							}
+						}
+					}
+				}
+			}
+			
 			ExpandableList(
 				title: Text("By Premade Teammate", comment: "Playtime Stats: section/title"),
 				entries: playtime.byPremade.sorted(), maxCount: 5,

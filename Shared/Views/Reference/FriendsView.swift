@@ -11,7 +11,6 @@ struct FriendsView: View {
 	@State private var friendName = ""
 	@State private var friendTag = ""
 	@State private var actionError: String?
-	@State private var isOfflineExpanded = false
 	@State private var showingChanges = false
 	
 	private var client: ValorantClient? {
@@ -295,8 +294,7 @@ struct FriendsView: View {
 		let activeValFriends = socialManager.friends.filter { friend in
 			guard !friend.isIncomingRequest && !friend.isOutgoingRequest && friend.status != .offline else { return false }
 			if let ownPartyID, friend.partyID == ownPartyID { return false }
-			let isVal = friend.gameTitle == "VALORANT" || friend.gameTitle == nil
-			return isVal && matchesSearch(friend)
+			return friend.gameTitle == "VALORANT" && matchesSearch(friend)
 		}
 		
 		var buckets: [String: [XMPPFriend]] = [:]
@@ -402,9 +400,11 @@ struct FriendsView: View {
 				VStack(spacing: 0) {
 					ForEach(Array(incoming.enumerated()), id: \.element.id) { index, friend in
 						HStack(spacing: 12) {
-							PlayerCardImage.small(friend.playerCardID)
-								.frame(width: 44, height: 44)
-								.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+							if let cardID = friend.playerCardID {
+								PlayerCardImage.small(cardID)
+									.frame(width: 44, height: 44)
+									.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+							}
 							
 							VStack(alignment: .leading, spacing: 2) {
 								nameTitle(friend)
@@ -462,9 +462,11 @@ struct FriendsView: View {
 				VStack(spacing: 0) {
 					ForEach(Array(outgoing.enumerated()), id: \.element.id) { index, friend in
 						HStack(spacing: 12) {
-							PlayerCardImage.small(friend.playerCardID)
-								.frame(width: 44, height: 44)
-								.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+							if let cardID = friend.playerCardID {
+								PlayerCardImage.small(cardID)
+									.frame(width: 44, height: 44)
+									.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+							}
 							
 							VStack(alignment: .leading, spacing: 2) {
 								nameTitle(friend)
@@ -511,7 +513,6 @@ struct FriendsView: View {
 			!friend.isIncomingRequest
 			&& !friend.isOutgoingRequest
 			&& friend.status != .offline
-			&& friend.gameTitle != nil
 			&& friend.gameTitle != "VALORANT"
 			&& matchesSearch(friend)
 		}
@@ -530,7 +531,7 @@ struct FriendsView: View {
 					ForEach(Array(list.enumerated()), id: \.element.id) { index, friend in
 						friendPartyRow(friend)
 						if index < list.count - 1 {
-							Divider().opacity(0.22).padding(.leading, 72)
+							Divider().opacity(0.22).padding(.leading, friend.playerCardID == nil ? 14 : 72)
 						}
 					}
 				}
@@ -543,41 +544,38 @@ struct FriendsView: View {
 	
 	@ViewBuilder
 	private var offlineFriendsSection: some View {
-		let offline = socialManager.friends.filter {
-			!$0.isIncomingRequest && !$0.isOutgoingRequest && $0.status == .offline && matchesSearch($0)
-		}
-		if !offline.isEmpty {
-			let expanded = !search.trimmingCharacters(in: .whitespaces).isEmpty || isOfflineExpanded
-			VStack(alignment: .leading, spacing: 8) {
-				Button {
-					withAnimation(.easeInOut(duration: 0.2)) {
-						isOfflineExpanded.toggle()
-					}
-				} label: {
-					HStack {
-						Text("Offline — \(offline.count)")
-							.font(.subheadline.weight(.medium))
-							.foregroundStyle(.secondary)
-						Spacer()
-						Image(systemName: expanded ? "chevron.up" : "chevron.down")
-							.font(.caption.weight(.semibold))
-							.foregroundStyle(.secondary)
-					}
-					.padding(.horizontal, 4)
+		let offline = socialManager.friends
+			.filter {
+				!$0.isIncomingRequest && !$0.isOutgoingRequest && $0.status == .offline && matchesSearch($0)
+			}
+			.sorted { lhs, rhs in
+				switch (lhs.lastOnline, rhs.lastOnline) {
+				case let (.some(l), .some(r)) where l != r:
+					return l > r
+				case (.some, .none):
+					return true
+				case (.none, .some):
+					return false
+				default:
+					return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
 				}
-				.buttonStyle(.plain)
+			}
+		if !offline.isEmpty {
+			VStack(alignment: .leading, spacing: 8) {
+				Text("Offline — \(offline.count)")
+					.font(.subheadline.weight(.medium))
+					.foregroundStyle(.secondary)
+					.padding(.horizontal, 4)
 				
-				if expanded {
-					VStack(spacing: 0) {
-						ForEach(Array(offline.enumerated()), id: \.element.id) { index, friend in
-							friendPartyRow(friend, isOfflineStyle: true)
-							if index < offline.count - 1 {
-								Divider().opacity(0.22).padding(.leading, 72)
-							}
+				VStack(spacing: 0) {
+					ForEach(Array(offline.enumerated()), id: \.element.id) { index, friend in
+						friendPartyRow(friend, isOfflineStyle: true)
+						if index < offline.count - 1 {
+							Divider().opacity(0.22).padding(.leading, friend.playerCardID == nil ? 14 : 72)
 						}
 					}
-					.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 				}
+				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 			}
 		}
 	}
@@ -589,15 +587,17 @@ struct FriendsView: View {
 			ChatView(friend: friend)
 		} label: {
 			HStack(spacing: 12) {
-				ZStack(alignment: .bottomTrailing) {
-					PlayerCardImage.small(friend.playerCardID)
-						.frame(width: 48, height: 48)
-						.background(Color.tertiaryGroupedBackground)
-						.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-						.opacity(isOfflineStyle ? 0.55 : 1)
-					
-					PresenceBadgeView(status: friend.status)
-						.offset(x: 3, y: 3)
+				if let cardID = friend.playerCardID {
+					ZStack(alignment: .bottomTrailing) {
+						PlayerCardImage.small(cardID)
+							.frame(width: 48, height: 48)
+							.background(Color.tertiaryGroupedBackground)
+							.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+							.opacity(isOfflineStyle ? 0.55 : 1)
+						
+						PresenceBadgeView(status: friend.status)
+							.offset(x: 3, y: 3)
+					}
 				}
 				
 				VStack(alignment: .leading, spacing: 3) {
@@ -697,9 +697,31 @@ struct FriendsView: View {
 		}
 	}
 	
+	private static let lastOnlineFormatter: DateComponentsFormatter = {
+		let f = DateComponentsFormatter()
+		f.allowedUnits = [.day, .hour, .minute]
+		f.unitsStyle = .full
+		f.maximumUnitCount = 3
+		return f
+	}()
+	
+	private static func formatLastOnline(_ date: Date) -> String {
+		let elapsed = max(Double(0), Date().timeIntervalSince(date))
+		if elapsed < 60 {
+			return "Last online just now"
+		}
+		if let formatted = lastOnlineFormatter.string(from: elapsed), !formatted.isEmpty {
+			return "Last online \(formatted) ago"
+		}
+		return "Offline"
+	}
+	
 	private func statusHeadline(for friend: XMPPFriend) -> String {
 		if let game = friend.gameTitle, game != "VALORANT" {
-			return friend.statusText ?? "In Game"
+			if game == "Riot Client" {
+				return friend.statusText ?? (friend.status == .away ? "Away" : "Online")
+			}
+			return friend.statusText ?? (friend.status == .away ? "Away" : "In Game")
 		}
 		switch friend.status {
 		case .inGame:
@@ -714,6 +736,9 @@ struct FriendsView: View {
 		case .away:
 			return friend.statusText ?? "Away"
 		case .offline:
+			if let lastOnline = friend.lastOnline {
+				return Self.formatLastOnline(lastOnline)
+			}
 			return "Offline"
 		}
 	}

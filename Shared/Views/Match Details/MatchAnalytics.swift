@@ -57,6 +57,7 @@ struct MatchAnalytics {
 		var roundsPlayed: Int
 		var acs: Double
 		var adr: Double
+		var totalDamage: Int
 		var kd: Double
 		var hsPercent: Double
 		var headshots: Int
@@ -71,6 +72,7 @@ struct MatchAnalytics {
 		var trades: Int
 		var clutchesWon: Int
 		var clutchesLost: Int
+		var clutchWonSizes: [Int: Int]
 		var multiKills: [Int: Int]
 		var abilityCasts: Int
 		var performanceScore: Int
@@ -634,6 +636,7 @@ struct MatchAnalytics {
 				roundsPlayed: roundsPlayed,
 				acs: acs,
 				adr: adr,
+				totalDamage: totalDamage,
 				kd: kd,
 				hsPercent: hsPercent,
 				headshots: headshots,
@@ -648,6 +651,7 @@ struct MatchAnalytics {
 				trades: trades,
 				clutchesWon: clutchesWon,
 				clutchesLost: clutchesLost,
+				clutchWonSizes: clutchWonSizes,
 				multiKills: multiKills,
 				abilityCasts: abilityCasts,
 				performanceScore: performanceScore,

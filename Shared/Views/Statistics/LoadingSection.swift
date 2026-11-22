@@ -90,6 +90,14 @@ struct LoadingSection: View {
 		) { _ in
 			fetchedMatches = sublist.compactMap { fetcher.matches[$0.id] }
 		}
+		.task(id: fetchCount) {
+			let ids = sublist.map(\.id)
+			await fetcher.preloadCached(for: ids)
+			let updated = ids.compactMap { fetcher.matches[$0] }
+			if !updated.isEmpty {
+				fetchedMatches = updated
+			}
+		}
 	}
 	
 	func errorList() -> some View {
@@ -161,6 +169,13 @@ private final class MatchFetcher: ObservableObject {
 	@Published var errors: [Match.ID: Error] = [:]
 	@Published var fetchCount = 0 // so fetching less matches still changes the object
 	private var tokens: [Match.ID: AnyCancellable] = [:]
+	
+	func preloadCached(for ids: [Match.ID]) async {
+		let cached = await LocalDataProvider.shared.matchDetailsManager.cachedObjects(for: ids)
+		for match in cached {
+			matches[match.id] = match
+		}
+	}
 	
 	func fetchMatches(withIDs ids: some Collection<Match.ID>, load: @escaping ValorantLoadFunction) {
 		fetchCount = ids.count

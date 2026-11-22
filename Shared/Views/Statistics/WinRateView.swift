@@ -39,6 +39,49 @@ struct WinRateView: View {
 			Section(header: Text("Rounds by Loadout Delta", comment: "Win Rate Stats: section")) {
 				roundsByLoadoutDelta()
 			}
+			
+			if !winRate.byAgent.isEmpty {
+				Section(header: Text("By Agent", comment: "Win Rate Stats: section")) {
+					ForEach(winRate.byAgent.sorted(by: { $0.value.total > $1.value.total }), id: \.key) { agent, tally in
+						HStack(spacing: 10) {
+							AgentImage.icon(agent, teamID: nil)
+								.frame(width: 28, height: 28)
+								.clipShape(RoundedRectangle(cornerRadius: 6))
+							AgentLabel(agent: agent)
+							Spacer()
+							VStack(alignment: .trailing, spacing: 2) {
+								if tally.total > 0 {
+									Text(tally.winFraction, format: .precisePercent)
+										.font(.subheadline.weight(.bold).monospacedDigit())
+								}
+								Text("\(tally.wins)W – \(tally.losses)L")
+									.font(.caption.monospacedDigit())
+									.foregroundStyle(.secondary)
+							}
+						}
+					}
+				}
+			}
+			
+			if !winRate.byPremade.isEmpty {
+				Section(header: Text("By Premade Teammate", comment: "Win Rate Stats: section")) {
+					ForEach(Array(winRate.byPremade.sorted(by: { $0.value.total > $1.value.total }).prefix(10)), id: \.key) { mate, tally in
+						HStack {
+							UserLabel(userID: mate)
+							Spacer()
+							VStack(alignment: .trailing, spacing: 2) {
+								if tally.total > 0 {
+									Text(tally.winFraction, format: .precisePercent)
+										.font(.subheadline.weight(.bold).monospacedDigit())
+								}
+								Text("\(tally.wins)W – \(tally.losses)L")
+									.font(.caption.monospacedDigit())
+									.foregroundStyle(.secondary)
+							}
+						}
+					}
+				}
+			}
 		}
 		.toolbar {
 			ToolbarItemGroup(placement: .bottomBar) {
