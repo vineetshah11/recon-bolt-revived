@@ -91,7 +91,7 @@ struct RoundInfoView: View {
 			VStack {
 				EventTimeline(matchData: matchData, roundData: $roundData)
 				
-				formattedTime(millis: Int(roundData.currentTime * 1000), includeMillis: true)
+				roundTimeLabel(millis: Int(roundData.currentTime * 1000), includeMillis: true)
 			}
 			
 			eventList
@@ -126,7 +126,7 @@ struct RoundInfoView: View {
 // • you can't have it show milliseconds (only… nanoseconds)
 // this solution isn't very localization-friendly unfortunately
 @ViewBuilder
-private func formattedTime(millis: Int, includeMillis: Bool = false) -> some View {
+private func roundTimeLabel(millis: Int, includeMillis: Bool = false) -> some View {
 	let inSeconds = millis / 1000
 	let seconds = inSeconds % 60
 	let secondsPart = "\(seconds)".zeroPadded(toLength: 2)
@@ -154,7 +154,7 @@ extension String {
 
 extension RoundEvent {
 	func formattedTime() -> AnyView {
-		AnyView(Recon_Bolt.formattedTime(millis: roundTimeMillis))
+		AnyView(roundTimeLabel(millis: roundTimeMillis))
 	}
 }
 
