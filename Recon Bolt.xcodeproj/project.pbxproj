@@ -2674,7 +2674,7 @@
 		};
 		B9C97DCA263CB0D6001E4D1B /* XCRemoteSwiftPackageReference "ValorantAPI" */ = {
 			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/juliand665/ValorantAPI.git";
+			repositoryURL = "https://github.com/TMaume/ValorantAPI.git";
 			requirement = {
 				branch = main;
 				kind = branch;
