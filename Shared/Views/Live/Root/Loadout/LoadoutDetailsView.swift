@@ -114,7 +114,7 @@ private struct LoadoutCustomizer: View {
 				)
 				
 				NavigationLink {
-					SprayPicker(selection: $loadout.sprays[slot], inventory: inventory)
+					SprayPicker(selection: expressionBinding(for: slot), inventory: inventory)
 				} label: {
 					sprayIcon(for: slot)
 						.frame(width: sprayCellSize, height: sprayCellSize)
@@ -154,20 +154,37 @@ private struct LoadoutCustomizer: View {
 	
 	@ViewBuilder
 	func sprayIcon(for slot: Spray.Slot.ID) -> some View {
-		ExpressionIcon(id: loadout.sprays[slot])
+		ExpressionIcon(expression: expression(for: slot))
 			.frame(maxWidth: .infinity, maxHeight: .infinity)
 	}
 	
+	func expression(for slot: Spray.Slot.ID) -> Loadout.Expression? {
+		expressionIndex(for: slot).flatMap { loadout.expressions[$0] }
+	}
+
+	func expressionBinding(for slot: Spray.Slot.ID) -> Binding<Loadout.Expression?> {
+		let index = expressionIndex(for: slot) ?? 0
+		return Binding {
+			loadout.expressions[index]
+		} set: { newValue in
+			loadout.expressions[index] = newValue
+		}
+	}
+
+	func expressionIndex(for slot: Spray.Slot.ID) -> Int? {
+		Spray.Slot.ID.inCCWOrder.firstIndex(of: slot)
+	}
+
 	struct SprayCell: View {
 		var slot: Spray.Slot.ID
-		@Binding var spray: Spray.ID?
+		@Binding var expression: Loadout.Expression?
 		var inventory: Inventory
 		
 		var body: some View {
 			NavigationLink {
-				SprayPicker(selection: $spray, inventory: inventory)
+				SprayPicker(selection: $expression, inventory: inventory)
 			} label: {
-				ExpressionIcon(id: spray)
+				ExpressionIcon(expression: expression)
 					.frame(maxWidth: .infinity, maxHeight: .infinity)
 			}
 			.buttonStyle(.plain)

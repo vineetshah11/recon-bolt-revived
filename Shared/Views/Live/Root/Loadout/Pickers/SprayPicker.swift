@@ -8,7 +8,7 @@ struct SprayPicker: View {
 		case totems
 	}
 	
-	@Binding var selection: Spray.ID?
+	@Binding var selection: Loadout.Expression?
 	var inventory: Inventory
 	
 	@State private var kind = Kind.sprays
@@ -35,7 +35,7 @@ struct SprayPicker: View {
 			}
 			.onAppear {
 				// open on the totems tab if that's what the current selection is
-				if let selection, assets.sprays[selection] == nil, assets.totems?[selection] != nil {
+				if selection?.totem != nil {
 					kind = .totems
 				}
 			}
@@ -48,7 +48,7 @@ struct SprayPicker: View {
 			allItems: assets.sprays,
 			ownedItems: inventory.sprays
 		) { spray in
-			SelectableRow(selection: $selection, item: spray.id) {
+			SelectableRow(selection: $selection, item: Loadout.Expression.spray(spray.id)) {
 				spray.displayIcon.view()
 					.frame(width: 48, height: 48)
 				Text(spray.displayName)
@@ -66,17 +66,16 @@ struct SprayPicker: View {
 	
 	private func totemList(assets: AssetCollection) -> some View {
 		let totems = assets.totems ?? [:]
-		// totems and sprays share the expressions wheel, and both are reported in the owned sprays
-		var owned = Set(totems.keys).intersection(inventory.sprays)
-		// keep the currently equipped totem visible even if the inventory cache is stale
-		if let selection, totems[selection] != nil {
-			owned.insert(selection)
+		// only the totems Riot reports as owned—plus whatever is currently equipped
+		var owned = inventory.totems
+		if let totem = selection?.totem, totems[totem] != nil {
+			owned.insert(totem)
 		}
 		return SearchableAssetPicker(
 			allItems: totems,
 			ownedItems: owned
 		) { totem in
-			SelectableRow(selection: $selection, item: totem.id) {
+			SelectableRow(selection: $selection, item: Loadout.Expression.totem(totem.id)) {
 				totem.displayIcon.view()
 					.frame(width: 48, height: 48)
 				Text(totem.displayName)
@@ -101,7 +100,7 @@ extension TotemInfo: SearchableAsset {
 struct SprayPicker_Previews: PreviewProvider, PreviewProviderWithAssets {
 	static func previews(assets: AssetCollection) -> some View {
 		SprayPicker(
-			selection: .constant(PreviewData.inventory.sprays.first!),
+			selection: .constant(Loadout.Expression.spray(PreviewData.inventory.sprays.first!)),
 			inventory: PreviewData.inventory
 		)
 		.withToolbar()

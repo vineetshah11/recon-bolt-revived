@@ -15,7 +15,7 @@ let package = Package(
 		),
 	],
 	dependencies: [
-		.package(url: "https://github.com/TMaume/ValorantAPI-Revived.git", revision: "248d3fabe23521f41f798924cb747d6fd1677fac"),
+		.package(url: "https://github.com/TMaume/ValorantAPI-Revived.git", revision: "811b3cfba7c6f314f13c397bd92046960803d6fe"),
 		.package(url: "https://github.com/juliand665/CGeometry.git", from: "0.4.0"),
 		.package(url: "https://github.com/juliand665/HandyOperators.git", from: "2.1.0"),
 		.package(url: "https://github.com/juliand665/UserDefault.git", from: "1.0.2"),

@@ -15,8 +15,7 @@ private struct TotemInfoRequest: AssetDataRequest {
 }
 
 struct TotemInfo: AssetItem, Codable, Identifiable {
-	/// Riot returns totems in the regular spray slots of the loadout, so they're keyed by the same ID type.
-	var id: Spray.ID
+	var id: Totem.ID
 	var displayName: String
 	var displayIcon: AssetImage
 	

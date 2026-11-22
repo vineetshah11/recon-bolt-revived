@@ -20,7 +20,7 @@ struct AssetCollection: Codable {
 	let skinsByLevelID: [WeaponSkin.Level.ID: WeaponSkin.Level.Path]
 	let sprays: [Spray.ID: SprayInfo]
 	/// optional so asset caches written before totems existed still decode
-	let totems: [Spray.ID: TotemInfo]?
+	let totems: [Totem.ID: TotemInfo]?
 	let buddies: [Weapon.Buddy.ID: BuddyInfo]
 	let buddiesByLevelID: [Weapon.Buddy.Level.ID: Weapon.Buddy.ID]
 	let currencies: [Currency.ID: CurrencyInfo]
