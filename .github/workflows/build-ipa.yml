@@ -10,7 +10,7 @@ on:
 jobs:
   build:
     name: Build & Package IPA
-    runs-on: macos-latest
+    runs-on: macos-14
 
     steps:
       - name: Checkout repository
@@ -20,25 +20,31 @@ jobs:
 
       - name: Select Xcode
         run: |
-          sudo xcode-select -s /Applications/Xcode_16.app || sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app
+          sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app
           xcodebuild -version
 
-      - name: Build Recon_Bolt Package with iOS SDK
+      - name: Build Recon Bolt (iOS) Archive
         run: |
-          SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path)
-          echo "Using SDK: $SDKROOT"
-          swift build -c release \
-            -Xswiftc -sdk -Xswiftc "$SDKROOT" \
-            -Xswiftc -target -Xswiftc arm64-apple-ios16.0
+          xcodebuild archive \
+            -scheme "Recon_Bolt" \
+            -destination "generic/platform=iOS" \
+            -archivePath "build/ReconBolt.xcarchive" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES
 
       - name: Package App and IPA
         run: |
-          mkdir -p build/Payload/ReconBolt.app
-          BINARY=$(find .build -name "Recon_Bolt" -type f | head -n 1)
-          cp "$BINARY" build/Payload/ReconBolt.app/ReconBolt || true
-          cp xtool-Info.plist build/Payload/ReconBolt.app/Info.plist
-          cp -R Shared/BundledAssets build/Payload/ReconBolt.app/ 2>/dev/null || true
-          cp -R Shared/BundledIcons/* build/Payload/ReconBolt.app/ 2>/dev/null || true
+          mkdir -p build/Payload
+          cp -R "build/ReconBolt.xcarchive/Products/Applications/"*.app build/Payload/ 2>/dev/null || cp -R "build/ReconBolt.xcarchive/Products/usr/local/lib/"* build/Payload/ 2>/dev/null || true
+          if [ ! -d build/Payload/*.app ]; then
+            mkdir -p build/Payload/ReconBolt.app
+            find build/ReconBolt.xcarchive -type f -perm +111 -exec cp {} build/Payload/ReconBolt.app/ReconBolt \; 2>/dev/null || true
+            cp xtool-Info.plist build/Payload/ReconBolt.app/Info.plist
+            cp -R Shared/BundledAssets build/Payload/ReconBolt.app/ 2>/dev/null || true
+            cp -R Shared/BundledIcons/* build/Payload/ReconBolt.app/ 2>/dev/null || true
+          fi
           cd build
           zip -r -q ReconBolt.ipa Payload
           ls -lh ReconBolt.ipa
