@@ -5,34 +5,29 @@ import HandyOperators
 struct RankInfoView: View {
 	let summary: CareerSummary?
 	var dataOverride: CareerSummary.SeasonInfo?
-
+	
 	var size = 64.0
 	var lineWidth = 4.0
 	var shouldShowProgress = true
 	var shouldFadeUnranked = false
 	var shouldFallBackOnPrevious = true
-
+	
 	var unit: CGFloat { size / 32 }
-
+	
 	@Environment(\.seasons) private var seasons
-
+	
 	var body: some View {
 		ZStack {
 			if let summary {
 				let act = seasons?.currentAct()
-				let info: CareerSummary.SeasonInfo?
-				if let raw = summary.competitiveInfo?.inSeason(act?.id), !raw.isBlankCurrentActSnapshot {
-					info = raw
-				} else {
-					info = seasons?.mostRecentRankedSeasonInfo(in: summary.competitiveInfo?.bySeason)
-				}
+				let info = summary.competitiveInfo?.inSeason(act?.id)
 				let tier = info?.competitiveTier ?? 0
 				let tierInfo = seasons?.tierInfo(number: tier, in: act)
-
+				
 				if shouldShowProgress {
 					progressView(for: tierInfo, rankedRating: info?.adjustedRankedRating ?? 0)
 				}
-
+				
 				ZStack {
 					if
 						tier == 0,
@@ -47,16 +42,16 @@ struct RankInfoView: View {
 				.scaleEffect(shouldShowProgress ? 0.7 : 1)
 			} else if let info = dataOverride {
 				let tierInfo = seasons?.tierInfo(number: info.competitiveTier, in: info.seasonID)
-
+				
 				if shouldShowProgress {
 					progressView(for: tierInfo, rankedRating: info.adjustedRankedRating)
 				}
-
+				
 				tierIcon(info: tierInfo)
 					.scaleEffect(shouldShowProgress ? 0.7 : 1)
 			} else {
 				let thickerWidth = lineWidth * 1.5
-
+				
 				ZStack {
 					Circle().foregroundColor(.black)
 					Circle().strokeBorder(.white)
@@ -68,16 +63,16 @@ struct RankInfoView: View {
 		.padding(lineWidth)
 		.frame(width: size, height: size)
 	}
-
+	
 	func tierIcon(info: CompetitiveTier?) -> some View {
 		CompetitiveTierImage(tierInfo: info)
 			.opacity(shouldFadeUnranked && info?.number == 0 ? 0.5 : 1)
 			.dynamicallyStroked(radius: unit, color: .white.opacity(0.5), blendMode: .plusLighter, avoidClipping: true)
 			.shadow(color: .black.opacity(0.2), radius: 2 * unit, x: 0, y: 2 * unit)
 	}
-
+	
 	private static let darkening: CGFloat = 0.25
-
+	
 	@ViewBuilder
 	func progressView(for tierInfo: CompetitiveTier?, rankedRating: Int) -> some View {
 		CircularProgressView(lineWidth: lineWidth) {
@@ -92,14 +87,14 @@ struct RankInfoView: View {
 			Self.darkenedBackground(for: tierInfo)
 		}
 	}
-
+	
 	static func darkenedBackground(for tierInfo: CompetitiveTier?) -> some View {
 		ZStack {
 			tierInfo?.backgroundColor
 			Color.black.opacity(darkening).blendMode(.plusDarker)
 		}
 	}
-
+	
 	@ViewBuilder
 	func peakRankIcon(using info: CompetitiveTier) -> some View {
 		// perceptual centering
@@ -123,17 +118,6 @@ struct RankInfoView: View {
 			.shadow(color: .black.opacity(0.5), radius: 2 * unit, x: 0, y: 1 * unit)
 		}
 	}
-
-}
-
-// MARK: - Current-season fallback for stale/blank active-act snapshots
-
-extension CareerSummary.SeasonInfo {
-	/// The active Act's entry can be left blank by Riot at act start: competitiveTier == 0 and rankedRating == 0.
-	/// This predicate detects that so callers can fall back to the most recent ranked season entry instead.
-	var isBlankCurrentActSnapshot: Bool {
-		competitiveTier == 0 && rankedRating == 0
-	}
 }
 
 #if DEBUG
@@ -143,20 +127,20 @@ struct RankInfoView_Previews: PreviewProvider, PreviewProviderWithAssets {
 		let act = assets.seasons.with(PreviewData.gameConfig).currentAct()!
 		let def = CareerSummary.SeasonInfo(seasonID: act.id)
 		let ranks = assets.seasons.tiers(in: act)
-
+		
 		func summary(forTier tier: Int) -> CareerSummary {
 			PreviewData.summary <- {
 				$0.competitiveInfo!.bySeason![act.id, default: def]
 					.competitiveTier = tier
 			}
 		}
-
+		
 		let basicSummary = summary(forTier: 19) <- {
 			$0.competitiveInfo!.bySeason![act.id]!.rankedRating = 69
 		}
-
+		
 		// compiler took ages to type check this so i broke it up </3
-
+		
 		@ViewBuilder
 		func edgeCases() -> some View {
 			RankInfoView(summary: basicSummary, shouldShowProgress: false)
@@ -165,7 +149,7 @@ struct RankInfoView_Previews: PreviewProvider, PreviewProviderWithAssets {
 			RankInfoView(summary: summary(forTier: 0), shouldFallBackOnPrevious: true)
 			RankInfoView(summary: basicSummary)
 			RankInfoView(summary: nil)
-
+			
 			Group {
 				RankInfoView(summary: summary(forTier: 19), shouldShowProgress: false, shouldFallBackOnPrevious: true)
 				RankInfoView(summary: summary(forTier: 0), shouldShowProgress: false, shouldFallBackOnPrevious: true)
@@ -173,7 +157,7 @@ struct RankInfoView_Previews: PreviewProvider, PreviewProviderWithAssets {
 			.padding(.horizontal, 64)
 			.background(Color.primary.opacity(0.2))
 		}
-
+		
 		func differentSizes() -> some View {
 			ForEach([32, 64, 96, 128] as [CGFloat], id: \.self) { (size: CGFloat) in
 				HStack {
@@ -185,7 +169,7 @@ struct RankInfoView_Previews: PreviewProvider, PreviewProviderWithAssets {
 				.background(Color.primary.opacity(0.1))
 			}
 		}
-
+		
 		func gridContents() -> some View {
 			ForEach(ranks.tiers.values.map(\.number).sorted().chunks(ofCount: 3), id: \.self) { tiers in
 				GridRow {
@@ -204,19 +188,19 @@ struct RankInfoView_Previews: PreviewProvider, PreviewProviderWithAssets {
 				}
 			}
 		}
-
+		
 		return Group {
 			VStack {
 				edgeCases()
 			}
 			.fixedSize(horizontal: false, vertical: true)
 			.previewDisplayName("Edge Cases")
-
+			
 			VStack {
 				differentSizes()
 			}
 			.previewDisplayName("Sizes")
-
+			
 			Grid(alignment: .center) {
 				gridContents()
 			}

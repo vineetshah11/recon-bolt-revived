@@ -125,7 +125,7 @@ struct EventTimeline: View {
 				.symbolVariant(isVictimSelf ? .circle : .none)
 				.padding(2)
 		} else if let bombEvent = event as? BombEvent {
-			Image("\(bombEvent.isDefusal ? "Defuse" : "Spike") Icon")
+			Image.bundledAsset("\(bombEvent.isDefusal ? "Defuse" : "Spike") Icon", renderingMode: .template)
 				.resizable()
 		}
 	}

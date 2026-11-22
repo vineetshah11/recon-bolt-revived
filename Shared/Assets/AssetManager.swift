@@ -8,7 +8,7 @@ import WidgetKit
 final class AssetManager: ObservableObject {
 	@Published private(set) var assets: AssetCollection?
 	@Published private(set) var error: Error?
-	@Published private(set) var isDownloading: Bool = false
+	private var isDownloading = false
 	
 	var languageOverride: String? {
 		storage.languageOverride
@@ -60,6 +60,8 @@ final class AssetManager: ObservableObject {
 	static let mockEmpty = AssetManager(assets: nil)
 	#endif
 	
+	private static let currentSchemaVersion = 2
+	
 	private func loadAssets() async throws -> AssetCollection {
 		let language = languageOverride
 		?? Bundle.preferredLocalizations(from: Locale.valorantLanguages).first
@@ -67,12 +69,18 @@ final class AssetManager: ObservableObject {
 		let client = AssetClient(language: language)
 		
 		let version = try await client.getCurrentVersion()
-		// totems are re-fetched until they load, since a cache from before they existed has none
-		if let stored = storage.assets, stored.version == version, stored.language == language, stored.totems?.isEmpty == false {
+		if
+			storage.schemaVersion == Self.currentSchemaVersion,
+			let stored = storage.assets,
+			stored.version == version,
+			stored.language == language
+		{
 			return stored
 		} else {
-			return try await client.collectAssets(for: version)
-			<- { storage.assets = $0 }
+			return try await client.collectAssets(for: version) <- {
+				storage.assets = $0
+				storage.schemaVersion = Self.currentSchemaVersion
+			}
 		}
 	}
 	
@@ -81,9 +89,10 @@ final class AssetManager: ObservableObject {
 		var assets: AssetCollection?
 		@UserDefault("AssetManager.languageOverride", defaults: .shared)
 		var languageOverride: String?
+		@UserDefault("AssetManager.schemaVersion", defaults: .shared)
+		var schemaVersion = 0
 	}
 }
-
 
 extension AssetCollection: DefaultsValueConvertible {}
 

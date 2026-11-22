@@ -56,7 +56,7 @@ struct KillBreakdownView: View {
 			by: \.killer!
 		)
 		let order = killsByPlayer
-			.sorted { data.player($0.key)!.score }
+			.sorted { data.player($0.key)?.score ?? 0 }
 				then: { $0.key.description }
 			.map(\.key)
 			.reversed()
@@ -75,8 +75,8 @@ struct KillBreakdownView: View {
 				kills: kills,
 				killsByTeam: orderedTeams.map { team in
 					kills
-						.filter { data.player($0.killer!).teamID == team.id }
-						.sorted { playerOrder[$0.killer!]! }
+						.filter { data.player($0.killer)?.teamID == team.id }
+						.sorted { playerOrder[$0.killer!] ?? .max }
 				}
 			)
 		}
@@ -98,10 +98,10 @@ struct KillBreakdownView: View {
 				.measuring(\.height, as: TopHeight.self)
 				.frame(height: topHeight, alignment: .bottom)
 				.background(
-					LinearGradient(
+					AnyShapeStyle(LinearGradient(
 						gradient: .init(.valorantBlue),
 						startPoint: .bottom, endPoint: .top
-					)
+					))
 					.opacity(backgroundOpacity)
 				)
 			
@@ -122,10 +122,10 @@ struct KillBreakdownView: View {
 				.measuring(\.height, as: BottomHeight.self)
 				.frame(height: bottomHeight, alignment: .top)
 				.background(
-					LinearGradient(
+					AnyShapeStyle(LinearGradient(
 						gradient: .init(.valorantRed),
 						startPoint: .top, endPoint: .bottom
-					)
+					))
 					.opacity(backgroundOpacity)
 				)
 		}
@@ -146,13 +146,24 @@ struct KillBreakdownView: View {
 	
 	@ViewBuilder
 	private func playerIcon(for playerID: Player.ID) -> some View {
-		let player = data.players[playerID]!
-		let relativeColor = data.relativeColor(of: player) ?? .valorantRed
-		
-		AgentImage.icon(player.agentID!)
-			.aspectRatio(1, contentMode: .fit)
-			.fixedSize(horizontal: false, vertical: true)
-			.dynamicallyStroked(radius: 1, color: .white)
+		if let player = data.players[playerID] {
+			let relativeColor = data.relativeColor(of: player) ?? .valorantRed
+			
+			Group {
+				if let agentID = player.agentID {
+					AgentImage.icon(
+						agentID,
+						outlineRadius: 1,
+						teamID: player.teamID,
+						isOVariant: data.isGauntletOVariant(for: player)
+					)
+						.aspectRatio(1, contentMode: .fit)
+						.fixedSize(horizontal: false, vertical: true)
+				} else {
+					Image(systemName: "person.fill")
+						.aspectRatio(1, contentMode: .fit)
+				}
+			}
 			.background(Circle().fill(relativeColor).opacity(0.5).padding(1))
 			.mask(Circle())
 			.padding(1)
@@ -169,6 +180,7 @@ struct KillBreakdownView: View {
 			.onTapGesture {
 				highlight.switchHighlight(to: player)
 			}
+		}
 	}
 }
 
@@ -224,7 +236,9 @@ private extension MatchDetails {
 			count: roundResults.count
 		) <- {
 			for kill in validKills() {
-				$0[kill.round!].append(kill)
+				if let round = kill.round, $0.indices.contains(round) {
+					$0[round].append(kill)
+				}
 			}
 		}
 	}

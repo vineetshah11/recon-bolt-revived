@@ -11,12 +11,6 @@ extension AssetClient {
 private struct AgentInfoRequest: AssetDataRequest {
 	let path = "/v1/agents"
 	
-	var urlParams: [URLParameter] {
-		// For some reason riot decided to include a borked version of Sova (Hunter_NPE) that's missing some parts.
-		// We can filter it out though, thanks to the amazing ValorantAPI.
-		("isPlayableCharacter", true)
-	}
-	
 	typealias Response = [AgentInfo]
 }
 
@@ -28,22 +22,23 @@ struct AgentInfo: AssetItem, Codable, Identifiable {
 	var displayName: String
 	var developerName: String
 	
-	var description: String
+	var description: String?
 	var characterTags: [String]?
-	var role: Role
-	var abilities: [Ability]
+	var role: Role?
+	var abilities: [Ability]?
 	
 	var displayIcon: AssetImage
-	var fullPortrait: AssetImage
+	var fullPortrait: AssetImage?
 	var killfeedPortrait: AssetImage
-	var background: AssetImage
+	var background: AssetImage?
 	var isFullPortraitRightFacing: Bool
+	var isPlayableCharacter: Bool
 	var assetPath: String
-	var backgroundGradientColors: [HexEncodedColor]
+	var backgroundGradientColors: [HexEncodedColor]?
 	
 	/// abilities are given in the wrong order; this reorders them appropriately
 	func ability(_ slot: Ability.Slot) -> Ability? {
-		abilities.first { $0.slot == slot }
+		abilities?.first { $0.slot == slot }
 	}
 	/// abilities are given in the wrong order; this reorders them appropriately
 	var abilitiesInOrder: [Ability] {

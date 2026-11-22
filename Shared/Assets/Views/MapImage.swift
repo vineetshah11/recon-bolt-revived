@@ -19,7 +19,7 @@ extension MapImage {
 	}
 	
 	static func minimap(_ id: MapID) -> Self {
-		Self(id: id, aspectRatio: 1, getImage: \.displayIcon)
+		Self(id: id, aspectRatio: 1, preferFullResolution: true, getImage: \.displayIcon)
 	}
 }
 

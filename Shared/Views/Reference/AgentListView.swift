@@ -6,9 +6,12 @@ struct AgentListView: View {
 	var body: some View {
 		AssetsUnwrappingView { assets in
 			List {
-				let agents = assets.agents.values.sorted(on: \.displayName)
-				let groups = Dictionary(grouping: agents, by: \.role)
-					.sorted(on: \.key.displayName)
+				let agents = assets.agents.values
+					.filter(\.isPlayableCharacter)
+					.sorted(on: \.displayName)
+				let groups = Dictionary(grouping: agents) { $0.role }
+					.compactMap { role, agents in role.map { ($0, agents) } }
+					.sorted(on: \.0.displayName)
 				ForEach(groups, id: \.0.id) { (role: AgentInfo.Role, agents: [AgentInfo]) in
 					Section {
 						ForEach(agents) { agent in

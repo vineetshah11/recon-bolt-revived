@@ -36,12 +36,8 @@ struct SettingsView: View {
 					NavigationLink {
 						AboutScreen()
 					} label: {
-						Label("About Recon Bolt", systemImage: "questionmark")
+						Label("About Vantage", systemImage: "questionmark")
 					}
-					
-					ListLink("Rate on the App Store", icon: "star", destination: "https://apps.apple.com/app/recon-bolt/id1563649061?action=write-review")
-					
-					ListLink("Join the Discord Server", icon: "bubble.left.and.bubble.right", destination: "https://discord.gg/rfaEzjbWyu")
 				}
 			}
 			.deepLinkHandler { deepLink in

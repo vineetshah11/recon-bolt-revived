@@ -22,7 +22,6 @@ struct MatchDetailsContainer: View {
 			}
 		}
 		.withLocalData($details, id: matchID, shouldAutoUpdate: true, shouldReportErrors: true)
-		.anonymizing(.none)   // replace inherited mode — always reveal names in post-match details
 		.navigationTitle(Text("Match Details", comment: "Match Details: title"))
 		.navigationBarTitleDisplayMode(.inline)
 	}

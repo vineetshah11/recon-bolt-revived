@@ -5,98 +5,57 @@ import HandyOperators
 struct PlayerIdentityCell: View {
 	let user: User?
 	let identity: Player.Identity?
-	/// The signed-in account's own ID. When set, that player's name is always shown regardless of anonymization mode.
-	var ownUserID: User.ID? = nil
 	
 	@Environment(\.assets) private var assets
 	@Environment(\.shouldAnonymize) private var shouldAnonymize
 	
-	private let cornerRadius: CGFloat = 16
-	
-	private var isOwnUser: Bool {
-		user != nil && user?.id == ownUserID
-	}
-	
-	private var isNameHidden: Bool {
-		guard let user else { return true }
-		return !isOwnUser && shouldAnonymize(user.id)
-	}
-	
-	private var titleText: String? {
-		guard let identity else { return nil }
-		return assets?.playerTitles[identity.titleID]?.titleText
-	}
-	
 	var body: some View {
-		PlayerCardImage.wide(identity?.cardID)
-			.overlay(alignment: .bottom) {
-				LinearGradient(
-					colors: [.clear, .black.opacity(0.8)],
-					startPoint: .top,
-					endPoint: .bottom
-				)
-				.frame(height: 96)
-				.allowsHitTesting(false)
-			}
-			.overlay(alignment: .bottomLeading) {
-				VStack(alignment: .leading, spacing: 3) {
-					HStack(spacing: 6) {
-						Text(userName)
-							.font(.system(.headline, design: .rounded).weight(.bold))
-							.foregroundColor(.white)
-							.lineLimit(1)
+		VStack(spacing: 0) {
+			HStack {
+				HStack(spacing: 4) {
+					if let user, !shouldAnonymize(user.id) {
+						Text(user.gameName)
+							.fontWeight(.semibold)
 						
-						if let user, !isNameHidden, !user.tagLine.isEmpty {
-							Text(verbatim: "#\(user.tagLine)")
-								.font(.system(.subheadline, design: .rounded).weight(.medium))
-								.foregroundColor(.white.opacity(0.65))
-								.lineLimit(1)
-						}
-					}
-					.placeholder(if: user == nil)
-					
-					if let titleText {
-						Text(titleText)
-							.font(.system(.caption, design: .rounded).weight(.medium))
-							.foregroundColor(.white.opacity(0.75))
-							.lineLimit(1)
+						Text("#\(user.tagLine)")
+							.foregroundStyle(.secondary)
+					} else {
+						Text("Player")
+							.fontWeight(.semibold)
+							.foregroundStyle(.secondary)
+							.placeholder(if: user == nil)
 					}
 				}
-				.padding(12)
-			}
-			.overlay(alignment: .topTrailing) {
-				if let identity, identity.accountLevel > 0 {
-					Text(verbatim: "\(identity.accountLevel)")
-						.font(.system(.caption, design: .rounded).weight(.bold))
-						.monospacedDigit()
-						.foregroundColor(.white)
-						.padding(.horizontal, 8)
-						.padding(.vertical, 3)
-						.background(Capsule().fill(Color.black.opacity(0.55)))
-						.overlay(Capsule().stroke(Color.white.opacity(0.25), lineWidth: 1))
-						.padding(8)
+				
+				Spacer()
+				
+				if let identity, let title = assets?.playerTitles[identity.titleID]?.titleText {
+					Text(title)
 				}
 			}
-			.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-			.overlay(
-				RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-					.stroke(ReconTheme.border, lineWidth: 1)
-			)
-			.listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
-			.listRowSeparator(.hidden)
-			.listRowBackground(Color.clear)
-			.accessibilityElement(children: .ignore)
-			.accessibilityLabel(spokenLabel)
-	}
-	
-	private var userName: String {
-		guard let user, !isNameHidden, !user.gameName.isEmpty else { return String(localized: "Player") }
-		return user.gameName
-	}
-	
-	private var spokenLabel: String {
-		guard let user, !isNameHidden else { return String(localized: "Player") }
-		return "#\(user.gameName)\(user.tagLine)"
+			.padding()
+			
+			if let identity {
+				Divider().zIndex(1).overlay {
+					Text("\(identity.accountLevel)")
+						.fontWeight(.semibold)
+						.foregroundStyle(.secondary)
+						.frame(minWidth: 24)
+						.padding(6)
+						.padding(.horizontal, 4)
+						.overlay(Capsule().stroke(.secondary))
+						.background(Material.ultraThin)
+						.mask(Capsule())
+				}
+			}
+			
+			PlayerCardImage.wide(identity?.cardID)
+				.fixedSize(horizontal: false, vertical: true) // idk why i suddenly need this but i do
+			
+			Divider()
+		}
+		.listRowInsets(.init())
+		.listRowSeparator(.hidden, edges: .bottom) // the separator is inset, which doesn't look great
 	}
 }
 

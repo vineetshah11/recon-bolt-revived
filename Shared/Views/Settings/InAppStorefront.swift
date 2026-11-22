@@ -14,8 +14,7 @@ struct InAppStorefront: View {
 				
 				VStack(alignment: .leading, spacing: 8) {
 					if store.ownsProVersion {
-						Text("Thank you for supporting Recon Bolt!", comment: "Pro Store").font(.callout)
-						Text("I hope you enjoy the pro features :)", comment: "Pro Store").font(.callout)
+						Text("Pro activated by default in the Revived version.", comment: "Pro Store").font(.callout)
 					} else {
 						let bullets = [
 							Text("Support Further Development!", comment: "Pro Store"),
@@ -37,7 +36,7 @@ struct InAppStorefront: View {
 			
 			Spacer()
 			
-			Image("Pro Icon")
+			Image.bundledAsset("Pro Icon")
 				.resizable()
 				.aspectRatio(contentMode: .fit)
 				.frame(minWidth: 120, maxHeight: 256)
@@ -50,23 +49,23 @@ struct InAppStorefront: View {
 			Text("View All Features", comment: "Pro Store")
 		}
 		
-		VStack(alignment: .leading, spacing: 8) {
-			Text("Before you Buy", comment: "Pro Store: warning title")
-				.font(.title2.bold())
-			let text = String(localized: """
+		if !store.ownsProVersion {
+			VStack(alignment: .leading, spacing: 8) {
+				Text("Before you Buy", comment: "Pro Store: warning title")
+					.font(.title2.bold())
+				let text = String(localized: """
 Unfortunately, Riot is now using their intellectual property rights to take down this app. I'm trying to discuss with them to find a way forward, but I currently cannot guarantee that the app will stay available. I believe it will remain installed if you currently have it, but I'm not sure if I'll still be able to verify Pro purchases.
 
 If you or someone you know works at Riot, get in touch with me—there's a few ways linked in the About Recon Bolt section below.
 
 I would still be grateful for your support if you do purchase it! But it's at your own risk because I cannot guarantee that you'll enjoy the promised features going forward :(
 """, comment: "Pro Store: warning text")
+				
+				// custom paragraph spacing
+				let paragraphs = text.split(separator: "\n")
+				ForEach(paragraphs.indices, id: \.self) { Text(paragraphs[$0]) }
+			}
 			
-			// custom paragraph spacing
-			let paragraphs = text.split(separator: "\n")
-			ForEach(paragraphs.indices, id: \.self) { Text(paragraphs[$0]) }
-		}
-		
-		if !store.ownsProVersion {
 			purchaseButton
 			restoreButton
 		}
@@ -188,7 +187,7 @@ struct ProFeaturesOverview: View {
 	}
 	
 	func image(_ name: String) -> some View {
-		Image("pro features/\(name)")
+		Image.bundledAsset("pro features/\(name)")
 			.resizable()
 			.aspectRatio(contentMode: .fit)
 			.fixedSize(horizontal: false, vertical: true)

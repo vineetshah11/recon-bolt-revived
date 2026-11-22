@@ -30,3 +30,10 @@ DerivedData/
 *.crash
 *.ips
 *.log
+
+# SwiftPM & xtool build artifacts (from upstream)
+/Package.resolved
+/.build/
+/.bsp/
+/.xtool-tmp/
+/xtool/

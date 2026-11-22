@@ -42,9 +42,7 @@ private struct ValorantLoadModifier: ViewModifier {
 	@Environment(\.loadWithErrorAlerts) private var load
 	
 	func body(content: Content) -> some View {
-		content
-			.environment(\.valorantLoad, load)
-			.environment(\.accountManager, manager)
+		content.environment(\.valorantLoad, load)
 	}
 	
 	func load(_ task: @escaping (ValorantClient) async throws -> Void) async {
@@ -68,16 +66,6 @@ typealias ValorantLoadTask = (ValorantClient) async throws -> Void
 typealias ValorantLoadFunction = (@escaping ValorantLoadTask) async -> Void
 
 extension EnvironmentValues {
-	/// The manager owning the active account, for code that needs to touch the session itself.
-	var accountManager: AccountManager? {
-		get { self[AccountManagerKey.self] }
-		set { self[AccountManagerKey.self] = newValue }
-	}
-	
-	private enum AccountManagerKey: EnvironmentKey {
-		static let defaultValue: AccountManager? = nil
-	}
-	
 	/// Executes some remote loading operation using the given ``ValorantClient``.
 	var valorantLoad: ValorantLoadFunction {
 		get {

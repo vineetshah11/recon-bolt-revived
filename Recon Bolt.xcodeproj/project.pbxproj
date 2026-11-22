@@ -3,13 +3,10 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 55;
+	objectVersion = 56;
 	objects = {
 
 /* Begin PBXBuildFile section */
-		52D739432B5A0FB9009D9167 /* ValorantAPI in Frameworks */ = {isa = PBXBuildFile; productRef = 52D739422B5A0FB9009D9167 /* ValorantAPI */; };
-		52D739452B5A0FC4009D9167 /* ValorantAPI in Frameworks */ = {isa = PBXBuildFile; productRef = 52D739442B5A0FC4009D9167 /* ValorantAPI */; };
-		52D739472B5A0FCA009D9167 /* ValorantAPI in Frameworks */ = {isa = PBXBuildFile; productRef = 52D739462B5A0FCA009D9167 /* ValorantAPI */; };
 		B902823426A7A8A9004B1740 /* HenrikAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B902823326A7A8A9004B1740 /* HenrikAPI.swift */; };
 		B909D294292361E0003A53D9 /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = B909D293292361E0003A53D9 /* AppSettings.swift */; };
 		B90B4B52267C112F00CACB95 /* CompetitiveTier.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90B4B51267C112F00CACB95 /* CompetitiveTier.swift */; };
@@ -54,8 +51,6 @@
 		B927614B266284B700CF2100 /* PlayerHighlightInfo.swift in Sources */ = {isa = PBXBuildFile; fileRef = B927614A266284B700CF2100 /* PlayerHighlightInfo.swift */; };
 		B927719C284DBA1D00F25FC3 /* SprayAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B927719B284DBA1D00F25FC3 /* SprayAssets.swift */; };
 		B927719E284DBAF600F25FC3 /* BuddyAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B927719D284DBAF600F25FC3 /* BuddyAssets.swift */; };
-		AA1B2C3D4E5F60718293A102 /* TotemAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60718293A101 /* TotemAssets.swift */; };
-		AA1B2C3D4E5F60718293A105 /* ExpressionIcon.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60718293A104 /* ExpressionIcon.swift */; };
 		B9298FA329BF9F6900DC7778 /* StatisticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9298FA229BF9F6900DC7778 /* StatisticsView.swift */; };
 		B9298FA529C0287C00DC7778 /* QueueAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9298FA429C0287C00DC7778 /* QueueAssets.swift */; };
 		B9298FA629C0290700DC7778 /* QueueAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9298FA429C0287C00DC7778 /* QueueAssets.swift */; };
@@ -84,6 +79,7 @@
 		B939C7F02948585C00ABD0C6 /* LocalDataManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9EE0002267EDCB100C08119 /* LocalDataManager.swift */; };
 		B939C7F8294858FB00ABD0C6 /* LocalData+SwiftUI.swift in Sources */ = {isa = PBXBuildFile; fileRef = B939C7F7294858FB00ABD0C6 /* LocalData+SwiftUI.swift */; };
 		B939C7FA2948597E00ABD0C6 /* UserDefault in Frameworks */ = {isa = PBXBuildFile; productRef = B939C7F92948597E00ABD0C6 /* UserDefault */; };
+		B939C7FE2948597E00ABD0C6 /* ValorantAPI in Frameworks */ = {isa = PBXBuildFile; productRef = B939C7FD2948597E00ABD0C6 /* ValorantAPI */; };
 		B939C8002948597E00ABD0C6 /* HandyOperators in Frameworks */ = {isa = PBXBuildFile; productRef = B939C7FF2948597E00ABD0C6 /* HandyOperators */; };
 		B939C801294859EC00ABD0C6 /* MatchList.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C97DD0263CB744001E4D1B /* MatchList.swift */; };
 		B939C803294859FB00ABD0C6 /* Algorithms in Frameworks */ = {isa = PBXBuildFile; productRef = B939C802294859FB00ABD0C6 /* Algorithms */; };
@@ -100,10 +96,11 @@
 		B941B65625A5BC8A00F675C1 /* ReconBoltApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B941B64325A5BC8800F675C1 /* ReconBoltApp.swift */; };
 		B941B65825A5BC8A00F675C1 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B941B64425A5BC8800F675C1 /* ContentView.swift */; };
 		B941B65A25A5BC8A00F675C1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B941B64525A5BC8A00F675C1 /* Assets.xcassets */; };
+		FA11BE5C1A2B3C4D5E6F7A83 /* BundledAssets in Resources */ = {isa = PBXBuildFile; fileRef = FA11BE5C1A2B3C4D5E6F7A82 /* BundledAssets */; };
 		B941B69B25A62FFB00F675C1 /* UserDefault in Frameworks */ = {isa = PBXBuildFile; productRef = B941B69A25A62FFB00F675C1 /* UserDefault */; };
 		B941B6DE25A7BC3800F675C1 /* View+Styling.swift in Sources */ = {isa = PBXBuildFile; fileRef = B941B6DD25A7BC3800F675C1 /* View+Styling.swift */; };
 		B941B6E525A7C48300F675C1 /* LoginForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = B941B6E425A7C48300F675C1 /* LoginForm.swift */; };
-		B941B6E525A7C48300F675C9 /* RiotWebAuthView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B941B6E425A7C48300F675C9 /* RiotWebAuthView.swift */; };
+		FA11BE5C1A2B3C4D5E6F7A80 /* LoginWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA11BE5C1A2B3C4D5E6F7A81 /* LoginWebView.swift */; };
 		B941B6EC25A7C83700F675C1 /* example_updates.json in Resources */ = {isa = PBXBuildFile; fileRef = B941B6EB25A7C83700F675C1 /* example_updates.json */; };
 		B94288A129F7A97700F9415B /* MediaSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B94288A029F7A97700F9415B /* MediaSheets.swift */; };
 		B94288A329F7A99900F9415B /* SkinDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B94288A229F7A99900F9415B /* SkinDetailsView.swift */; };
@@ -190,7 +187,6 @@
 		B97C8F4B293C421F002F6A07 /* MissionAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B96A0CA9265AE32200844674 /* MissionAssets.swift */; };
 		B97C8F4C293C421F002F6A07 /* PlayerCardAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B90B4B57267C167B00CACB95 /* PlayerCardAssets.swift */; };
 		B97C8F4D293C421F002F6A07 /* BuddyAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B927719D284DBAF600F25FC3 /* BuddyAssets.swift */; };
-		AA1B2C3D4E5F60718293A103 /* TotemAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA1B2C3D4E5F60718293A101 /* TotemAssets.swift */; };
 		B97C8F4E293C421F002F6A07 /* BundleAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F7A54027DD1E7D00636DAF /* BundleAssets.swift */; };
 		B97C8F4F293C421F002F6A07 /* CurrencyAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F7A53E27DD091F00636DAF /* CurrencyAssets.swift */; };
 		B97C8F50293C421F002F6A07 /* AgentAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9485F83264B1DD300AC3456 /* AgentAssets.swift */; };
@@ -262,12 +258,14 @@
 		B9BC89FC293A7D6F00B97626 /* General.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9BC89FB293A7D6F00B97626 /* General.swift */; };
 		B9BC89FF293A7D7400B97626 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B9BC89FE293A7D7400B97626 /* Assets.xcassets */; };
 		B9BC8A05293A7D7400B97626 /* WidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = B9BC89F1293A7D6F00B97626 /* WidgetsExtension.appex */; platformFilters = (ios, maccatalyst, ); settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		B9BC8A0C293B082800B97626 /* ValorantAPI in Frameworks */ = {isa = PBXBuildFile; productRef = B9BC8A0B293B082800B97626 /* ValorantAPI */; };
 		B9C2E913284E3B9F0007FC55 /* SearchableAssetPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C2E912284E3B9F0007FC55 /* SearchableAssetPicker.swift */; };
 		B9C2E915284E3BEE0007FC55 /* WeaponLoadoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C2E914284E3BEE0007FC55 /* WeaponLoadoutView.swift */; };
 		B9C3499D267AA6DE00BE39B1 /* LiveMatchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C3499C267AA6DE00BE39B1 /* LiveMatchView.swift */; };
 		B9C349A0267AA9E800BE39B1 /* example_live_game.json in Resources */ = {isa = PBXBuildFile; fileRef = B9C3499F267AA9E800BE39B1 /* example_live_game.json */; };
 		B9C7064E269BC91F00D29226 /* GameModeImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C7064D269BC91F00D29226 /* GameModeImage.swift */; };
 		B9C97DC7263CADFC001E4D1B /* ValorantAPI+Mock.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C97DC6263CADFC001E4D1B /* ValorantAPI+Mock.swift */; };
+		B9C97DCC263CB0D6001E4D1B /* ValorantAPI in Frameworks */ = {isa = PBXBuildFile; productRef = B9C97DCB263CB0D6001E4D1B /* ValorantAPI */; };
 		B9C97DD1263CB744001E4D1B /* MatchList.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9C97DD0263CB744001E4D1B /* MatchList.swift */; };
 		B9CD085927D2878000BD485A /* AgentListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9CD085827D2878000BD485A /* AgentListView.swift */; };
 		B9CD085C27D28D7500BD485A /* AgentInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9CD085B27D28D7500BD485A /* AgentInfoView.swift */; };
@@ -277,7 +275,6 @@
 		B9DCC24128C96EF900C03B90 /* AssetsInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9DCC24028C96EF900C03B90 /* AssetsInfoView.swift */; };
 		B9DCC24328C96F5400C03B90 /* AboutScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9DCC24228C96F5400C03B90 /* AboutScreen.swift */; };
 		B9DCF9A72642E0EC00C39EC4 /* ScoreboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9DCF9A62642E0EC00C39EC4 /* ScoreboardView.swift */; };
-		A1B2C3D4E5F60718293A4B5D /* MatchPerformanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* MatchPerformanceView.swift */; };
 		B9DCF9AB2642F7A100C39EC4 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B9DCF9AA2642F7A100C39EC4 /* Preview Assets.xcassets */; };
 		B9DCF9AE2642F8FD00C39EC4 /* AssetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9DCF9AD2642F8FD00C39EC4 /* AssetManager.swift */; };
 		B9E43DA2265DB94C00F59E35 /* MatchViewData.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9E43DA1265DB94C00F59E35 /* MatchViewData.swift */; };
@@ -446,8 +443,6 @@
 		B927614A266284B700CF2100 /* PlayerHighlightInfo.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerHighlightInfo.swift; sourceTree = "<group>"; };
 		B927719B284DBA1D00F25FC3 /* SprayAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SprayAssets.swift; sourceTree = "<group>"; };
 		B927719D284DBAF600F25FC3 /* BuddyAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuddyAssets.swift; sourceTree = "<group>"; };
-		AA1B2C3D4E5F60718293A101 /* TotemAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TotemAssets.swift; sourceTree = "<group>"; };
-		AA1B2C3D4E5F60718293A104 /* ExpressionIcon.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpressionIcon.swift; sourceTree = "<group>"; };
 		B9298FA229BF9F6900DC7778 /* StatisticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatisticsView.swift; sourceTree = "<group>"; };
 		B9298FA429C0287C00DC7778 /* QueueAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QueueAssets.swift; sourceTree = "<group>"; };
 		B92DC20026A33C3600200A01 /* ActRankView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActRankView.swift; sourceTree = "<group>"; };
@@ -481,13 +476,14 @@
 		B941B64325A5BC8800F675C1 /* ReconBoltApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReconBoltApp.swift; sourceTree = "<group>"; };
 		B941B64425A5BC8800F675C1 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		B941B64525A5BC8A00F675C1 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
-		B941B64A25A5BC8A00F675C1 /* Recon Bolt.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Recon Bolt.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		FA11BE5C1A2B3C4D5E6F7A82 /* BundledAssets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = BundledAssets; sourceTree = "<group>"; };
+		B941B64A25A5BC8A00F675C1 /* Vantage.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Vantage.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		B941B64D25A5BC8A00F675C1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B941B65425A5BC8A00F675C1 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B941B65525A5BC8A00F675C1 /* macOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = macOS.entitlements; sourceTree = "<group>"; };
 		B941B6DD25A7BC3800F675C1 /* View+Styling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Styling.swift"; sourceTree = "<group>"; };
 		B941B6E425A7C48300F675C1 /* LoginForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginForm.swift; sourceTree = "<group>"; };
-		B941B6E425A7C48300F675C9 /* RiotWebAuthView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RiotWebAuthView.swift; sourceTree = "<group>"; };
+		FA11BE5C1A2B3C4D5E6F7A81 /* LoginWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginWebView.swift; sourceTree = "<group>"; };
 		B941B6EB25A7C83700F675C1 /* example_updates.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = example_updates.json; sourceTree = "<group>"; };
 		B94288A029F7A97700F9415B /* MediaSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSheets.swift; sourceTree = "<group>"; };
 		B94288A229F7A99900F9415B /* SkinDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinDetailsView.swift; sourceTree = "<group>"; };
@@ -715,7 +711,6 @@
 		B9DCC24028C96EF900C03B90 /* AssetsInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetsInfoView.swift; sourceTree = "<group>"; };
 		B9DCC24228C96F5400C03B90 /* AboutScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AboutScreen.swift; sourceTree = "<group>"; };
 		B9DCF9A62642E0EC00C39EC4 /* ScoreboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScoreboardView.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F60718293A4B5C /* MatchPerformanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchPerformanceView.swift; sourceTree = "<group>"; };
 		B9DCF9AA2642F7A100C39EC4 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		B9DCF9AD2642F8FD00C39EC4 /* AssetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetManager.swift; sourceTree = "<group>"; };
 		B9E43DA1265DB94C00F59E35 /* MatchViewData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatchViewData.swift; sourceTree = "<group>"; };
@@ -791,8 +786,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				52D739472B5A0FCA009D9167 /* ValorantAPI in Frameworks */,
 				B939C803294859FB00ABD0C6 /* Algorithms in Frameworks */,
+				B939C7FE2948597E00ABD0C6 /* ValorantAPI in Frameworks */,
 				B939C8002948597E00ABD0C6 /* HandyOperators in Frameworks */,
 				B939C7DD2948577000ABD0C6 /* Intents.framework in Frameworks */,
 				B939C7FA2948597E00ABD0C6 /* UserDefault in Frameworks */,
@@ -803,8 +798,8 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				52D739432B5A0FB9009D9167 /* ValorantAPI in Frameworks */,
 				B90BC2EE266D224F00C905D4 /* CGeometry in Frameworks */,
+				B9C97DCC263CB0D6001E4D1B /* ValorantAPI in Frameworks */,
 				B9EE6E752659D6DF007E28B5 /* Algorithms in Frameworks */,
 				B9CF2E6C25A81F57004A1458 /* SwiftUIMissingPieces in Frameworks */,
 				B941B69B25A62FFB00F675C1 /* UserDefault in Frameworks */,
@@ -833,8 +828,8 @@
 				B97C8F38293BBF87002F6A07 /* Algorithms in Frameworks */,
 				B97C8F3C293C40C6002F6A07 /* SwiftUIMissingPieces in Frameworks */,
 				B97C8F34293BBF65002F6A07 /* UserDefault in Frameworks */,
+				B9BC8A0C293B082800B97626 /* ValorantAPI in Frameworks */,
 				B97C8F5D293C425A002F6A07 /* CGeometry in Frameworks */,
-				52D739452B5A0FC4009D9167 /* ValorantAPI in Frameworks */,
 				B97C8F30293BBE7D002F6A07 /* HandyOperators in Frameworks */,
 				B9BC89F5293A7D6F00B97626 /* SwiftUI.framework in Frameworks */,
 				B9BC89F3293A7D6F00B97626 /* WidgetKit.framework in Frameworks */,
@@ -1018,6 +1013,7 @@
 				B941B6DC25A7BC3200F675C1 /* Helpers */,
 				B9DCF9A92642F78900C39EC4 /* Preview Content */,
 				B941B64525A5BC8A00F675C1 /* Assets.xcassets */,
+				FA11BE5C1A2B3C4D5E6F7A82 /* BundledAssets */,
 				B9F7FBC62935C8890022F5CE /* Products.storekit */,
 				B967A1CA29E5134200AB4E92 /* Strings */,
 			);
@@ -1027,7 +1023,7 @@
 		B941B64B25A5BC8A00F675C1 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				B941B64A25A5BC8A00F675C1 /* Recon Bolt.app */,
+				B941B64A25A5BC8A00F675C1 /* Vantage.app */,
 				B9485F8D264B639F00AC3456 /* Recon Bolt Tests.xctest */,
 				B9BC89F1293A7D6F00B97626 /* WidgetsExtension.appex */,
 				B939C7DC2948577000ABD0C6 /* IntentsExtension.appex */,
@@ -1129,7 +1125,6 @@
 				B9F7A54027DD1E7D00636DAF /* BundleAssets.swift */,
 				B927719B284DBA1D00F25FC3 /* SprayAssets.swift */,
 				B927719D284DBAF600F25FC3 /* BuddyAssets.swift */,
-				AA1B2C3D4E5F60718293A101 /* TotemAssets.swift */,
 				B9FF792C2995FED300DFE90E /* ContentTierAssets.swift */,
 			);
 			path = "Concrete Assets";
@@ -1190,7 +1185,6 @@
 			isa = PBXGroup;
 			children = (
 				B914AE86284809D50001781F /* LoadoutDetailsView.swift */,
-				AA1B2C3D4E5F60718293A104 /* ExpressionIcon.swift */,
 				B9C2E912284E3B9F0007FC55 /* SearchableAssetPicker.swift */,
 				B9C2E914284E3BEE0007FC55 /* WeaponLoadoutView.swift */,
 				B9A11F4C28518B1C00599719 /* GunCustomizer.swift */,
@@ -1227,7 +1221,6 @@
 				B9EF0F20263CFC870067176A /* MatchDetailsView.swift */,
 				B9EE6E5A26589DE1007E28B5 /* MatchDetailsHero.swift */,
 				B9DCF9A62642E0EC00C39EC4 /* ScoreboardView.swift */,
-				A1B2C3D4E5F60718293A4B5C /* MatchPerformanceView.swift */,
 				B9EE6E6D26594374007E28B5 /* KillBreakdownView.swift */,
 				B91D3DA026C810E0007D18B8 /* RoundInfoView.swift */,
 				B9E43DA1265DB94C00F59E35 /* MatchViewData.swift */,
@@ -1315,7 +1308,7 @@
 			isa = PBXGroup;
 			children = (
 				B941B6E425A7C48300F675C1 /* LoginForm.swift */,
-				B941B6E425A7C48300F675C9 /* RiotWebAuthView.swift */,
+				FA11BE5C1A2B3C4D5E6F7A81 /* LoginWebView.swift */,
 				B9F66ACD266DC31E008560FD /* SettingsView.swift */,
 				B9DCC24228C96F5400C03B90 /* AboutScreen.swift */,
 				B9DCC24028C96EF900C03B90 /* AssetsInfoView.swift */,
@@ -1400,9 +1393,9 @@
 			name = IntentsExtension;
 			packageProductDependencies = (
 				B939C7F92948597E00ABD0C6 /* UserDefault */,
+				B939C7FD2948597E00ABD0C6 /* ValorantAPI */,
 				B939C7FF2948597E00ABD0C6 /* HandyOperators */,
 				B939C802294859FB00ABD0C6 /* Algorithms */,
-				52D739462B5A0FCA009D9167 /* ValorantAPI */,
 			);
 			productName = IntentsExtension;
 			productReference = B939C7DC2948577000ABD0C6 /* IntentsExtension.appex */;
@@ -1427,13 +1420,13 @@
 			packageProductDependencies = (
 				B941B69A25A62FFB00F675C1 /* UserDefault */,
 				B9CF2E6B25A81F57004A1458 /* SwiftUIMissingPieces */,
+				B9C97DCB263CB0D6001E4D1B /* ValorantAPI */,
 				B9EE6E742659D6DF007E28B5 /* Algorithms */,
 				B90BC2ED266D224F00C905D4 /* CGeometry */,
 				B932A11127912882009FAEE5 /* HandyOperators */,
-				52D739422B5A0FB9009D9167 /* ValorantAPI */,
 			);
 			productName = "Valorant Viewer (iOS)";
-			productReference = B941B64A25A5BC8A00F675C1 /* Recon Bolt.app */;
+			productReference = B941B64A25A5BC8A00F675C1 /* Vantage.app */;
 			productType = "com.apple.product-type.application";
 		};
 		B9485F8C264B639F00AC3456 /* Recon Bolt Tests */ = {
@@ -1487,12 +1480,12 @@
 			);
 			name = WidgetsExtension;
 			packageProductDependencies = (
+				B9BC8A0B293B082800B97626 /* ValorantAPI */,
 				B97C8F2F293BBE7D002F6A07 /* HandyOperators */,
 				B97C8F33293BBF65002F6A07 /* UserDefault */,
 				B97C8F37293BBF87002F6A07 /* Algorithms */,
 				B97C8F3B293C40C6002F6A07 /* SwiftUIMissingPieces */,
 				B97C8F5C293C425A002F6A07 /* CGeometry */,
-				52D739442B5A0FC4009D9167 /* ValorantAPI */,
 			);
 			productName = WidgetsExtension;
 			productReference = B9BC89F1293A7D6F00B97626 /* WidgetsExtension.appex */;
@@ -1561,10 +1554,10 @@
 			packageReferences = (
 				B941B69925A62FFB00F675C1 /* XCRemoteSwiftPackageReference "UserDefault" */,
 				B9CF2E6A25A81F57004A1458 /* XCRemoteSwiftPackageReference "SwifUI-Missing-Pieces" */,
+				B9C97DCA263CB0D6001E4D1B /* XCRemoteSwiftPackageReference "ValorantAPI" */,
 				B9EE6E732659D6DF007E28B5 /* XCRemoteSwiftPackageReference "swift-algorithms" */,
 				B90BC2EC266D224F00C905D4 /* XCRemoteSwiftPackageReference "CGeometry" */,
 				B932A11027912882009FAEE5 /* XCRemoteSwiftPackageReference "HandyOperators" */,
-				52D739412B5A0FB9009D9167 /* XCRemoteSwiftPackageReference "ValorantAPI" */,
 			);
 			productRefGroup = B941B64B25A5BC8A00F675C1 /* Products */;
 			projectDirPath = "";
@@ -1623,6 +1616,7 @@
 				B9F7A53C27DC5DAF00636DAF /* example_store_offers.json in Resources */,
 				B914AE8928480A270001781F /* example_loadout.json in Resources */,
 				B941B65A25A5BC8A00F675C1 /* Assets.xcassets in Resources */,
+				FA11BE5C1A2B3C4D5E6F7A83 /* BundledAssets in Resources */,
 				B96A0CA0265A8B4600844674 /* strange_match.json in Resources */,
 				B98DF51D29FEC5AD00A8A27A /* Skin Level Effects.strings in Resources */,
 			);
@@ -1755,7 +1749,7 @@
 				B9B11A6328D8F847006EC232 /* Keychain.swift in Sources */,
 				B9EE6E6E26594374007E28B5 /* KillBreakdownView.swift in Sources */,
 				B941B6E525A7C48300F675C1 /* LoginForm.swift in Sources */,
-				B941B6E525A7C48300F675C9 /* RiotWebAuthView.swift in Sources */,
+				FA11BE5C1A2B3C4D5E6F7A80 /* LoginWebView.swift in Sources */,
 				B9131D65266AF6C600E85F46 /* ReferenceView.swift in Sources */,
 				B95B1A4C269CE1810080EC81 /* ScoreSummaryView.swift in Sources */,
 				B94091B825D09F0200EE5DF2 /* MatchListView.swift in Sources */,
@@ -1786,7 +1780,6 @@
 				B963C4792695101C0071E14A /* PlayerIdentityCell.swift in Sources */,
 				B9766BB72750339700127FF2 /* ContractAssets.swift in Sources */,
 				B9DCF9A72642E0EC00C39EC4 /* ScoreboardView.swift in Sources */,
-				A1B2C3D4E5F60718293A4B5D /* MatchPerformanceView.swift in Sources */,
 				B9FF792D2995FED300DFE90E /* ContentTierAssets.swift in Sources */,
 				B95D30AD26CE898C00829BB6 /* EventTimeline.swift in Sources */,
 				B92DC20126A33C3600200A01 /* ActRankView.swift in Sources */,
@@ -1808,8 +1801,6 @@
 				B95FA88229C2D839001D1998 /* UserLabel.swift in Sources */,
 				B932A10C279122FF009FAEE5 /* UpcomingMissionsList.swift in Sources */,
 				B927719C284DBA1D00F25FC3 /* SprayAssets.swift in Sources */,
-				AA1B2C3D4E5F60718293A102 /* TotemAssets.swift in Sources */,
-				AA1B2C3D4E5F60718293A105 /* ExpressionIcon.swift in Sources */,
 				B99302E228A9884800F7295D /* ImageManager.swift in Sources */,
 				B9EE6E6226589FAA007E28B5 /* PreviewData.swift in Sources */,
 				B9F174FA29C97AF7008722B1 /* AssetLabels.swift in Sources */,
@@ -1895,7 +1886,6 @@
 				B99AA18F294B8BBA00115120 /* MatchViewData.swift in Sources */,
 				B997FF2E29D3B6DE00BB09FF /* LocalDataProvider.swift in Sources */,
 				B97C8F51293C421F002F6A07 /* SprayAssets.swift in Sources */,
-				AA1B2C3D4E5F60718293A103 /* TotemAssets.swift in Sources */,
 				B99AA192294B8BCE00115120 /* MatchList.swift in Sources */,
 				B97C8F4B293C421F002F6A07 /* MissionAssets.swift in Sources */,
 				B97C8F4E293C421F002F6A07 /* BundleAssets.swift in Sources */,
@@ -2330,7 +2320,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MARKETING_VERSION = 1.3.7;
+				MARKETING_VERSION = 1.4;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -2387,7 +2377,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MARKETING_VERSION = 1.3.7;
+				MARKETING_VERSION = 1.4;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_SWIFT_FLAGS = "-Xfrontend -warn-long-expression-type-checking=500 -Xfrontend -warn-long-function-bodies=1000";
@@ -2418,7 +2408,7 @@
 					"@executable_path/Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "com.juliand665.Valorant-Viewer";
-				PRODUCT_NAME = "Recon Bolt";
+				PRODUCT_NAME = "Vantage";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = YES;
@@ -2449,7 +2439,7 @@
 					"@executable_path/Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "com.juliand665.Valorant-Viewer";
-				PRODUCT_NAME = "Recon Bolt";
+				PRODUCT_NAME = "Vantage";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = YES;
@@ -2478,7 +2468,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Recon Bolt.app/Recon Bolt";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Vantage.app/Vantage";
 			};
 			name = Debug;
 		};
@@ -2500,7 +2490,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Recon Bolt.app/Recon Bolt";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Vantage.app/Vantage";
 			};
 			name = Release;
 		};
@@ -2666,14 +2656,6 @@
 /* End XCConfigurationList section */
 
 /* Begin XCRemoteSwiftPackageReference section */
-		52D739412B5A0FB9009D9167 /* XCRemoteSwiftPackageReference "ValorantAPI" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/vineetshah11/ValorantAPI.git";
-			requirement = {
-				branch = main;
-				kind = branch;
-			};
-		};
 		B90BC2EC266D224F00C905D4 /* XCRemoteSwiftPackageReference "CGeometry" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/juliand665/CGeometry.git";
@@ -2698,6 +2680,14 @@
 				minimumVersion = 1.0.2;
 			};
 		};
+		B9C97DCA263CB0D6001E4D1B /* XCRemoteSwiftPackageReference "ValorantAPI" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/TMaume/ValorantAPI-Revived.git";
+			requirement = {
+				kind = revision;
+				revision = 248d3fabe23521f41f798924cb747d6fd1677fac;
+			};
+		};
 		B9CF2E6A25A81F57004A1458 /* XCRemoteSwiftPackageReference "SwifUI-Missing-Pieces" */ = {
 			isa = XCRemoteSwiftPackageReference;
 			repositoryURL = "https://github.com/juliand665/SwifUI-Missing-Pieces.git";
@@ -2717,21 +2707,6 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		52D739422B5A0FB9009D9167 /* ValorantAPI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 52D739412B5A0FB9009D9167 /* XCRemoteSwiftPackageReference "ValorantAPI" */;
-			productName = ValorantAPI;
-		};
-		52D739442B5A0FC4009D9167 /* ValorantAPI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 52D739412B5A0FB9009D9167 /* XCRemoteSwiftPackageReference "ValorantAPI" */;
-			productName = ValorantAPI;
-		};
-		52D739462B5A0FCA009D9167 /* ValorantAPI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 52D739412B5A0FB9009D9167 /* XCRemoteSwiftPackageReference "ValorantAPI" */;
-			productName = ValorantAPI;
-		};
 		B90BC2ED266D224F00C905D4 /* CGeometry */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = B90BC2EC266D224F00C905D4 /* XCRemoteSwiftPackageReference "CGeometry" */;
@@ -2751,6 +2726,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B941B69925A62FFB00F675C1 /* XCRemoteSwiftPackageReference "UserDefault" */;
 			productName = UserDefault;
+		};
+		B939C7FD2948597E00ABD0C6 /* ValorantAPI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B9C97DCA263CB0D6001E4D1B /* XCRemoteSwiftPackageReference "ValorantAPI" */;
+			productName = ValorantAPI;
 		};
 		B939C7FF2948597E00ABD0C6 /* HandyOperators */ = {
 			isa = XCSwiftPackageProductDependency;
@@ -2791,6 +2771,16 @@
 			isa = XCSwiftPackageProductDependency;
 			package = B90BC2EC266D224F00C905D4 /* XCRemoteSwiftPackageReference "CGeometry" */;
 			productName = CGeometry;
+		};
+		B9BC8A0B293B082800B97626 /* ValorantAPI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B9C97DCA263CB0D6001E4D1B /* XCRemoteSwiftPackageReference "ValorantAPI" */;
+			productName = ValorantAPI;
+		};
+		B9C97DCB263CB0D6001E4D1B /* ValorantAPI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = B9C97DCA263CB0D6001E4D1B /* XCRemoteSwiftPackageReference "ValorantAPI" */;
+			productName = ValorantAPI;
 		};
 		B9CF2E6B25A81F57004A1458 /* SwiftUIMissingPieces */ = {
 			isa = XCSwiftPackageProductDependency;

@@ -17,6 +17,8 @@ struct AssetImageView<Provider: AssetImageProvider>: View {
 	var renderingMode: Image.TemplateRenderingMode?
 	/// aspect ratio for the placeholder shown when the image is not loaded
 	var aspectRatio: CGFloat?
+	var outlineRadius: CGFloat? = nil
+	var preferFullResolution = false
 	var shouldLoadImmediately = false
 	var getImage: (Provider.Asset) -> AssetImage?
 	
@@ -29,9 +31,11 @@ struct AssetImageView<Provider: AssetImageProvider>: View {
 			assetImage.view(
 				renderingMode: renderingMode,
 				aspectRatio: aspectRatio,
+				outlineRadius: outlineRadius,
+				preferFullResolution: preferFullResolution,
 				shouldLoadImmediately: shouldLoadImmediately
 			)
-		} else if let id, let fallback = UIImage(named: "\(id)".uppercased()) {
+		} else if let id, let fallback = UIImage.bundledAsset(named: "\(id)".uppercased()) {
 			Image(uiImage: fallback)
 				.renderingMode(renderingMode)
 				.resizable()
@@ -49,6 +53,8 @@ extension AssetImageView {
 		id: ID?,
 		renderingMode: Image.TemplateRenderingMode? = nil,
 		aspectRatio: CGFloat? = nil,
+		outlineRadius: CGFloat? = nil,
+		preferFullResolution: Bool = false,
 		shouldLoadImmediately: Bool = false,
 		getImage: @escaping (Provider.Asset) -> AssetImage
 	) {
@@ -56,6 +62,8 @@ extension AssetImageView {
 			id: id,
 			renderingMode: renderingMode,
 			aspectRatio: aspectRatio,
+			outlineRadius: outlineRadius,
+			preferFullResolution: preferFullResolution,
 			shouldLoadImmediately: shouldLoadImmediately
 		) { getImage($0) } // optional promotion
 	}

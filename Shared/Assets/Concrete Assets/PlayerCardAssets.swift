@@ -23,6 +23,6 @@ struct PlayerCardInfo: AssetItem, Codable, Identifiable {
 	var smallArt: AssetImage
 	/// Wide artwork used in the loading screen.
 	var wideArt: AssetImage
-	/// Tall artwork used in the lobby.
+	/// Tall artwork used in the lobby (optional for newer/special cards on valorant-api.com).
 	var largeArt: AssetImage?
 }

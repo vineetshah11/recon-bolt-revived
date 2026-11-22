@@ -5,25 +5,10 @@ import UserDefault
 import HandyOperators
 import WidgetKit
 
-public struct WebAuthTokens: Hashable, Codable {
-	public let accessToken: String
-	public let idToken: String
-	public let expiresIn: Int
-	
-	public init(accessToken: String, idToken: String, expiresIn: Int) {
-		self.accessToken = accessToken
-		self.idToken = idToken
-		self.expiresIn = expiresIn
-	}
-}
-
 @MainActor
 final class AccountManager: ObservableObject {
 	let keychain: any Keychain
 	@Published var multifactorPrompt: MultifactorPrompt?
-	
-	/// Bumped whenever a session is replaced, so views that cache remote data can reload.
-	@Published private(set) var sessionGeneration = 0
 	
 	@Published var activeAccount: StoredAccount? = nil {
 		didSet {
@@ -83,10 +68,6 @@ final class AccountManager: ObservableObject {
 				accountLoadError = error.localizedDescription
 			}
 		}
-		
-		// property observers don't fire for assignments made inside init, so the stored
-		// client version would otherwise never reach the (lazily created) API client
-		updateClientVersion()
 	}
 	
 #if DEBUG
@@ -126,20 +107,14 @@ final class AccountManager: ObservableObject {
 			storedAccounts.append(session.userID)
 		}
 		activeAccount = try StoredAccount(session: session, context: context)
-		sessionGeneration += 1
 	}
 	
-	func addAccount(using tokens: WebAuthTokens) async throws {
-		let session = try await APISession(
-			webAccessToken: tokens.accessToken,
-			idToken: tokens.idToken,
-			expiresIn: tokens.expiresIn
-		)
+	func addAccount(redirectURL: URL, cookies: [HTTPCookie]) async throws {
+		let session = try await APISession(redirectURL: redirectURL, cookies: cookies)
 		if !storedAccounts.contains(session.userID) {
 			storedAccounts.append(session.userID)
 		}
 		activeAccount = try StoredAccount(session: session, context: context)
-		sessionGeneration += 1
 	}
 	
 	func removeAccounts(at offsets: IndexSet) {
@@ -182,33 +157,6 @@ final class AccountManager: ObservableObject {
 		activeAccount?.setClientVersion(clientVersion)
 	}
 	
-	/// The version Riot expects in `X-Riot-ClientVersion`. Several services (personalization among them)
-	/// can't find anything for requests carrying a stale one, so this is refreshed from the live API.
-	static func fetchLatestClientVersion() async -> String? {
-		struct Response: Decodable {
-			struct Payload: Decodable { let riotClientVersion: String }
-			let data: Payload
-		}
-		
-		guard let url = URL(string: "https://valorant-api.com/v1/version") else { return nil }
-		do {
-			let (data, _) = try await URLSession.shared.data(from: url)
-			let version = try JSONDecoder().decode(Response.self, from: data).data.riotClientVersion
-			return version.hasPrefix("release-") ? version : nil
-		} catch {
-			print("could not fetch latest client version:", error)
-			return nil
-		}
-	}
-	
-	/// Updates the version used for API requests. Returns whether it changed.
-	@discardableResult
-	func refreshClientVersion() async -> Bool {
-		guard let version = await Self.fetchLatestClientVersion(), version != clientVersion else { return false }
-		clientVersion = version
-		return true
-	}
-	
 	private struct Storage {
 		@UserDefault("AccountManager.activeAccount", migratingTo: .shared)
 		var activeAccount: User.ID?
@@ -217,7 +165,7 @@ final class AccountManager: ObservableObject {
 		@UserDefault("AccountManager.clientVersion", migratingTo: .shared)
 		var clientVersion: String?
 		@UserDefault("AccountManager.shouldReauthAutomatically", migratingTo: .shared)
-		var shouldReauthAutomatically = true
+		var shouldReauthAutomatically = false
 	}
 	
 	func handleMultifactor(info: MultifactorInfo) async throws -> String {

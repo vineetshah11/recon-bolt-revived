@@ -5,117 +5,109 @@ struct ScoreboardView: View {
 	let data: MatchViewData
 	@Binding var highlight: PlayerHighlightInfo
 	
+	@State private var width = 0.0
 	@Environment(\.valorantLoad) private var load
 	
-	private var teams: [Team] {
-		data.details.teams
-			.sorted { $0.pointCount < $1.pointCount }
-			.movingToFront { $0.id == data.myself?.teamID }
-	}
-	
 	var body: some View {
-		VStack(spacing: 14) {
-			ForEach(teams, id: \.id) { team in
-				teamSection(team)
+		VStack {
+			ScrollView(.horizontal, showsIndicators: false) {
+				VStack(spacing: ScoreboardRowView.padding) {
+					if data.isMultiTeam {
+						multiTeamScoreboard
+					} else {
+						let sorted = data.details.players.sorted { $0.score > $1.score }
+						ForEach(sorted) { player in
+							ScoreboardRowView(player: player, data: data, highlight: $highlight)
+						}
+					}
+				}
+				.padding(.horizontal)
+				.frame(minWidth: width)
 			}
+			.measured { width = $0.width }
 			
 			AsyncButton(action: fetchRanks) {
-				Label("Update Ranks", systemImage: "arrow.clockwise")
-					.font(.system(.footnote, design: .rounded).weight(.semibold))
-					.foregroundColor(.white)
-					.padding(.vertical, 11)
-					.frame(maxWidth: .infinity)
-					.background(
-						RoundedRectangle(cornerRadius: 12, style: .continuous)
-							.fill(Color.white.opacity(0.07))
-					)
+				Text("Update Ranks", comment: "Match Details: button")
 			}
-			.buttonStyle(.plain)
+			.buttonStyle(.bordered)
 		}
-		.padding(.horizontal)
-		.task {
-			// match details often omit names—resolve them through the name service
+		.task(id: data.details.id) {
+			let missingIDs = data.details.players
+				.filter(\.gameName.isEmpty)
+				.map(\.id)
+			guard !missingIDs.isEmpty else { return }
 			await load {
-				let ids = data.details.players
-					.filter { $0.gameName.isEmpty || $0.tagLine.isEmpty }
-					.map(\.id)
-				guard !ids.isEmpty else { return }
-				try await $0.refreshUsers(for: ids)
+				try await $0.fetchUsers(for: missingIDs)
 			}
 		}
-	}
-	
-	private func teamSection(_ team: Team) -> some View {
-		let accent = data.relativeColor(of: team.id) ?? .valorantBlue
-		let players = sortedPlayers(in: team)
-		
-		return VStack(spacing: 0) {
-			teamHeader(team, accent: accent)
-			
-			VStack(spacing: 4) {
-				ForEach(players) { player in
-					ScoreboardRowView(player: player, data: data, accent: accent, highlight: $highlight)
-				}
-			}
-			.padding(.horizontal, 6)
-			.padding(.bottom, 6)
-		}
-		.background(
-			RoundedRectangle(cornerRadius: 16, style: .continuous)
-				.fill(Color.white.opacity(0.045))
-		)
-		.overlay(
-			RoundedRectangle(cornerRadius: 16, style: .continuous)
-				.stroke(ReconTheme.border, lineWidth: 1)
-		)
-	}
-	
-	private func teamHeader(_ team: Team, accent: Color) -> some View {
-		HStack(spacing: 8) {
-			RoundedRectangle(cornerRadius: 2, style: .continuous)
-				.fill(accent)
-				.frame(width: 3, height: 14)
-			
-			teamName(team)
-				.font(.system(.subheadline, design: .rounded).weight(.bold))
-				.foregroundColor(.white)
-			
-			Spacer(minLength: 6)
-			
-			if team.won {
-				Text("Win", comment: "Scoreboard: team result pill")
-					.font(.system(.caption2, design: .rounded).weight(.heavy))
-					.textCase(.uppercase)
-					.foregroundColor(.white)
-					.padding(.horizontal, 7)
-					.padding(.vertical, 3)
-					.background(Capsule().fill(accent))
-			}
-			
-			Text(verbatim: "\(team.pointCount)")
-				.font(.system(.subheadline, design: .rounded).weight(.bold))
-				.monospacedDigit()
-				.foregroundColor(accent)
-		}
-		.padding(.horizontal, 12)
-		.padding(.vertical, 10)
 	}
 	
 	@ViewBuilder
-	private func teamName(_ team: Team) -> some View {
-		if team.id == data.myself?.teamID {
-			Text("Your Team", comment: "Scoreboard: section header")
-		} else if data.myself != nil {
-			Text("Enemy Team", comment: "Scoreboard: section header")
-		} else {
-			Text("Team", comment: "Scoreboard: section header when the tracked player could not be identified")
+	private var multiTeamScoreboard: some View {
+		let playersByTeam = Dictionary(grouping: data.details.players, by: \.teamID)
+		let hasGroupedTeams = playersByTeam.values.contains { $0.count > 1 }
+		
+		ForEach(Array(data.rankedTeams.enumerated()), id: \.element.id) { index, team in
+			let teamPlayers = (playersByTeam[team.id] ?? []).sorted { $0.score > $1.score }
+			let placementRank = team.placement ?? (index + 1)
+			let placement = PlacementFormatter.ordinal(placementRank)
+			let teamColor = data.relativeColor(of: team.id) ?? .valorantRed
+			
+			if hasGroupedTeams {
+				VStack(alignment: .leading, spacing: ScoreboardRowView.padding) {
+					HStack(spacing: 8) {
+						Text(placement)
+							.font(.subheadline.weight(.bold))
+							.foregroundColor(teamColor)
+						
+						if let mascotAsset = team.id.gauntletMascotAssetName {
+							Image.bundledAsset(mascotAsset)
+								.resizable()
+								.scaledToFit()
+								.frame(width: 22, height: 22)
+						}
+						
+						if let teamName = team.id.gauntletDisplayName {
+							Text(verbatim: teamName)
+								.font(.subheadline.weight(.semibold))
+								.foregroundColor(teamColor)
+						}
+						
+						if team.id == data.myself?.teamID {
+							Text("Your Team", comment: "Scoreboard: badge on user's team in multi-team modes")
+								.font(.caption.weight(.semibold))
+								.foregroundColor(.valorantSelf)
+						}
+						
+						Spacer()
+						
+						if team.pointCount > 0 {
+							Text("\(team.pointCount) pts")
+								.font(.caption.monospacedDigit())
+								.foregroundStyle(.secondary)
+						} else if let health = team.health, health.starting > 0 {
+							Text("\(health.ending)/\(health.starting) HP")
+								.font(.caption.monospacedDigit())
+								.foregroundStyle(.secondary)
+						}
+					}
+					.padding(.top, index == 0 ? 0 : 8)
+					
+					ForEach(teamPlayers) { player in
+						ScoreboardRowView(player: player, data: data, highlight: $highlight)
+					}
+				}
+			} else {
+				ForEach(teamPlayers) { player in
+					ScoreboardRowView(
+						player: player,
+						data: data,
+						placement: placement,
+						highlight: $highlight
+					)
+				}
+			}
 		}
-	}
-	
-	private func sortedPlayers(in team: Team) -> [Player] {
-		data.details.players
-			.filter { $0.teamID == team.id }
-			.sorted { $0.score > $1.score }
 	}
 	
 	private func fetchRanks() async {
@@ -128,192 +120,169 @@ struct ScoreboardView: View {
 }
 
 struct ScoreboardRowView: View {
+	static let padding = 6.0
 	private static let partyLetters = (UnicodeScalar("A").value...UnicodeScalar("Z").value)
 		.map { String(UnicodeScalar($0)!) }
 	
 	let player: Player
 	let data: MatchViewData
-	var accent: Color
+	var placement: String? = nil
 	@Binding var highlight: PlayerHighlightInfo
 	
-	@LocalData var summary: CareerSummary?
 	@LocalData var playerUser: User?
+	@LocalData var summary: CareerSummary?
 	
 	@Environment(\.shouldAnonymize) private var shouldAnonymize
 	
-	private var isMyself: Bool {
-		player.id == data.myself?.id
-	}
-	
-	/// The name from the match itself, falling back to the name service when it was omitted.
-	private var displayName: String {
-		let name = player.gameName.isEmpty ? playerUser?.gameName : player.gameName
-		return name ?? ""
-	}
-	
-	private var displayTag: String? {
-		let tag = player.tagLine.isEmpty ? playerUser?.tagLine : player.tagLine
-		guard let tag, !tag.isEmpty else { return nil }
-		return tag
-	}
-	
-	private var acs: Int? {
-		guard let stats = player.stats, stats.roundsPlayed > 0 else { return nil }
-		return stats.score / stats.roundsPlayed
-	}
-	
-	private var partyLetter: String? {
-		guard let index = data.parties.firstIndex(of: player.partyID) else { return nil }
-		guard Self.partyLetters.indices.contains(index) else { return nil }
-		return Self.partyLetters[index]
-	}
-	
 	var body: some View {
-		HStack(spacing: 8) {
-			ScoreboardAgentIcon(agentID: player.agentID, accent: accent, size: 32)
+		let divider = Rectangle()
+			.frame(width: 1)
+			.blendMode(.destinationOut)
+		let relativeColor = data.relativeColor(of: player)
+		let rowTeamColor = (data.isMultiTeam ? data.relativeColor(of: player.teamID) : nil) ?? relativeColor
+		
+		HStack(spacing: Self.padding) {
+			if let placement {
+				Text(placement)
+					.font(.caption.weight(.bold))
+					.monospacedDigit()
+					.foregroundColor(relativeColor)
+					.frame(minWidth: 32)
+			}
 			
-			identity
+			ZStack {
+				if let agentID = player.agentID {
+					AgentImage.icon(
+						agentID,
+						outlineRadius: 1,
+						teamID: player.teamID,
+						isOVariant: data.isGauntletOVariant(for: player)
+					)
+				} else {
+					Image(systemName: "eye")
+						.frame(maxWidth: .infinity, maxHeight: .infinity)
+				}
+			}
+			.aspectRatio(1, contentMode: .fit)
+			.background(rowTeamColor.opacity(0.5))
+			.compositingGroup()
+			.opacity(highlight.shouldFade(player.id) ? 0.5 : 1)
 			
-			Spacer(minLength: 4)
+			HStack {
+				identitySection
+					.foregroundColor(relativeColor)
+				
+				divider
+				
+				ZStack {
+					if let score = player.stats?.score {
+						let roundsPlayed = max(1, data.details.roundResults.count)
+						Text(verbatim: "\(score / roundsPlayed)")
+					} else {
+						Text("–").foregroundStyle(.secondary)
+					}
+				}
+				.frame(width: 60)
+				
+				divider
+				
+				KDASummaryView(player: player)
+					.frame(width: 120)
+				
+				if !data.parties.isEmpty {
+					divider
+					
+					partyLabel(for: player.partyID)
+						.frame(width: 80)
+				}
+			}
+			.padding(.vertical, Self.padding)
 			
-			rankEmblem
-			
-			kda
-			
-			acsLabel
+			relativeColor
+				.frame(width: Self.padding)
 		}
-		.padding(.horizontal, 8)
-		.padding(.vertical, 6)
-		.background(
-			RoundedRectangle(cornerRadius: 10, style: .continuous)
-				.fill(accent.opacity(isMyself ? 0.22 : 0.1))
-		)
-		.overlay(
-			RoundedRectangle(cornerRadius: 10, style: .continuous)
-				.stroke(accent.opacity(isMyself ? 0.6 : 0), lineWidth: 1)
-		)
-		.opacity(highlight.shouldFade(player.id) ? 0.45 : 1)
-		.contentShape(Rectangle())
+		.background(rowTeamColor.opacity(data.isMultiTeam ? 0.34 : 0.25))
+		.frame(height: 44)
+		.cornerRadius(Self.padding)
+		.compositingGroup() // for the destination-out blending
 		.onTapGesture {
 			highlight.switchHighlight(to: player)
 		}
-		.withLocalData($summary, id: player.id)
 		.withLocalData($playerUser, id: player.id)
-	}
-	
-	private var identity: some View {
-		VStack(alignment: .leading, spacing: 1) {
-			Group {
-				if shouldAnonymize(player.id) {
-					Text("Player", comment: "Scoreboard: anonymized player name")
-						.foregroundColor(ReconTheme.secondary)
-				} else {
-					Text(displayName.isEmpty ? String(localized: "Player") : displayName)
-						.foregroundColor(.white)
-				}
-			}
-			.font(.system(.subheadline, design: .rounded).weight(isMyself ? .bold : .medium))
-			.lineLimit(1)
-			
-			HStack(spacing: 5) {
-				if let partyLetter {
-					Text("Party \(partyLetter)", comment: "Scoreboard: party letter")
-						.foregroundColor(accent.opacity(0.9))
-				}
-				
-				if let displayTag {
-					Text(verbatim: "#\(displayTag)")
-						.foregroundColor(ReconTheme.secondary)
-				}
-			}
-			.font(.system(.caption2, design: .rounded))
-			.lineLimit(1)
-		}
-	}
-	
-	private var rankEmblem: some View {
-		RankInfoView(
-			summary: summary,
-			size: 22,
-			lineWidth: 1.5,
-			shouldShowProgress: false,
-			shouldFadeUnranked: true
-		)
+		.withLocalData($summary, id: player.id)
 	}
 	
 	@ViewBuilder
-	private var kda: some View {
-		if let stats = player.stats {
-			Text(verbatim: "\(stats.kills)/\(stats.deaths)/\(stats.assists)")
-				.font(.system(.caption, design: .rounded).weight(.medium))
-				.monospacedDigit()
-				.foregroundColor(.white.opacity(0.85))
-				.frame(width: 64, alignment: .trailing)
-		} else {
-			Text("–")
-				.font(.system(.caption, design: .rounded))
-				.foregroundColor(ReconTheme.secondary)
-				.frame(width: 64, alignment: .trailing)
+	var identitySection: some View {
+		let resolvedName = !player.gameName.isEmpty
+			? player.gameName
+			: playerUser.flatMap { !$0.gameName.isEmpty ? $0.gameName : nil }
+		Group {
+			if shouldAnonymize(player.id) {
+				Text("Player")
+					.foregroundStyle(.secondary)
+			} else if let resolvedName {
+				Text(resolvedName)
+			} else {
+				Text("Player")
+					.foregroundStyle(.secondary)
+			}
 		}
+		.font(.body.weight(
+			highlight.isHighlighting(player.partyID)
+				.map { $0 ? .semibold : .regular }
+			?? .medium
+		))
+		.fixedSize()
+		.frame(maxWidth: .infinity, alignment: .leading)
+		.padding(.trailing, 4)
+		
+		Spacer()
+		
+		if player.id != data.myself?.id {
+			TransparentNavigationLink {
+				MatchListView(userID: player.id)
+			} label: {
+				Image(systemName: "person.crop.circle.fill")
+					.frame(maxHeight: .infinity)
+					.padding(.horizontal, 4)
+			}
+		}
+		
+		GeometryReader { geometry in
+			RankInfoView(
+				summary: summary,
+				size: geometry.size.height,
+				lineWidth: 2,
+				shouldShowProgress: false,
+				shouldFadeUnranked: true
+			)
+			.foregroundColor(nil)
+		}
+		.aspectRatio(1, contentMode: .fit)
 	}
 	
-	@ViewBuilder
-	private var acsLabel: some View {
-		VStack(alignment: .trailing, spacing: 0) {
-			if let acs {
-				Text(verbatim: "\(acs)")
-					.font(.system(.subheadline, design: .rounded).weight(.bold))
-					.monospacedDigit()
-					.foregroundColor(.white)
-				
-				Text("ACS", comment: "Scoreboard: average combat score column header")
-					.font(.system(size: 8, weight: .semibold, design: .rounded))
-					.foregroundColor(ReconTheme.secondary)
+	func partyLabel(for party: Party.ID) -> some View {
+		Group {
+			if let partyIndex = data.parties.firstIndex(of: party) {
+				let partyLetter = Self.partyLetters[partyIndex]
+				let shouldEmphasize = highlight.isHighlighting(party) == true
+				Text("Party \(partyLetter)", comment: "Scoreboard: party letter")
+					.fontWeight(shouldEmphasize ? .medium : .regular)
 			} else {
 				Text("–")
-					.font(.system(.subheadline, design: .rounded))
-					.foregroundColor(ReconTheme.secondary)
 			}
 		}
-		.frame(width: 34, alignment: .trailing)
-	}
-}
-
-/// Agent portrait in a rounded square, tinted with the team's color.
-struct ScoreboardAgentIcon: View {
-	let agentID: Agent.ID?
-	var accent: Color
-	var size: CGFloat = 32
-	
-	var body: some View {
-		ZStack {
-			RoundedRectangle(cornerRadius: size * 0.22, style: .continuous)
-				.fill(accent.opacity(0.3))
-			
-			if let agentID {
-				AgentImage.icon(agentID)
-					.aspectRatio(contentMode: .fill)
-					.frame(width: size, height: size)
-					.clipped()
-			} else {
-				Image(systemName: "eye")
-					.font(.system(size: size * 0.4, weight: .semibold))
-					.foregroundColor(.white.opacity(0.7))
-			}
-		}
-		.frame(width: size, height: size)
-		.clipShape(RoundedRectangle(cornerRadius: size * 0.22, style: .continuous))
+		.opacity(highlight.shouldFade(party) ? 0.5 : 1)
 	}
 }
 
 extension ScoreboardRowView {
-	init(player: Player, data: MatchViewData, highlight: Binding<PlayerHighlightInfo>) {
+	init(player: Player, data: MatchViewData, placement: String? = nil, highlight: Binding<PlayerHighlightInfo>) {
 		self.init(
-			player: player, data: data,
-			accent: data.relativeColor(of: player) ?? .valorantBlue,
-			highlight: highlight,
-			summary: .init(id: player.id),
-			playerUser: .init(id: player.id)
+			player: player, data: data, placement: placement, highlight: highlight,
+			playerUser: .init(id: player.id),
+			summary: .init(id: player.id)
 		)
 	}
 }
@@ -324,7 +293,6 @@ struct ScoreboardView_Previews: PreviewProvider {
 		Group {
 			ScoreboardView(data: PreviewData.singleMatchData, highlight: .constant(.init()))
 				.padding(.vertical)
-				.preferredColorScheme(.dark)
 			
 			ScoreboardRowView(
 				player: PreviewData.singleMatch.players[0],

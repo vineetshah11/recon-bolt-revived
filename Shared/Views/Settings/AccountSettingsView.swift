@@ -6,7 +6,6 @@ struct AccountSettingsView: View {
 	
 	@State var loginTarget: LoginTarget?
 	@State var isConfirmingSignOut = false
-	@State var isRefreshingSession = false
 	@Environment(\.ownsProVersion) private var ownsProVersion
 	
 	var body: some View {
@@ -30,12 +29,12 @@ struct AccountSettingsView: View {
 			Section {
 				if accountManager.activeAccount?.session.hasExpired == true {
 					HStack {
-						Text("Time to log in again", comment: "Account Settings: shown when the current account's session has expired")
+						Text("Session expired!", comment: "Account Settings: shown when the current account's session has expired")
 						Spacer()
 						Button {
-							isRefreshingSession = true
+							loginTarget = .sessionRefresh
 						} label: {
-							Text("Sign In Again", comment: "Account Settings: button to refresh expired session")
+							Text("Refresh", comment: "Account Settings: button to refresh expired session")
 						}
 						.font(.body.bold())
 					}
@@ -57,21 +56,9 @@ struct AccountSettingsView: View {
 						Text("Sign Out", comment: "Account Settings: button in alert to confirm signing out of all accounts")
 					}
 				}
-				
-				Toggle(isOn: $accountManager.shouldReauthAutomatically) {
-					VStack(alignment: .leading, spacing: 4) {
-						Text("Automatically Sign Back In", comment: "Settings: toggle")
-						Text("This makes Recon Bolt automatically use your username & password to sign in again if you get signed out. If you have 2-factor authentication enabled, this may fail if it requires a new code, but it still works sometimes.", comment: "Settings: toggle description")
-							.font(.footnote)
-							.foregroundStyle(.secondary)
-					}
-				}
 			} header: {
 				Text("Management", comment: "Settings: section")
 			}
-		}
-		.fullScreenCover(isPresented: $isRefreshingSession) {
-			SessionRefreshView(manager: accountManager)
 		}
 	}
 	

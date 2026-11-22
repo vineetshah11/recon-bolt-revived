@@ -1,99 +1,37 @@
 import SwiftUI
-import ValorantAPI
 
 struct ReferenceView: View {
-	private let columns = [GridItem(.adaptive(minimum: 150, maximum: 280), spacing: 14)]
-
-	private let agentTint = Color(red: 0.16, green: 0.07, blue: 0.11)
-	private let weaponTint = Color(red: 0.09, green: 0.11, blue: 0.15)
-
 	var body: some View {
 		AssetsUnwrappingView { assets in
-			ScrollView {
-				LazyVGrid(columns: columns, spacing: 14) {
-					NavigationLink {
-						MapListView()
-					} label: {
-						ReferenceCard(title: "Maps", systemImage: "map") {
-							MapImage.splash(.ascent)
-								.aspectRatio(contentMode: .fill)
+			List {
+				Section {
+					Group {
+						NavigationLink {
+							MapListView()
+						} label: {
+							Label("Maps", systemImage: "map")
+						}
+						
+						NavigationLink {
+							AgentListView()
+						} label: {
+							Label("Agents", systemImage: "person")
+						}
+						
+						NavigationLink {
+							WeaponListView()
+						} label: {
+							Label("Weapons", systemImage: "scope")
 						}
 					}
-
-					NavigationLink {
-						AgentListView()
-					} label: {
-						ReferenceCard(title: "Agents", systemImage: "person", tint: agentTint) {
-							AgentImage.fullPortrait(.jett)
-								.aspectRatio(contentMode: .fill)
-						}
-					}
-
-					NavigationLink {
-						WeaponListView()
-					} label: {
-						ReferenceCard(title: "Weapons", systemImage: "scope", tint: weaponTint) {
-							WeaponImage.displayIcon(.vandal)
-								.padding(24)
-						}
-					}
+					.font(.title2.weight(.medium))
+					.padding(.vertical, 8)
+				} footer: {
+					Text("Version \(assets.version.version)", comment: "Reference")
 				}
-				.buttonStyle(.plain)
-				.padding(16)
-
-				Text("Version \(assets.version.version)", comment: "Reference")
-					.font(.footnote)
-					.foregroundStyle(.secondary)
-					.padding(.bottom, 16)
 			}
-			.background(Color(red: 0.04, green: 0.06, blue: 0.08).ignoresSafeArea())
 		}
-		.navigationTitle("Explore")
-	}
-}
-
-/// A full-bleed artwork tile used by the reference grid.
-struct ReferenceCard<Artwork: View>: View {
-	var title: LocalizedStringKey
-	var systemImage: String
-	/// backdrop for artwork with a transparent background
-	var tint: Color = Color(red: 20 / 255, green: 29 / 255, blue: 38 / 255)
-	@ViewBuilder var artwork: Artwork
-
-	private let cornerRadius: CGFloat = 16
-
-	var body: some View {
-		ZStack(alignment: .bottomLeading) {
-			tint
-			artwork
-
-			// keeps the title legible over busy artwork
-			LinearGradient(
-				colors: [.clear, .black.opacity(0.55), .black.opacity(0.9)],
-				startPoint: .center,
-				endPoint: .bottom
-			)
-
-			HStack(spacing: 6) {
-				Image(systemName: systemImage)
-					.font(.system(size: 13, weight: .bold))
-					.foregroundStyle(Color.valorantRed)
-
-				Text(title)
-					.font(.system(size: 17, weight: .bold, design: .rounded))
-					.foregroundStyle(.white)
-			}
-			.padding(12)
-			.shadow(color: .black.opacity(0.6), radius: 4, y: 1)
-		}
-		.frame(maxWidth: .infinity)
-		.frame(height: 160)
-		.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-		.overlay {
-			RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-				.strokeBorder(.white.opacity(0.12), lineWidth: 1)
-		}
-		.contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+		.navigationTitle("Reference")
 	}
 }
 

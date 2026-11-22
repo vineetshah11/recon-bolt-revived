@@ -19,8 +19,6 @@ struct CompetitiveTierImage: View {
 			let icon = tierInfo.icon
 		{
 			icon.view(shouldLoadImmediately: true)
-				// the unranked icon is horribly off-center; let's fix that
-				.scaleEffect(tier == 0 ? 1.31 : 1, anchor: .top)
 				.scaledToFit()
 		} else {
 			Circle().opacity(0.1)

@@ -122,25 +122,26 @@ struct PositionedEvent: Identifiable, Equatable {
 		self.position = position
 		
 		self.playerLocations = .build {
-			event.playerLocations.map { DisplayedPlayerLocation($0, matchData: matchData) }
+			event.playerLocations.compactMap { DisplayedPlayerLocation($0, matchData: matchData) }
 			
 			// killed players aren't listed in the locations anymore, but we still want to show them and animate to them
-			if let kill = event as? Kill {
-				let victim = matchData.players[kill.victim]!
+			if let kill = event as? Kill, let victim = matchData.players[kill.victim] {
 				DisplayedPlayerLocation(
 					id: victim.id,
 					isDead: true,
 					position: .init(kill.victimPosition),
 					relativeColor: matchData.relativeColor(of: victim),
-					agentID: victim.agentID!
+					agentID: victim.agentID
 				)
 			}
 		}
 		
 		if let kill = event as? Kill, kill.finishingDamage.type == .bomb {
 			self.relativeColor = .secondary
+		} else if let actor = event.actor {
+			self.relativeColor = matchData.relativeColor(of: actor)
 		} else {
-			self.relativeColor = matchData.relativeColor(of: event.actor!)
+			self.relativeColor = .secondary
 		}
 	}
 	
@@ -155,7 +156,9 @@ struct DisplayedPlayerLocation: Identifiable {
 	var position: CGPoint
 	var angle: Double?
 	var relativeColor: Color?
-	var agentID: Agent.ID
+	var agentID: Agent.ID?
+	var teamID: Team.ID?
+	var isOVariant = true
 	
 	func interpolated(towards end: Self, progress: Double) -> Self {
 		self <- { $0.interpolate(towards: end, progress: progress) }
@@ -190,13 +193,15 @@ private extension FloatingPoint {
 }
 
 extension DisplayedPlayerLocation {
-	init(_ location: PlayerLocation, matchData: MatchViewData) {
+	init?(_ location: PlayerLocation, matchData: MatchViewData) {
+		guard let player = matchData.players[location.subject] else { return nil }
 		self.id = location.subject
 		self.position = .init(location.position)
 		self.angle = location.angle
-		let player = matchData.players[id]!
 		self.relativeColor = matchData.relativeColor(of: player)
-		self.agentID = player.agentID!
+		self.agentID = player.agentID
+		self.teamID = player.teamID
+		self.isOVariant = matchData.isGauntletOVariant(for: player)
 	}
 }
 

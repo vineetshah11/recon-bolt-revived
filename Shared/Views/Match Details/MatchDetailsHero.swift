@@ -38,7 +38,11 @@ struct MatchDetailsHero: View {
 
 extension ScoreSummaryView {
 	init(data: MatchViewData) {
-		self.init(teams: data.details.teams, ownTeamID: data.myself?.teamID)
+		self.init(
+			teams: data.details.teams,
+			players: data.details.players,
+			ownTeamID: data.myself?.teamID
+		)
 	}
 }
 

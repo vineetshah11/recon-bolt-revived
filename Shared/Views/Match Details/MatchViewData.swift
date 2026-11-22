@@ -7,6 +7,12 @@ struct MatchViewData {
 	let myself: Player?
 	let players: [Player.ID: Player]
 	let parties: [Party.ID]
+	let rankedTeams: [Team]
+	let teamColors: [Team.ID: Color]
+	
+	var isMultiTeam: Bool {
+		details.teams.count > 2
+	}
 	
 	init(details: MatchDetails, userID: Player.ID?) {
 		self.details = details
@@ -23,14 +29,24 @@ struct MatchViewData {
 			.reversed()
 			.movingToFront { $0.value.contains { $0.id == userID } }
 			.map(\.key)
-	}
-	
-	func player(_ id: Player.ID) -> Player {
-		players[id]!
+		
+		let ranked = details.rankedTeams()
+		self.rankedTeams = ranked
+		self.teamColors = details.teams.count > 2
+			? Color.assignedTeamColors(for: ranked.map(\.id), ownTeamID: candidates.first?.teamID)
+			: [:]
 	}
 	
 	func player(_ id: Player.ID?) -> Player? {
-		id.map(player(_:))
+		id.flatMap { players[$0] }
+	}
+	
+	func placement(of teamID: Team.ID) -> Int? {
+		details.placement(of: teamID)
+	}
+	
+	func isGauntletOVariant(for player: Player) -> Bool {
+		Team.ID.isGauntletOVariant(for: player.id, teamID: player.teamID, in: details.players)
 	}
 	
 	func relativeColor(of other: Player) -> Color? {
@@ -45,6 +61,8 @@ struct MatchViewData {
 	func relativeColor(of teamID: Team.ID) -> Color? {
 		if teamID == .neutral {
 			return .gray
+		} else if isMultiTeam {
+			return teamColors[teamID] ?? teamID.color ?? .valorantRed
 		} else if let own = myself?.teamID {
 			return teamID == own ? .valorantBlue : .valorantRed
 		} else {

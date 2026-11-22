@@ -85,7 +85,7 @@ struct LiveGameBox: View {
 			))
 		} else {
 			GroupBox {
-				Text("Valorant isn't open yet")
+				Text("Game is not running!")
 					.foregroundColor(.secondary)
 			}
 		}

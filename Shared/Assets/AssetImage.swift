@@ -15,6 +15,8 @@ struct AssetImage: Hashable, Identifiable {
 		renderingMode: Image.TemplateRenderingMode? = nil,
 		aspectRatio: CGFloat? = nil,
 		maxScale: CGFloat? = nil,
+		outlineRadius: CGFloat? = nil,
+		preferFullResolution: Bool = false,
 		shouldLoadImmediately: Bool = false
 	) -> some View {
 		ImageView(
@@ -22,6 +24,8 @@ struct AssetImage: Hashable, Identifiable {
 			renderingMode: renderingMode,
 			aspectRatio: aspectRatio,
 			maxScale: maxScale,
+			outlineRadius: outlineRadius,
+			preferFullResolution: preferFullResolution || maxScale != nil,
 			shouldLoadImmediately: isInSwiftUIPreview || shouldLoadImmediately
 		)
 		.id(self)
@@ -53,11 +57,15 @@ struct AssetImage: Hashable, Identifiable {
 		)
 		.appendingPathComponent("AssetImage", isDirectory: true)
 	
-	private static let localFolder = (fileManager
-		.containerURL(forSecurityApplicationGroupIdentifier: "group.juliand665.Recon-Bolt.shared")?
-		.appendingPathComponent("Library", isDirectory: true)
-		.appendingPathComponent("Caches", isDirectory: true)
-		.appendingPathComponent("AssetImage", isDirectory: true) ?? oldLocalFolder)
+	private static let localFolder: URL = {
+		if let groupURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: "group.juliand665.Recon-Bolt.shared") {
+			return groupURL
+				.appendingPathComponent("Library", isDirectory: true)
+				.appendingPathComponent("Caches", isDirectory: true)
+				.appendingPathComponent("AssetImage", isDirectory: true)
+		}
+		return oldLocalFolder
+	}()
 	<- migrate(to:)
 	
 	private static func migrate(to localFolder: URL) {
@@ -81,12 +89,14 @@ struct AssetImage: Hashable, Identifiable {
 		/// aspect ratio for the placeholder shown when the image is not loaded
 		var aspectRatio: CGFloat?
 		var maxScale: CGFloat?
+		var outlineRadius: CGFloat?
+		var preferFullResolution: Bool = false
 		var shouldLoadImmediately: Bool = false
 		@State var loaded: UIImage?
+		@State private var isLoadingLarge = false
 		
 		@State private var isShowingErrorAlert = false
 		@State private var loadError: Error?
-		@State private var updater = false
 		
 		@EnvironmentObject private var manager: ImageManager
 		
@@ -103,16 +113,10 @@ struct AssetImage: Hashable, Identifiable {
 					.aspectRatio(aspectRatio, contentMode: .fit)
 			}
 #else
-			let _ = updater // force SwiftUI to recognize state updates while scrolling
 			switch manager.state(for: image) {
 			case nil:
-				// onAppear/task is not called while scrolling, so we'll do it the illegal way
-				let _ = Task.detached(priority: .userInitiated) {
-					await manager.download(image)
-					await MainActor.run {
-						updater.toggle()
-					}
-				}
+				// onAppear/task may lag while scrolling in List; start deduplicated download safely
+				let _ = manager.ensureDownloadStarted(for: image)
 				content
 			case .downloading:
 				content
@@ -123,7 +127,7 @@ struct AssetImage: Hashable, Identifiable {
 					.onTapGesture {
 						loadError = error
 						isShowingErrorAlert = true
-						Task.detached { await manager.download(image) }
+						manager.ensureDownloadStarted(for: image, retrying: true)
 					}
 					.alert(
 						"Image failed to load!",
@@ -141,23 +145,54 @@ struct AssetImage: Hashable, Identifiable {
 #endif
 		}
 		
+#if !WIDGETS
 		@ViewBuilder
 		var content: some View {
-			if let loaded = loaded ?? cached {
-				Image(uiImage: loaded)
+			if let displayed = displayedImage {
+				Image(uiImage: displayed)
 					.renderingMode(renderingMode)
 					.resizable()
 					.scaledToFit()
-					.onChange(of: manager.cacheState(for: image)) { _ in self.loaded = nil }
+					.onChange(of: manager.cacheState(for: image)) { _ in
+						self.loaded = nil
+						self.isLoadingLarge = false
+					}
 					.frame(
-						maxWidth: maxScale.map { $0 * loaded.size.width },
-						maxHeight: maxScale.map { $0 * loaded.size.height }
+						maxWidth: maxScale.map { $0 * displayed.size.width },
+						maxHeight: maxScale.map { $0 * displayed.size.height }
 					)
 			} else {
-				let _ = load()
+				let _ = loadLargeIfNeeded()
 				Color.primary.opacity(0.1)
 					.aspectRatio(aspectRatio, contentMode: .fit)
 			}
+		}
+		
+		private var displayedImage: UIImage? {
+			if preferFullResolution {
+				if let full = loaded ?? manager.largeImage(for: image) {
+					return full
+				}
+				if case .available = manager.state(for: image) {
+					loadLargeIfNeeded(evenWhenCached: true)
+				}
+			}
+			let cachedImage = cached
+			if let outlineRadius {
+				if let outlined = manager.outlinedImage(for: image, radius: outlineRadius) {
+					return outlined
+				}
+				let isAvailable: Bool
+				if case .available = manager.state(for: image) {
+					isAvailable = true
+				} else {
+					isAvailable = false
+				}
+				if cachedImage != nil || isAvailable {
+					manager.ensureOutlinedPrepared(for: image, radius: outlineRadius)
+				}
+			}
+			return loaded ?? cachedImage ?? manager.largeImage(for: image)
 		}
 		
 		private var cached: UIImage? {
@@ -166,19 +201,21 @@ struct AssetImage: Hashable, Identifiable {
 			return image
 		}
 		
-		private func load() {
-			guard case .tooLarge = manager.cacheState(for: image) else { return }
-			Task.detached(priority: .userInitiated) {
-				let unprepared = image.load()
-				let loaded = unprepared?.preparingForDisplay() ?? unprepared
-				await setLoaded(loaded)
+		private func loadLargeIfNeeded(evenWhenCached: Bool = false) {
+			let cacheState = manager.cacheState(for: image)
+			guard cacheState == .tooLarge || evenWhenCached else { return }
+			guard !isLoadingLarge, loaded == nil else { return }
+			DispatchQueue.main.async {
+				guard !self.isLoadingLarge, self.loaded == nil else { return }
+				self.isLoadingLarge = true
+				Task {
+					let result = await manager.loadLargeImage(for: image)
+					self.loaded = result
+					self.isLoadingLarge = false
+				}
 			}
 		}
-		
-		@MainActor
-		private func setLoaded(_ loaded: UIImage?) {
-			self.loaded = loaded
-		}
+#endif
 	}
 }
 

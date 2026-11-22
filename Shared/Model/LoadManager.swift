@@ -1,7 +1,6 @@
 import SwiftUI
 import SwiftUIMissingPieces
 import HandyOperators
-import ValorantAPI
 
 extension View {
 	func withLoadErrorAlerts() -> some View {
@@ -29,9 +28,6 @@ private struct LoadWrapper: ViewModifier {
 			// ignore cancellation
 		} catch let urlError as URLError where urlError.code == .cancelled {
 			// ignore this type of cancellation too
-		} catch let apiError as APIError where apiError.recommendsReauthentication {
-			// the app asks the user to sign in again instead of showing a cryptic alert
-			print("session needs reauthentication:", apiError)
 		} catch {
 			guard !Task.isCancelled else { return }
 			print("error running load task:")

@@ -52,10 +52,13 @@ struct EventRow: View, Animatable {
 		icon {
 			if damageType == .bomb {
 				iconImage(name: "Spike")
-			} else {
-				let player = matchData.player(event.event.actor!)
-				AgentImage.icon(player.agentID!)
-					.dynamicallyStroked(radius: 1, color: .white)
+			} else if let actor = matchData.player(event.event.actor), let agentID = actor.agentID {
+				AgentImage.icon(
+					agentID,
+					outlineRadius: 1,
+					teamID: actor.teamID,
+					isOVariant: matchData.isGauntletOVariant(for: actor)
+				)
 			}
 		}
 		
@@ -80,8 +83,8 @@ struct EventRow: View, Animatable {
 					.padding(4)
 			} else if damageType == .ability {
 				let slotName = kill.finishingDamage.remappedAbilitySlot
-				if let slot = AgentInfo.Ability.Slot(rawValue: slotName) {
-					AgentImage.ability(killer!.agentID!, slot: slot)
+				if let agentID = killer?.agentID, let slot = AgentInfo.Ability.Slot(rawValue: slotName) {
+					AgentImage.ability(agentID, slot: slot)
 				} else {
 					Text("Unknown Ability", comment: "Round Details: killed by unknown ability")
 						.foregroundStyle(.secondary)
@@ -93,20 +96,32 @@ struct EventRow: View, Animatable {
 		}
 		.frame(maxWidth: .infinity)
 		
-		let victim = matchData.player(kill.victim)
-		icon {
-			AgentImage.icon(victim.agentID!)
-				.dynamicallyStroked(radius: 1, color: .white)
-				.background(matchData.relativeColor(of: victim))
+		if let victim = matchData.player(kill.victim) {
+			icon {
+				if let agentID = victim.agentID {
+					AgentImage.icon(
+						agentID,
+						outlineRadius: 1,
+						teamID: victim.teamID,
+						isOVariant: matchData.isGauntletOVariant(for: victim)
+					)
+						.background(matchData.relativeColor(of: victim))
+				}
+			}
 		}
 	}
 	
 	@ViewBuilder
 	private func bombEventContent(for bombEvent: BombEvent) -> some View {
 		icon {
-			let player = matchData.player(event.event.actor!)
-			AgentImage.icon(player.agentID!)
-				.dynamicallyStroked(radius: 1, color: .white)
+			if let actor = matchData.player(event.event.actor), let agentID = actor.agentID {
+				AgentImage.icon(
+					agentID,
+					outlineRadius: 1,
+					teamID: actor.teamID,
+					isOVariant: matchData.isGauntletOVariant(for: actor)
+				)
+			}
 		}
 		
 		Group {
@@ -126,7 +141,7 @@ struct EventRow: View, Animatable {
 	}
 	
 	private func iconImage(name: String) -> some View {
-		Image("\(name) Icon")
+		Image.bundledAsset("\(name) Icon", renderingMode: .template)
 			.resizable()
 			.padding(4)
 			.foregroundStyle(.thickMaterial)

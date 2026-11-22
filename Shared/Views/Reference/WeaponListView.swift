@@ -9,9 +9,10 @@ struct WeaponListView: View {
 		List {
 			if let assets {
 				ForEach(Weapon.ID.orderInCollection, id: \.self) { gunID in
-					let weapon = assets.weapons[gunID]!
-					NavigationLink(destination: WeaponInfoView(weapon: weapon)) {
-						row(for: weapon)
+					if let weapon = assets.weapons[gunID] {
+						NavigationLink(destination: WeaponInfoView(weapon: weapon)) {
+							row(for: weapon)
+						}
 					}
 				}
 			}

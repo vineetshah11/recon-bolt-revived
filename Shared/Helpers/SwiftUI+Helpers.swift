@@ -19,9 +19,24 @@ extension Color {
 	static let groupedBackground = Self(.systemGroupedBackground)
 	static let secondaryGroupedBackground = Self(.secondarySystemGroupedBackground)
 	static let tertiaryGroupedBackground = Self(.tertiarySystemGroupedBackground)
-	static let valorantBlue = Color("Valorant Blue")
-	static let valorantRed = Color("Valorant Red")
-	static let valorantSelf = Color("Valorant Self")
+	static let valorantBlue = adaptive(light: (0x12, 0xA0, 0x9F), dark: (0x66, 0xC2, 0xA9))
+	static let valorantRed = adaptive(light: (0xDA, 0x2A, 0x58), dark: (0xF0, 0x5C, 0x57))
+	static let valorantSelf = adaptive(light: (0x00, 0x2A, 0xA3), dark: (0xEA, 0xEE, 0xB2))
+	
+	private static func adaptive(
+		light: (UInt8, UInt8, UInt8),
+		dark: (UInt8, UInt8, UInt8)
+	) -> Self {
+		Self(uiColor: UIColor { traits in
+			let (r, g, b) = traits.userInterfaceStyle == .dark ? dark : light
+			return UIColor(
+				red: CGFloat(r) / 255,
+				green: CGFloat(g) / 255,
+				blue: CGFloat(b) / 255,
+				alpha: 1
+			)
+		})
+	}
 }
 
 extension View {
@@ -42,10 +57,44 @@ extension View {
 	}
 }
 
+#if !SWIFT_PACKAGE
+extension Bundle {
+	/// SwiftPM synthesizes `Bundle.module` for package resources. The Xcode target copies the same
+	/// `BundledAssets` folder into the app bundle, so fall back to that bundle here.
+	static var module: Bundle { .main }
+}
+#endif
+
+extension UIImage {
+	/// Loads an asset image from either the compiled asset catalog or `Bundle.module/BundledAssets`.
+	static func bundledAsset(named name: String) -> UIImage? {
+		if let assetImage = UIImage(named: name) {
+			return assetImage
+		}
+		guard let baseURL = Bundle.module.url(forResource: "BundledAssets", withExtension: nil) else {
+			return nil
+		}
+		let fileURL = baseURL.appendingPathComponent("\(name).png")
+		if let image = UIImage(contentsOfFile: fileURL.path) {
+			return image
+		}
+		let scaledURL = baseURL.appendingPathComponent("\(name)@3x.png")
+		if let data = try? Data(contentsOf: scaledURL) {
+			return UIImage(data: data, scale: 3)
+		}
+		return nil
+	}
+}
+
 extension Image {
 	init?(at url: URL) {
 		guard let image = UIImage(contentsOfFile: url.path) else { return nil }
 		self.init(uiImage: image)
+	}
+	
+	static func bundledAsset(_ name: String, renderingMode: TemplateRenderingMode? = nil) -> Self {
+		let image = UIImage.bundledAsset(named: name).map(Image.init(uiImage:)) ?? Image(name)
+		return image.renderingMode(renderingMode)
 	}
 }
 

@@ -36,7 +36,9 @@ struct AgentLabel: View {
 	@Environment(\.assets) private var assets
 	
 	var body: some View {
-		if let agent = assets?.agents[agent] {
+		if agent == .abilityDraftAgent {
+			Text(verbatim: "Gauntlet Robot")
+		} else if let agent = assets?.agents[agent] {
 			Text(agent.displayName)
 		} else {
 			Text("Unknown Agent")

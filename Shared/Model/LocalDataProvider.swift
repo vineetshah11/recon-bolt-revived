@@ -43,8 +43,12 @@ extension MatchDetails: LocalDataAutoUpdatable {
 	}
 }
 
-extension Player.Identity: LocalDataStored {
+extension Player.Identity: LocalDataAutoUpdatable {
 	static let managerPath = \LocalDataProvider.playerIdentityManager as KeyPath
+	
+	static func autoUpdate(for id: ID, using client: ValorantClient) async throws {
+		try await client.fetchIdentity(for: id)
+	}
 }
 
 final class LocalDataProvider {
@@ -54,7 +58,7 @@ final class LocalDataProvider {
 	var careerSummaryManager = LocalDataManager<CareerSummary>(ageCausingAutoUpdate: .minutes(5))
 	var userManager = LocalDataManager<User>(ageCausingAutoUpdate: .hours(1))
 	var matchDetailsManager = LocalDataManager<MatchDetails>()
-	var playerIdentityManager = LocalDataManager<Player.Identity>()
+	var playerIdentityManager = LocalDataManager<Player.Identity>(ageCausingAutoUpdate: .minutes(5))
 	
 	private init() {}
 	
@@ -89,6 +93,20 @@ final class LocalDataProvider {
 	
 	static func dataFetched(_ party: Party) {
 		shared.store(party.members.map(\.identity), asOf: .now)
+	}
+	
+	static func dataFetched(_ loadout: Loadout) {
+		Task {
+			let existing = await shared.playerIdentityManager.cachedObject(for: loadout.subject)
+			let identity = Player.Identity(
+				id: loadout.subject,
+				cardID: loadout.identity.card,
+				titleID: loadout.identity.title,
+				accountLevel: existing?.accountLevel ?? 0,
+				isIncognito: loadout.isIncognito
+			)
+			await shared.playerIdentityManager.store(identity, asOf: .now)
+		}
 	}
 }
 
@@ -164,35 +182,40 @@ extension ValorantClient {
 		try await manager.fetchIfNecessary(ids, fetch: getUsers)
 	}
 	
+	func fetchIdentity(for userID: User.ID, forceFetch: Bool = false) async throws {
+		guard userID == self.userID else { return }
+		let manager = LocalDataProvider.shared.playerIdentityManager
+		let fetch: (User.ID) async throws -> Player.Identity = { [self] id in
+			async let loadout = getLoadout()
+			async let level = getAccountLevel()
+			let cached = await manager.cachedObject(for: id)
+			let resolvedLoadout = try await loadout
+			return Player.Identity(
+				id: id,
+				cardID: resolvedLoadout.identity.card,
+				titleID: resolvedLoadout.identity.title,
+				accountLevel: (try? await level) ?? cached?.accountLevel ?? 0,
+				isIncognito: resolvedLoadout.isIncognito
+			)
+		}
+		if forceFetch {
+			try await manager.store(fetch(userID), asOf: .now)
+		} else {
+			try await manager.fetchIfNecessary(for: userID, fetch: fetch)
+		}
+	}
+	
 	func fetchMatchDetails(for matchID: Match.ID) async throws {
 		let manager = LocalDataProvider.shared.matchDetailsManager
 		try await manager.fetchIfNecessary(for: matchID) {
-			try await getMatchDetails(matchID: $0)
+			let details = try await getMatchDetails(matchID: $0)
 				<- LocalDataProvider.dataFetched
+			let missingUserIDs = details.players.filter(\.gameName.isEmpty).map(\.id)
+			if !missingUserIDs.isEmpty {
+				try? await fetchUsers(for: missingUserIDs)
+			}
+			return details
 		}
-		
-		if let details = await manager.loadedObject(for: matchID) {
-			await resolveMissingNames(for: details.players)
-		}
-	}
-	
-	/// Fetches the given users straight from Riot's name service, bypassing the cache's freshness check.
-	/// Use this to repair cached users whose names were stored while empty.
-	func refreshUsers(for ids: [User.ID]) async throws {
-		guard !ids.isEmpty else { return }
-		let users = try await getUsers(for: ids)
-		guard !users.isEmpty else { return }
-		await LocalDataProvider.shared.userManager.store(users, asOf: .now)
-	}
-	
-	/// Riot's match details omit `gameName`/`tagLine` for many players, leaving them blank.
-	/// Resolve those players through the name service so their real Riot IDs can be shown.
-	func resolveMissingNames(for players: [Player]) async {
-		let ids = players.lazy
-			.filter { $0.gameName.isEmpty || $0.tagLine.isEmpty }
-			.map(\.id)
-		guard !ids.isEmpty else { return }
-		try? await refreshUsers(for: Array(ids))
 	}
 	
 	func fetchMatchDetails(for matchIDs: [Match.ID]) async throws {

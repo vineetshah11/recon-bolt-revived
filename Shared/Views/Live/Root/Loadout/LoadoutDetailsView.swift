@@ -5,8 +5,7 @@ import CGeometry
 struct LoadoutDetailsView: View {
 	var fetchedLoadout: Loadout
 	@State private var loadout: UpdatableLoadout
-	/// Missing when the inventory couldn't be fetched. The loadout itself is still usable, so it's shown read-only.
-	var inventory: Inventory?
+	var inventory: Inventory
 	
 	@Environment(\.valorantLoad) private var load
 	
@@ -20,99 +19,25 @@ struct LoadoutDetailsView: View {
 			}
 		}
 		
-		Group {
-			if let inventory {
-				LoadoutCustomizer(loadout: loadoutBinding, inventory: inventory)
-			} else {
-				LoadoutOverview(loadout: loadout)
+		LoadoutCustomizer(loadout: loadoutBinding, inventory: inventory)
+			.buttonBorderShape(.capsule)
+			.task(id: fetchedLoadout.version) {
+				loadout = .init(fetchedLoadout)
 			}
-		}
-		.buttonBorderShape(.capsule)
-		.task(id: fetchedLoadout.version) {
-			loadout = .init(fetchedLoadout)
-		}
 	}
 }
 
 extension LoadoutDetailsView {
-	init(loadout: Loadout, inventory: Inventory?) {
+	init(loadout: Loadout, inventory: Inventory) {
 		self.init(fetchedLoadout: loadout, loadout: .init(loadout), inventory: inventory)
-	}
-}
-
-/// Read-only version of the loadout, used when the inventory couldn't be loaded (it's only needed for editing).
-private struct LoadoutOverview: View {
-	var loadout: UpdatableLoadout
-	
-	@Environment(\.assets) private var assets
-	
-	var body: some View {
-		VStack(spacing: 16) {
-			PlayerCardImage.wide(loadout.identity.card)
-				.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-			
-			PlayerTitleLabel(titleID: loadout.identity.title)
-				.font(.subheadline.weight(.semibold))
-			
-			HStack(spacing: 12) {
-				ForEach(Spray.Slot.ID.inCCWOrder, id: \.self) { slot in
-					spraySlot(slot)
-				}
-			}
-			
-			weaponGrid
-			
-			VStack(spacing: 4) {
-				Text("Inventory unavailable", comment: "Loadout: shown when the inventory could not be loaded")
-					.font(.subheadline.weight(.semibold))
-				Text("Your loadout is shown above, but items can't be changed until your inventory loads. Tap the refresh button to try again.", comment: "Loadout: shown when the inventory could not be loaded")
-					.font(.caption)
-					.foregroundColor(.secondary)
-					.multilineTextAlignment(.center)
-			}
-			.padding(.top, 4)
-		}
-	}
-	
-	private func spraySlot(_ slot: Spray.Slot.ID) -> some View {
-		ZStack {
-			RoundedRectangle(cornerRadius: 12, style: .continuous)
-				.fill(Color(uiColor: .secondarySystemFill))
-			
-			if let expression = loadout.sprays[slot] {
-				ExpressionIcon(id: expression)
-					.padding(8)
-			} else {
-				Image(systemName: "nosign")
-					.foregroundColor(.secondary)
-			}
-		}
-		.aspectRatio(1, contentMode: .fit)
-		.frame(maxWidth: .infinity)
-	}
-	
-	private var weaponGrid: some View {
-		LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], spacing: 8) {
-			ForEach(Weapon.ID.orderInCollection, id: \.self) { gunID in
-				if let gun = loadout.guns[gunID], let resolved = assets?.resolveSkin(gun.skin.level) {
-					let icon = resolved.chroma(gun.skin.chroma)?.displayIcon ?? resolved.displayIcon
-					icon.view()
-						.frame(height: 40)
-						.frame(maxWidth: .infinity)
-						.padding(6)
-						.background(
-							RoundedRectangle(cornerRadius: 10, style: .continuous)
-								.fill(Color(uiColor: .tertiarySystemFill))
-						)
-				}
-			}
-		}
 	}
 }
 
 private struct LoadoutCustomizer: View {
 	@Binding var loadout: UpdatableLoadout
 	var inventory: Inventory
+	
+	@Environment(\.assets) private var assets
 	
 	var body: some View {
 		cardPicker
@@ -231,8 +156,12 @@ private struct LoadoutCustomizer: View {
 	
 	@ViewBuilder
 	func sprayIcon(for slot: Spray.Slot.ID) -> some View {
-		ExpressionIcon(id: loadout.sprays[slot])
-			.frame(maxWidth: .infinity, maxHeight: .infinity)
+		if let spray = loadout.sprays[slot] {
+			(assets?.sprays[spray]?.bestIcon).view()
+				.frame(maxWidth: .infinity, maxHeight: .infinity)
+		} else {
+			Color.clear
+		}
 	}
 	
 	struct SprayCell: View {
@@ -240,12 +169,18 @@ private struct LoadoutCustomizer: View {
 		@Binding var spray: Spray.ID?
 		var inventory: Inventory
 		
+		@Environment(\.assets) private var assets
+		
 		var body: some View {
 			NavigationLink {
 				SprayPicker(selection: $spray, inventory: inventory)
 			} label: {
-				ExpressionIcon(id: spray)
-					.frame(maxWidth: .infinity, maxHeight: .infinity)
+				if let spray {
+					(assets?.sprays[spray]?.bestIcon).view()
+						.frame(maxWidth: .infinity, maxHeight: .infinity)
+				} else {
+					Color.clear
+				}
 			}
 			.buttonStyle(.plain)
 		}

@@ -1,4 +1,4 @@
-name: Build Recon Bolt iOS IPA
+name: Build Vantage iOS IPA
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 jobs:
   build:
     name: Build & Package IPA
-    runs-on: macos-latest
+    runs-on: macos-15
 
     steps:
       - name: Checkout repository
@@ -20,14 +20,14 @@ jobs:
 
       - name: Select Xcode
         run: |
-          sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app
+          sudo xcode-select -s /Applications/Xcode_26.3.app
           xcodebuild -version
 
       - name: Resolve Swift Package Dependencies
         run: |
           xcodebuild -resolvePackageDependencies -project "Recon Bolt.xcodeproj"
 
-      - name: Build & Archive Recon Bolt
+      - name: Build & Archive Vantage
         run: |
           xcodebuild archive \
             -project "Recon Bolt.xcodeproj" \
@@ -42,7 +42,7 @@ jobs:
       - name: Package into IPA
         run: |
           mkdir -p build/Payload
-          cp -R "build/ReconBolt.xcarchive/Products/Applications/Recon Bolt.app" build/Payload/
+          cp -R "build/ReconBolt.xcarchive/Products/Applications/Vantage.app" build/Payload/
           cd build
           zip -r -q "ReconBolt.ipa" Payload
           ls -lh ReconBolt.ipa

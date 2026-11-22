@@ -62,13 +62,15 @@ struct BookmarkListView: View {
 		Section(header: Text("Search", comment: "Bookmark/Player List: section")) {
 			LookupCell(history: history)
 			
-			ForEach(history.entries) { entry in
-				if !bookmarkList.hasBookmark(for: entry.user) {
-					userCell(id: entry.user)
-						.environment(\.location, entry.location)
-				}
+			let unbookmarkedEntries = history.entries.filter { !bookmarkList.hasBookmark(for: $0.user) }
+			ForEach(unbookmarkedEntries) { entry in
+				userCell(id: entry.user)
+					.environment(\.location, entry.location)
 			}
-			.onDelete { history.entries.remove(atOffsets: $0) }
+			.onDelete { offsets in
+				let idsToRemove = Set(offsets.map { unbookmarkedEntries[$0].id })
+				history.entries.removeAll { idsToRemove.contains($0.id) }
+			}
 		}
 		.headerProminence(.increased)
 	}

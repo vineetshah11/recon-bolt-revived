@@ -2,7 +2,13 @@ import Foundation
 import UserDefault
 
 extension UserDefaults {
-	static let shared = UserDefaults(suiteName: "group.juliand665.Recon-Bolt.shared") ?? .standard
+	static let shared: UserDefaults = {
+		if FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: "group.juliand665.Recon-Bolt.shared") != nil,
+		   let suite = UserDefaults(suiteName: "group.juliand665.Recon-Bolt.shared") {
+			return suite
+		}
+		return .standard
+	}()
 }
 
 extension UserDefault {

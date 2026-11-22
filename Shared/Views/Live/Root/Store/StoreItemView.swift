@@ -67,7 +67,7 @@ struct StoreItemView<Item: UntypedStoreItem, PriceLabel: View>: View {
 		} else if let title = item.title {
 			HStack {
 				HStack(spacing: 12) {
-					Image("Player Title")
+					Image.bundledAsset("Player Title", renderingMode: .template)
 						.resizable()
 						.foregroundStyle(.secondary)
 						.frame(width: iconSize, height: iconSize)

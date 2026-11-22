@@ -34,8 +34,8 @@ struct EventMap: View {
 				marker(for: location)
 					.fixedSize()
 					.background {
-						if isZoomedIn {
-							AgentImage.icon(location.agentID)
+						if isZoomedIn, let agentID = location.agentID {
+							AgentImage.icon(agentID, teamID: location.teamID, isOVariant: location.isOVariant)
 								.frame(width: 24, height: 24)
 								.offset(x: 0, y: -24)
 						}
@@ -56,7 +56,7 @@ struct EventMap: View {
 		if location.isDead {
 			Image(systemName: "xmark")
 		} else if let angle = location.angle {
-			Image("MapPlayer")
+			Image.bundledAsset("MapPlayer", renderingMode: .template)
 				.foregroundStyle(isActor ? .primary : .secondary)
 				.rotationEffect(.radians(angle))
 		} else {

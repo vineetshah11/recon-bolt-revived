@@ -8,6 +8,7 @@ struct AgentSelectView: View {
 	@State var hasEnded = false
 	
 	@Environment(\.valorantLoad) private var load
+	@Environment(\.dismiss) private var dismiss
 	
 	var body: some View {
 		ScrollView {
@@ -45,7 +46,14 @@ struct AgentSelectView: View {
 					
 					Divider()
 					
-					AgentPickerView(pregameInfo: $pregameInfo, userID: userID, inventory: inventory)
+					AgentPickerView(
+						pregameInfo: $pregameInfo,
+						userID: userID,
+						inventory: inventory
+					) {
+						hasEnded = true
+						dismiss()
+					}
 				}
 			}
 		}
@@ -123,8 +131,6 @@ struct AgentSelectView: View {
 			}
 			.font(.title2.weight(.bold))
 			.foregroundStyle(.primary)
-            		pregameInfo.team.id.name
-                    		.foregroundColor(pregameInfo.team.id.color)
 		}
 		.padding()
 		.background(Material.thin)
@@ -168,8 +174,8 @@ struct AgentSelectView: View {
 						}
 					}
 					
-					if player.isLockedIn {
-						let agentName = assets?.agents[player.agentID!]?.displayName
+					if player.isLockedIn, let agentID = player.agentID {
+						let agentName = assets?.agents[agentID]?.displayName
 						UnwrappingView(
 							value: agentName,
 							placeholder: Text("Unknown Agent", comment: "placeholder")
@@ -223,8 +229,7 @@ struct AgentSelectView: View {
 		@ViewBuilder
 		var agentImage: some View {
 			if let agentID = player.agentID {
-				AgentImage.icon(agentID)
-					.dynamicallyStroked(radius: 1.5, color: .white)
+				AgentImage.icon(agentID, outlineRadius: 1.5)
 			} else {
 				Image(systemName: "questionmark")
 					.font(.system(size: iconSize / 2, weight: .bold))

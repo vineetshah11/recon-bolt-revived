@@ -40,7 +40,7 @@ final class Statistics {
 				byQueue[queue, default: .init()] += match
 				byMap[match.matchInfo.mapID, default: .init()] += match
 				
-				let user = match.players.firstElement(withID: userID)!
+				guard let user = match.players.firstElement(withID: userID) else { continue }
 				for player in match.players {
 					guard player.id != userID else { continue }
 					if player.partyID == user.partyID {
@@ -82,7 +82,7 @@ final class Statistics {
 				.lazy
 				.flatMap(\.roundResults)
 			for round in rounds {
-				let stats = round.stats(for: userID)!
+				guard let stats = round.stats(for: userID) else { continue }
 				guard let startingWeapon = stats.economy.weapon else { continue }
 				
 				for damage in stats.damageDealt {
@@ -126,7 +126,7 @@ final class Statistics {
 				.map { (
 					$0.matchInfo.gameStart,
 					$0.roundResults.lazy
-						.map { $0.stats(for: userID)! }
+						.compactMap { $0.stats(for: userID) }
 						.flatMap(\.damageDealt)
 						.reduce(into: Tally.zero, +=) as Tally
 				) }
@@ -165,7 +165,8 @@ final class Statistics {
 		
 		init(userID: User.ID, matches: [MatchDetails]) {
 			for match in matches {
-				let teamID = match.players.firstElement(withID: userID)!.teamID
+				guard let player = match.players.firstElement(withID: userID) else { continue }
+				let teamID = player.teamID
 				let winner = match.teams.first(where: \.won)
 				let outcome: Outcome = winner == nil ? .draw
 				: winner?.id == teamID ? .win : .loss
@@ -176,7 +177,7 @@ final class Statistics {
 				let map = match.matchInfo.mapID
 				byMap[map, default: .zero] += outcome
 				
-				if let startingSide = Side(teamID), let structure = match.roundStructure {
+				if match.teams.count == 2, let startingSide = Side(teamID), let structure = match.roundStructure {
 					let playerTeams = Dictionary(uniqueKeysWithValues: match.players.lazy.map { ($0.id, $0.teamID) })
 					
 					byStartingSide[startingSide, default: [:]][map, default: .zero] += outcome
@@ -187,13 +188,17 @@ final class Statistics {
 						roundsBySide[map, default: [:]][side, default: .zero] += outcome
 						
 						let averageLoadoutValues: [Team.ID: Int] = [Team.ID: [RoundResult.PlayerStats]](
-							grouping: round.playerStats,
+							grouping: round.playerStats.filter { playerTeams[$0.subject] != nil },
 							by: { playerTeams[$0.subject]! }
 						)
-						.mapValues { $0.lazy.map(\.economy.loadoutValue).reduce(0, +) / $0.count }
-						let enemyLoadout = averageLoadoutValues.onlyElement { $0.key != teamID }!.value
-						let loadoutDelta = averageLoadoutValues[teamID]! - enemyLoadout
-						roundsByLoadoutDelta[loadoutDelta, default: .zero] += outcome
+						.mapValues { $0.lazy.map(\.economy.loadoutValue).reduce(0, +) / max(1, $0.count) }
+						if
+							let ownLoadout = averageLoadoutValues[teamID],
+							let enemyLoadout = averageLoadoutValues.onlyElement(where: { $0.key != teamID })?.value
+						{
+							let loadoutDelta = ownLoadout - enemyLoadout
+							roundsByLoadoutDelta[loadoutDelta, default: .zero] += outcome
+						}
 					}
 				}
 			}

@@ -15,7 +15,7 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "B941B64925A5BC8A00F675C1"
-               BuildableName = "Recon Bolt.app"
+               BuildableName = "Vantage.app"
                BlueprintName = "Recon Bolt (iOS)"
                ReferencedContainer = "container:Recon Bolt.xcodeproj">
             </BuildableReference>
@@ -55,7 +55,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "B941B64925A5BC8A00F675C1"
-            BuildableName = "Recon Bolt.app"
+            BuildableName = "Vantage.app"
             BlueprintName = "Recon Bolt (iOS)"
             ReferencedContainer = "container:Recon Bolt.xcodeproj">
          </BuildableReference>
@@ -75,7 +75,7 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "B941B64925A5BC8A00F675C1"
-            BuildableName = "Recon Bolt.app"
+            BuildableName = "Vantage.app"
             BlueprintName = "Recon Bolt (iOS)"
             ReferencedContainer = "container:Recon Bolt.xcodeproj">
          </BuildableReference>

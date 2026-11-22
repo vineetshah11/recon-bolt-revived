@@ -2,23 +2,31 @@
   <img src="Resources/Icons/Transparent/Icon Transparent.png" alt="Icon" width=512 />
 </p>
 
-# Recon Bolt
+# Recon Bolt Revived
 
-This is a companion app for Valorant. It started as a way to view your competitive rank changes (back before the numbers were visible) and has now evolved into so much more, even allowing you to participate in agent select from anywhere. Check out the screenshots for a clearer overview than I could ever give in words!
+**Recon Bolt** was a popular open-source iOS companion app for **Valorant** originally created in **October 2022** by **[Julian Dunskus (juliand665)](https://juliand665.com/)**. Built with SwiftUI, it started as a way to inspect hidden competitive RR changes and quickly grew into a full-featured mobile companion allowing players to:
 
-Sign-in happens in a real `WKWebView` on Riot's own login page (see `Shared/Views/Settings/RiotWebAuthView.swift`). The app only stores the resulting tokens, so your password never passes through the app's own code.
+- **Track Career & Match History:** View competitive rank progress, RR changes, full match scoreboards, kill timelines, 2D round maps, and hit distribution breakdowns.
+- **Analyze Detailed Statistics:** Explore playtime by mode/premade, headshot percentages by weapon, and win rates across maps, acts, and sides.
+- **Live Match & Agent Select:** Monitor your party, inspect teammates' and opponents' ranks and match histories, pick or lock agents directly from your phone during Agent Select, or safely dodge a match.
+- **Store, Missions & Loadout:** Check your daily storefront rotation, bundles, wallet balances, and daily/weekly missions, and customize equipped weapon skins, buddies, sprays, player cards, and titles.
+- **Reference & Multi-Account Support:** Browse all agents, maps, and weapons, and switch seamlessly between multiple Riot accounts.
 
-## Discord
+## Background & Revival
 
-I've created a Discord server for this app! Feel free to [join the server](https://discord.gg/rfaEzjbWyu) if you'd like to discuss it :)
+Unfortunately, active development on Recon Bolt was forced to stop in **2024** after Riot Games issued legal takedown threats, despite having reviewed and approved the application two years earlier. Left unmaintained, the app gradually broke as Riot updated its authentication flow, client headers, and game APIs throughout 2024, eventually locking out even the remaining users who still had the app installed.
 
-## Download on the App Store
+This repository brings **Recon Bolt back to life** ([`Recon-Bolt-Revived`](https://github.com/TMaume/Recon-Bolt-Revived) & [`ValorantAPI-Revived`](https://github.com/TMaume/ValorantAPI-Revived)) with fixes for all broken endpoints and several new features and improvements:
 
-The app is available on the App Store! Get it here:
+- **Riot WebView OAuth Login & 2FA Support:** Persistent WebView authentication directly through Riot's login flow (supporting 2FA app switching without resetting the session) with automatic cookie-based token refresh.
+- **Updated Riot & Asset APIs:** Fixed Cloudflare `403` blocks, dynamically resolved Riot client versions (`Invalid Headers`), updated contract progression decoding, migrated `playerloadout` to `v3` (`ActiveExpressions`), and fixed `valorant-api.com` asset parsing edge cases.
+- **New Content & Features:** Added newer weapons (`Bandit`, `Warden`, `Outlaw`), a **Dodge Match** confirmation button during Agent Select, **Pro features unlocked by default**, and disabled incognito player anonymization.
+- **Cross-Platform Linux Build (`xtool`):** Added SwiftPM + `xtool` single-bundle support (iOS 16+) with bundled primary/alternate app icons, UI assets, and App Group sandboxing fallbacks for easy sideloading.
 
-[![App Store Badge](Resources/App%20Store.svg)](https://apps.apple.com/app/recon-bolt/id1563649061)
-
-Please note that the app **only supports iOS 15+**, but you should be on the latest version of iOS anyway—iOS 15 supports all the same devices as iOS 14 and iOS 13 did. Jailbreaking is no excuse :p
+> [!NOTE]
+> Authentication uses Riot's official web login page directly inside an isolated `WKWebView`, so your Riot credentials are never handled in plaintext or sent anywhere outside Riot's servers.
+>
+> Since I do not have a paid Apple Developer account, I have not been able to test whether widgets still work, and they will not work for you either if you do not have one (App Groups and multiple extensions require a paid account).
 
 ## Screenshots
 
@@ -75,26 +83,9 @@ Please note that the app **only supports iOS 15+**, but you should be on the lat
 </p>
 
 
-## Building
+## Credits & Thanks
 
-Requirements: Xcode 15 or newer. Clone the repo, open `Recon Bolt.xcodeproj` and build the `Recon Bolt (iOS)` scheme for a device or simulator; Swift Package Manager fetches the dependencies, including `ValorantAPI`, on first open.
-
-The **Build Recon Bolt iOS IPA** workflow (`.github/workflows/build-ipa.yml`) archives the app on every push to `main` and uploads an unsigned `Recon Bolt.ipa` as a workflow artifact. Install that IPA with Sideloadly or AltStore using your own Apple ID—no paid developer account is required.
-
-## Project layout
-
-| Path | Contents |
-| --- | --- |
-| `Shared/` | SwiftUI views, models, themes and assets used by every app target |
-| `iOS/` | iOS target resources: `Info.plist`, settings bundle and localizations |
-| `macOS/` | macOS target |
-| `Widgets/` | WidgetKit extension |
-| `IntentsExtension/` | Siri/Shortcuts intents |
-| `Hasher/` | Small command-line hashing helper |
-| `Resources/` | Localized strings, icons and README screenshots |
-| `Recon Bolt Tests/` | Unit tests |
-
-## Thanks
+Recon Bolt and ValorantAPI were originally created by **[Julian Dunskus (juliand665)](https://juliand665.com/)** ([GitHub](https://github.com/juliand665)).
 
 This project would not have been possible (or was significantly eased by) some prior work:
 
@@ -107,3 +98,9 @@ This project would not have been possible (or was significantly eased by) some p
 ## Why not Android?
 
 The vast majority of Recon Bolt is UI Code, which heavily relies on Apple's fantastic new SwiftUI framework. I simply would not have had the motivation to work this much on an app with any other framework I know of, much less for an OS which I don't even use. Sorry!
+
+## Building this repository
+
+The **Build Recon Bolt iOS IPA** workflow (`.github/workflows/build-ipa.yml`) runs on `macos-15` with Xcode 26.3, archives the `Recon Bolt (iOS)` scheme against the revived `ValorantAPI-Revived` package, and uploads an unsigned IPA as a workflow artifact. Install that IPA with Sideloadly or AltStore using your own Apple ID—no paid developer account is required.
+
+The Xcode project resolves `ValorantAPI-Revived` directly, so no submodule checkout is needed for the app build. `Package.swift` is only used for the optional `xtool` single-bundle build.

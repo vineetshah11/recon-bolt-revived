@@ -7,7 +7,7 @@ typealias FloatLiteralType = CGFloat
 @main
 struct ReconBoltApp: App {
 	@StateObject var accountManager = AccountManager()
-	@StateObject private var assetManager = AssetManager()
+	@StateObject var assetManager = AssetManager()
 	@StateObject var bookmarkList = BookmarkList()
 	@StateObject var imageManager = ImageManager()
 	@StateObject var settings = AppSettings()
@@ -33,17 +33,14 @@ struct ReconBoltApp: App {
 				.environmentObject(settings)
 				.environmentObject(configManager)
 				.environment(\.configs, configManager.configs())
-				.environmentObject(assetManager)
-		.environment(\.assets, assetManager.assets)
+				.environment(\.assets, assetManager.assets)
 				.environment(\.location, accountManager.activeAccount?.location)
 				.environment(\.ownsProVersion, store.ownsProVersion)
 				.preferredColorScheme(settings.theme.colorScheme)
+				.tint(Color(.displayP3, red: 0.940, green: 0.019, blue: 0.311))
 				.task(id: assetManager.assets?.version) {
 					guard let version = assetManager.assets?.version else { return }
-					// assets may be cached from an older patch, so their version is only a fallback
-					if accountManager.clientVersion == nil {
-						accountManager.clientVersion = version.riotClientVersion
-					}
+					accountManager.clientVersion = version.riotClientVersion
 					imageManager.setVersion(version)
 				}
 			}
@@ -59,34 +56,6 @@ struct ReconBoltApp: App {
 		} catch {
 			print("could not set audio session category: \(error)")
 		}
-		
-		// Fetch the Riot client version early so API calls work
-		// even before the full asset download completes.
-		Task { await fetchClientVersionEarly() }
-	}
-	
-	/// Fetches the current Riot client version from valorant-api.com
-	/// and stores it in accountManager immediately on launch.
-	/// This runs in parallel with (and before) full asset loading,
-	/// preventing "Bad headers / INVALID_HEADERS" errors on first API call.
-	private func fetchClientVersionEarly() async {
-		// Fallback version in case the network call fails.
-		// Keep this roughly current; it's only used if valorant-api.com is unreachable.
-		let fallbackVersion = "release-13.10-shipping-18-5893614"
-		
-		if await accountManager.refreshClientVersion() {
-			print("[ReconBolt] Fetched client version early:", accountManager.clientVersion ?? "?")
-			return
-		}
-		
-		// the version may be unchanged, but the API client still has to be told about it
-		accountManager.updateClientVersion()
-		
-		// only use the fallback if nothing at all is known yet
-		if accountManager.clientVersion == nil {
-			print("[ReconBolt] Early version fetch failed, using fallback:", fallbackVersion)
-			accountManager.clientVersion = fallbackVersion
-		}
 	}
 }
 
@@ -97,6 +66,6 @@ extension EnvironmentValues {
 	}
 	
 	private enum OwnsProVersionKey: EnvironmentKey {
-		static let defaultValue = false
+		static let defaultValue = true
 	}
 }

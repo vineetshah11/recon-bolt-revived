@@ -7,7 +7,7 @@ struct SquareAgentIcon: View {
 	var backgroundColor: Color = .primary.opacity(0.25)
 	
 	var body: some View {
-		AgentImage.icon(agentID)
+		AgentImage.icon(agentID, teamID: nil)
 			.background(backgroundColor.opacity(0.5))
 			.clipShape(RoundedRectangle(cornerRadius: cornerRadius - 1, style: .continuous))
 			.padding(1)

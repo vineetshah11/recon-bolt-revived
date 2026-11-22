@@ -86,40 +86,46 @@ struct AgentInfoView: View {
 	}
 	
 	var textBackground: some View {
-		agent.background.view(renderingMode: .template)
+		agent.background?.view(renderingMode: .template)
 			.foregroundColor(.black)
 			.opacity(0.15)
 	}
 	
 	@ViewBuilder
 	var gradient: some View {
-		let colors = agent.backgroundGradientColors.reversed().map { $0.wrappedValue ?? .clear }
-		LinearGradient(
-			stops: zip(colors, [0, 0.4, 0.8, 1]).map(Gradient.Stop.init),
-			startPoint: .top,
-			endPoint: .bottom
-		)
-		.overlay(alignment: .top) {
-			let height: CGFloat = 1000
-			colors.first!.frame(height: height).offset(y: -height)
+		let colors = (agent.backgroundGradientColors ?? []).reversed().map { $0.wrappedValue ?? .clear }
+		if let firstColor = colors.first {
+			LinearGradient(
+				stops: zip(colors, [0, 0.4, 0.8, 1]).map(Gradient.Stop.init),
+				startPoint: .top,
+				endPoint: .bottom
+			)
+			.overlay(alignment: .top) {
+				let height: CGFloat = 1000
+				firstColor.frame(height: height).offset(y: -height)
+			}
+			.padding(.top, -160)
 		}
-		.padding(.top, -160)
 	}
 	
 	var descriptionBox: some View {
 		VStack(spacing: 16) {
-			HStack {
-				agent.role.displayIcon
-					.view(renderingMode: .template)
-					.frame(height: 16)
+			if let role = agent.role {
+				HStack {
+					role.displayIcon
+						.view(renderingMode: .template)
+						.frame(height: 16)
+					
+					Text(role.displayName)
+						.fontWeight(.medium)
+				}
 				
-				Text(agent.role.displayName)
-					.fontWeight(.medium)
+				Divider()
 			}
 			
-			Divider()
-			
-			alignedMultilineText(agent.description)
+			if let description = agent.description {
+				alignedMultilineText(description)
+			}
 		}
 	}
 	
@@ -155,14 +161,14 @@ struct AgentInfoView: View {
 			.background(Capsule().opacity(0.1))
 			.compositingGroup()
 			
-			VStack(spacing: 8) {
-				let ability = agent.ability(activeAbilitySlot)!
-				
-				Text(ability.displayName)
-					.font(.headline)
-					.animation(nil, value: activeAbilitySlot)
-				
-				alignedMultilineText(ability.description)
+			if let ability = agent.ability(activeAbilitySlot) {
+				VStack(spacing: 8) {
+					Text(ability.displayName)
+						.font(.headline)
+						.animation(nil, value: activeAbilitySlot)
+					
+					alignedMultilineText(ability.description)
+				}
 			}
 		}
 		.id(boxID)

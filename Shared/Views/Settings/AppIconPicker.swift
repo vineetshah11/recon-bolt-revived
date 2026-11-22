@@ -9,8 +9,9 @@ struct AppIconPicker: View {
 		List {
 			Section {
 				cell(for: .default)
+				cell(for: .og)
 			} header: {
-				Text("Default Icon", comment: "App Icon Picker: section")
+				Text("Default Icons", comment: "App Icon Picker: section")
 			}
 			
 			Section {
@@ -83,7 +84,7 @@ extension AppIcon {
 		
 		var body: some View {
 			let squircle = RoundedRectangle(cornerRadius: 0.2 * size, style: .continuous)
-			return Image("app icons/\(icon.key ?? "AppIcon")")
+			return Image.bundledAsset("app icons/\(icon.key ?? "revived icon")")
 				.resizable()
 				.aspectRatio(contentMode: .fit)
 				.mask { squircle }
@@ -117,11 +118,16 @@ final class AppIconManager: ObservableObject {
 }
 
 struct AppIcon: Identifiable, Equatable {
-	static let all = [`default`, pride, proBlue, prideDark]
+	static let all = [`default`, og, pride, proBlue, prideDark]
 	static let `default` = Self(
 		key: nil, isFree: true,
-		name: Text("Default", comment: "App Icon Name"),
-		description: Text("The default look of Recon Bolt.", comment: "App Icon Description: default")
+		name: Text("Revived", comment: "App Icon Name"),
+		description: Text("The default look of Vantage.", comment: "App Icon Description: revived")
+	)
+	static let og = Self(
+		key: "AppIconOG", isFree: true,
+		name: Text("OG", comment: "App Icon Name"),
+		description: Text("The classic original look of Recon Bolt.", comment: "App Icon Description: og")
 	)
 	static let pride = Self(
 		key: "AppIconPride", isFree: Calendar.current.date(.now, matchesComponents: .init(month: 6)), // free during pride month

@@ -14,6 +14,7 @@ struct StatisticsView: View {
 	@UserDefault.State("StatisticsView.excludedQueues")
 	var excludedQueues: Set<QueueID> = [
 		.deathmatch, // average DM win rate is far from 50%
+		.gauntlet,
 		.spikeRush,
 		.custom,
 		.escalation,
@@ -50,7 +51,7 @@ struct StatisticsView: View {
 				print("computing!")
 				let matches = fetchedMatches.filter { match in
 					guard !excludedQueues.contains(match.matchInfo.queueID ?? .custom) else { return false }
-					let player = match.players.firstElement(withID: user.id)!
+					guard let player = match.players.firstElement(withID: user.id) else { return false }
 					guard player.agentID.map(excludedAgents.contains(_:)) != true else { return false }
 					return true
 				}
@@ -250,11 +251,17 @@ extension QueueID: DefaultsValueConvertible {}
 
 extension Agent.ID: FilterableID {
 	static func knownIDs(assets: AssetCollection?) -> [Self] {
-		assets?.agents.sorted(on: \.value.displayName).map(\.key) ?? []
+		assets?.agents
+			.sorted {
+				let lhsName = $0.key == .abilityDraftAgent ? "Gauntlet Robot" : $0.value.displayName
+				let rhsName = $1.key == .abilityDraftAgent ? "Gauntlet Robot" : $1.value.displayName
+				return lhsName < rhsName
+			}
+			.map(\.key) ?? []
 	}
 	
 	var icon: some View {
-		AgentImage.icon(self)
+		AgentImage.icon(self, teamID: nil)
 	}
 	
 	var label: some View {

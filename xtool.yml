@@ -1,0 +1,21 @@
+version: 1
+bundleID: com.dtl21.Recon-Bolt
+displayName: Vantage
+infoPath: xtool-Info.plist
+entitlements: {}
+resources:
+  - Shared/BundledIcons/AppIcon60x60@2x.png
+  - Shared/BundledIcons/AppIcon60x60@3x.png
+  - Shared/BundledIcons/AppIcon76x76@2x~ipad.png
+  - Shared/BundledIcons/AppIconOG60x60@2x.png
+  - Shared/BundledIcons/AppIconOG60x60@3x.png
+  - Shared/BundledIcons/AppIconOG76x76@2x~ipad.png
+  - Shared/BundledIcons/AppIconPride60x60@2x.png
+  - Shared/BundledIcons/AppIconPride60x60@3x.png
+  - Shared/BundledIcons/AppIconPride76x76@2x~ipad.png
+  - Shared/BundledIcons/AppIconPrideDark60x60@2x.png
+  - Shared/BundledIcons/AppIconPrideDark60x60@3x.png
+  - Shared/BundledIcons/AppIconPrideDark76x76@2x~ipad.png
+  - Shared/BundledIcons/AppIconProBlue60x60@2x.png
+  - Shared/BundledIcons/AppIconProBlue60x60@3x.png
+  - Shared/BundledIcons/AppIconProBlue76x76@2x~ipad.png
