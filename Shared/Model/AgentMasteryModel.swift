@@ -5,6 +5,7 @@ struct AgentMasterySummary: Identifiable {
 	var id: Agent.ID { agentID }
 	var agentID: Agent.ID
 	var displayName: String
+	var roleName: String?
 	var currentActLevel: Int
 	var currentActMP: Int
 	var xpInCurrentLevel: Int
@@ -17,6 +18,7 @@ struct AgentMasterySummary: Identifiable {
 	var deaths: Int
 	var totalScore: Int
 	var totalRounds: Int
+	var isLiveRiotData: Bool
 	
 	var winRate: Double {
 		matchesPlayed > 0 ? Double(wins) / Double(matchesPlayed) : 0
@@ -36,21 +38,106 @@ struct AgentMasterySummary: Identifiable {
 	}
 }
 
+struct AgentMasteryPortraitMilestone: Identifiable {
+	var id: Int { level }
+	var level: Int
+	var cumulativeMP: Int
+}
+
+struct AgentMasteryRewardItem: Identifiable {
+	var id: String { "\(title)-\(costKC)-\(iconName)" }
+	var title: String
+	var costKC: Int
+	var iconName: String
+}
+
+struct AgentMasteryRewardTier: Identifiable {
+	var id: Int { level }
+	var level: Int
+	var items: [AgentMasteryRewardItem]
+}
+
 enum AgentMasteryCalculator {
-	/// Cumulative MP thresholds for Act Mastery Levels 1...10 (matches Patch 13.06: L1 = 2,000 MP, L2 = +8,500 MP).
+	/// Cumulative Mastery Points required for Act Levels 0...10 (Patch 13.06).
 	static let cumulativeLevelThresholds: [Int] = [
-		0,      // Level 0
-		2_000,  // Level 1 (initial unlock)
-		10_500, // Level 2 (+8,500 MP)
-		20_500, // Level 3 (+10,000 MP)
-		32_500, // Level 4 (+12,000 MP)
-		46_500, // Level 5 (+14,000 MP)
-		62_500, // Level 6 (+16,000 MP)
-		80_500, // Level 7 (+18,000 MP)
-		100_500,// Level 8 (+20,000 MP)
-		122_500,// Level 9 (+22,000 MP)
-		147_500 // Level 10 (+25,000 MP)
+		0,       // Level 0
+		2_000,   // Level 1 (+2,000)
+		10_500,  // Level 2 (+8,500)
+		19_800,  // Level 3 (+9,300)
+		30_300,  // Level 4 (+10,500)
+		42_300,  // Level 5 (+12,000)
+		56_100,  // Level 6 (+13,800)
+		71_900,  // Level 7 (+15,800)
+		89_800,  // Level 8 (+17,900)
+		109_900, // Level 9 (+20,100)
+		132_400  // Level 10 (+22,500)
 	]
+	
+	static let overlevelStepMP = 22_500
+	
+	static let portraitUpgradeMilestones: [AgentMasteryPortraitMilestone] = [
+		.init(level: 1, cumulativeMP: 2_000),
+		.init(level: 4, cumulativeMP: 30_300),
+		.init(level: 7, cumulativeMP: 71_900),
+		.init(level: 10, cumulativeMP: 132_400),
+	]
+	
+	static let rewardTrackTiers: [AgentMasteryRewardTier] = [
+		.init(level: 5, items: [
+			.init(title: "Spray", costKC: 4_000, iconName: "paintbrush.pointed"),
+			.init(title: "Player Title", costKC: 2_500, iconName: "textformat"),
+			.init(title: "Player Card", costKC: 4_500, iconName: "person.text.rectangle"),
+			.init(title: "Stat: K/D", costKC: 2_500, iconName: "number"),
+			.init(title: "Quote", costKC: 5_000, iconName: "text.bubble"),
+		]),
+		.init(level: 10, items: [
+			.init(title: "Stat: MVPs", costKC: 2_500, iconName: "number"),
+			.init(title: "Frame II", costKC: 2_500, iconName: "photo"),
+			.init(title: "Stat: Headshots", costKC: 2_500, iconName: "number"),
+			.init(title: "Role Background", costKC: 6_000, iconName: "photo.on.rectangle"),
+			.init(title: "Player Card", costKC: 4_500, iconName: "person.text.rectangle"),
+		]),
+		.init(level: 15, items: [
+			.init(title: "Sidearm Skin", costKC: 8_000, iconName: "paintpalette"),
+			.init(title: "Quote", costKC: 5_000, iconName: "text.bubble"),
+			.init(title: "Spray", costKC: 4_000, iconName: "paintbrush.pointed"),
+			.init(title: "Stat: First Bloods", costKC: 2_500, iconName: "number"),
+		]),
+		.init(level: 20, items: [
+			.init(title: "Gun Buddy", costKC: 5_500, iconName: "teddybear"),
+			.init(title: "Stat: Win Rate", costKC: 2_500, iconName: "number"),
+			.init(title: "Player Title", costKC: 2_500, iconName: "textformat"),
+			.init(title: "VALORANT Background", costKC: 6_000, iconName: "photo.on.rectangle"),
+			.init(title: "Frame III", costKC: 5_000, iconName: "photo"),
+		]),
+		.init(level: 25, items: [
+			.init(title: "Spray", costKC: 4_000, iconName: "paintbrush.pointed"),
+			.init(title: "Stat: Clutches", costKC: 2_500, iconName: "number"),
+			.init(title: "Lore Background", costKC: 6_000, iconName: "photo.on.rectangle"),
+			.init(title: "Agent Pose", costKC: 7_500, iconName: "figure.stand"),
+		]),
+		.init(level: 30, items: [
+			.init(title: "Player Title", costKC: 2_500, iconName: "textformat"),
+			.init(title: "Quote", costKC: 5_000, iconName: "text.bubble"),
+			.init(title: "Stat: Aces", costKC: 2_500, iconName: "number"),
+			.init(title: "Animated Mastery Card", costKC: 7_500, iconName: "play.rectangle"),
+			.init(title: "Frame IV", costKC: 7_500, iconName: "photo"),
+		]),
+	]
+	
+	static func cumulativeMP(forLevel level: Int) -> Int {
+		guard level > 0 else { return 0 }
+		if level < cumulativeLevelThresholds.count {
+			return cumulativeLevelThresholds[level]
+		}
+		return cumulativeLevelThresholds.last! + (level - (cumulativeLevelThresholds.count - 1)) * overlevelStepMP
+	}
+	
+	static func stepMP(fromLevel level: Int) -> Int {
+		let next = cumulativeMP(forLevel: level + 1)
+		let cur = cumulativeMP(forLevel: max(0, level))
+		return max(1, next - cur)
+	}
 	
 	static func actLevelAndProgress(for mp: Int) -> (level: Int, inLevel: Int, toNext: Int) {
 		var level = 0
@@ -62,12 +149,105 @@ enum AgentMasteryCalculator {
 			}
 		}
 		if level >= cumulativeLevelThresholds.count - 1 {
-			let step = cumulativeLevelThresholds.last! - cumulativeLevelThresholds[cumulativeLevelThresholds.count - 2]
-			return (level, step, step)
+			let overXP = mp - cumulativeLevelThresholds.last!
+			let extraLevels = max(0, overXP / overlevelStepMP)
+			let resolvedLevel = (cumulativeLevelThresholds.count - 1) + extraLevels
+			let inLevel = overXP % overlevelStepMP
+			return (resolvedLevel, inLevel, overlevelStepMP)
 		}
 		let currentFloor = cumulativeLevelThresholds[level]
 		let nextFloor = cumulativeLevelThresholds[level + 1]
-		return (level, mp - currentFloor, nextFloor - currentFloor)
+		return (level, max(0, mp - currentFloor), max(1, nextFloor - currentFloor))
+	}
+	
+	static func buildFromRiot(
+		_ mastery: AgentMastery?,
+		userID: User.ID?,
+		matches: [MatchDetails],
+		assets: AssetCollection?,
+		contractsDetails: ContractDetails?,
+		currentAct: Act?,
+		previousAct: Act?
+	) -> [AgentMasterySummary] {
+		let fallback = compute(
+			userID: userID ?? User.ID(),
+			matches: userID == nil ? [] : matches,
+			assets: assets,
+			contractsDetails: contractsDetails,
+			currentAct: currentAct,
+			previousAct: previousAct
+		)
+		guard let mastery, !mastery.bonsais.isEmpty else {
+			return fallback
+		}
+		
+		let fallbackByID = Dictionary(uniqueKeysWithValues: fallback.map { ($0.agentID, $0) })
+		let entryByID = Dictionary(uniqueKeysWithValues: mastery.bonsais.map { ($0.id, $0) })
+		
+		let agentIDs: [Agent.ID] = {
+			if let assets {
+				return assets.agents.values
+					.filter { $0.isPlayableCharacter && $0.id != .abilityDraftAgent }
+					.map(\.id)
+			}
+			return mastery.bonsais.map(\.id)
+		}()
+		
+		return agentIDs.compactMap { agentID -> AgentMasterySummary? in
+			let agentInfo = assets?.agents[agentID]
+			let stat = fallbackByID[agentID]
+			let entry = entryByID[agentID]
+			let flourish = entry?.flourish
+			
+			let actLevel = flourish?.shortLevel ?? 0
+			let prevLevel = flourish?.previousShortLevel ?? 0
+			let lifetime = max(
+				flourish?.longLevel ?? 0,
+				entry?.trackProgressList.first?.trackLevel ?? 0
+			)
+			let rawPoints = flourish?.points ?? 0
+			let stepNeeded = stepMP(fromLevel: actLevel)
+			let floorMP = cumulativeMP(forLevel: actLevel)
+			
+			let inLevel: Int
+			let totalActMP: Int
+			if actLevel > 0 {
+				if rawPoints >= floorMP {
+					inLevel = min(stepNeeded, rawPoints - floorMP)
+					totalActMP = rawPoints
+				} else if rawPoints > 0 {
+					inLevel = min(stepNeeded, rawPoints)
+					totalActMP = floorMP + inLevel
+				} else {
+					let estInLevel = max(0, (stat?.currentActMP ?? 0) - floorMP)
+					inLevel = min(stepNeeded, estInLevel)
+					totalActMP = floorMP + inLevel
+				}
+			} else {
+				inLevel = min(stepNeeded, rawPoints > 0 ? rawPoints : (stat?.currentActMP ?? 0))
+				totalActMP = inLevel
+			}
+			
+			return AgentMasterySummary(
+				agentID: agentID,
+				displayName: agentInfo?.displayName ?? stat?.displayName ?? "Agent",
+				roleName: agentInfo?.role?.displayName,
+				currentActLevel: actLevel,
+				currentActMP: totalActMP,
+				xpInCurrentLevel: inLevel,
+				nextLevelMPNeeded: stepNeeded,
+				lastActLevel: prevLevel,
+				lifetimeLevel: lifetime,
+				matchesPlayed: stat?.matchesPlayed ?? 0,
+				wins: stat?.wins ?? 0,
+				kills: stat?.kills ?? 0,
+				deaths: stat?.deaths ?? 0,
+				totalScore: stat?.totalScore ?? 0,
+				totalRounds: stat?.totalRounds ?? 0,
+				isLiveRiotData: true
+			)
+		}
+		.sorted(by: sortComparator)
 	}
 	
 	static func masteryPoints(for player: Player, in match: MatchDetails, won: Bool) -> Int {
@@ -147,7 +327,6 @@ enum AgentMasteryCalculator {
 			}
 		}
 		
-		// Legacy agent contract level baseline contributes to Lifetime Laurel when match history isn't full
 		var contractLaurelBaseline: [Agent.ID: Int] = [:]
 		if let contractsDetails, let assets {
 			for contract in contractsDetails.contracts {
@@ -159,9 +338,10 @@ enum AgentMasteryCalculator {
 			}
 		}
 		
-		let allAgentIDs = Set(assets?.agents.keys.map { $0 } ?? [])
-			.union(totalMatches.keys)
-			.union(contractLaurelBaseline.keys)
+		let allAgentIDs: Set<Agent.ID> = {
+			let playable = assets?.agents.values.filter { $0.isPlayableCharacter && $0.id != .abilityDraftAgent }.map(\.id) ?? []
+			return Set(playable).union(totalMatches.keys).union(contractLaurelBaseline.keys)
+		}()
 		
 		let summaries: [AgentMasterySummary] = allAgentIDs.compactMap { agentID in
 			guard let agentInfo = assets?.agents[agentID] else { return nil }
@@ -179,6 +359,7 @@ enum AgentMasteryCalculator {
 			return AgentMasterySummary(
 				agentID: agentID,
 				displayName: agentInfo.displayName,
+				roleName: agentInfo.role?.displayName,
 				currentActLevel: cur.level,
 				currentActMP: curMP,
 				xpInCurrentLevel: cur.inLevel,
@@ -190,24 +371,27 @@ enum AgentMasteryCalculator {
 				kills: totalKills[agentID, default: 0],
 				deaths: totalDeaths[agentID, default: 0],
 				totalScore: totalScore[agentID, default: 0],
-				totalRounds: totalRounds[agentID, default: 0]
+				totalRounds: totalRounds[agentID, default: 0],
+				isLiveRiotData: false
 			)
 		}
 		
-		return summaries.sorted { lhs, rhs in
-			if lhs.currentActLevel != rhs.currentActLevel {
-				return lhs.currentActLevel > rhs.currentActLevel
-			}
-			if lhs.currentActMP != rhs.currentActMP {
-				return lhs.currentActMP > rhs.currentActMP
-			}
-			if lhs.lastActLevel != rhs.lastActLevel {
-				return lhs.lastActLevel > rhs.lastActLevel
-			}
-			if lhs.lifetimeLevel != rhs.lifetimeLevel {
-				return lhs.lifetimeLevel > rhs.lifetimeLevel
-			}
-			return lhs.displayName < rhs.displayName
+		return summaries.sorted(by: sortComparator)
+	}
+	
+	private static func sortComparator(_ lhs: AgentMasterySummary, _ rhs: AgentMasterySummary) -> Bool {
+		if lhs.currentActLevel != rhs.currentActLevel {
+			return lhs.currentActLevel > rhs.currentActLevel
 		}
+		if lhs.currentActMP != rhs.currentActMP {
+			return lhs.currentActMP > rhs.currentActMP
+		}
+		if lhs.lastActLevel != rhs.lastActLevel {
+			return lhs.lastActLevel > rhs.lastActLevel
+		}
+		if lhs.lifetimeLevel != rhs.lifetimeLevel {
+			return lhs.lifetimeLevel > rhs.lifetimeLevel
+		}
+		return lhs.displayName < rhs.displayName
 	}
 }

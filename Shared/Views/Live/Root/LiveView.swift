@@ -17,6 +17,7 @@ struct LiveView: View {
 	@State fileprivate var storeInfo: StoreInfo?
 	@State private var accountXP: AccountXP?
 	@State private var activeRecruitment: ActiveRecruitmentEvent?
+	@State private var agentMastery: AgentMastery?
 	
 	@UserDefault.State("LiveView.expandedBoxes")
 	var expandedBoxes: Set<Box> = [.party]
@@ -62,17 +63,20 @@ struct LiveView: View {
 					contracts: .init(progress: $0, assets: assets, seasons: seasons),
 					userID: userID,
 					accountXP: accountXP,
-					activeRecruitment: activeRecruitment
+					activeRecruitment: activeRecruitment,
+					agentMastery: agentMastery
 				)
 			}
 		} refresh: { client in
 			async let progressTask = client.getContractsProgress()
 			async let xpTask = try? client.getAccountXP()
 			async let recruitmentTask = try? client.getActiveRecruitmentEvent()
-			let (progress, xp, recruitment) = try await (progressTask, xpTask, recruitmentTask)
+			async let masteryTask = try? client.getAgentMastery()
+			let (progress, xp, recruitment, mastery) = try await (progressTask, xpTask, recruitmentTask, masteryTask)
 			contractsProgress = progress
 			accountXP = xp
 			activeRecruitment = recruitment
+			agentMastery = mastery
 		}
 		.id(missionsBoxID)
 	}

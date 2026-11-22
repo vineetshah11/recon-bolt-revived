@@ -16,6 +16,7 @@ struct ContractDetailsView: View {
 	var userID: User.ID? = nil
 	var accountXP: AccountXP? = nil
 	var activeRecruitment: ActiveRecruitmentEvent? = nil
+	var agentMastery: AgentMastery? = nil
 	
 	@Environment(\.assets) private var assets
 	@Environment(\.seasons) private var seasons
@@ -23,6 +24,8 @@ struct ContractDetailsView: View {
 	
 	@State private var selectedTab: SectionTab = .missions
 	@State private var includeEpilogue = true
+	@State private var masteriesExpanded = true
+	@State private var legacyContractsExpanded = false
 	
 	private var resolvedUserID: User.ID? {
 		userID ?? accountManager.activeAccount?.id
@@ -394,7 +397,7 @@ struct ContractDetailsView: View {
 	
 	@ViewBuilder
 	private var agentsMasteryView: some View {
-		let uid = resolvedUserID ?? contracts.details.contracts.first.map { _ in User.ID() }
+		let uid = resolvedUserID
 		let cachedMatches: [MatchDetails] = {
 			guard let uid,
 				  let list = LocalDataProvider.shared.matchListManager.loadedObject(for: uid) else { return [] }
@@ -404,18 +407,87 @@ struct ContractDetailsView: View {
 		}()
 		let currentAct = seasons?.currentAct()
 		let prevAct = assets?.seasons.actBefore(currentAct)
-		let summaries = uid.map { id in
-			AgentMasteryCalculator.compute(
-				userID: id,
-				matches: cachedMatches,
-				assets: assets,
-				contractsDetails: contracts.details,
-				currentAct: currentAct,
-				previousAct: prevAct
-			)
-		} ?? []
+		let summaries = AgentMasteryCalculator.buildFromRiot(
+			agentMastery,
+			userID: uid,
+			matches: cachedMatches,
+			assets: assets,
+			contractsDetails: contracts.details,
+			currentAct: currentAct,
+			previousAct: prevAct
+		)
+		let legacyContracts = (assets.map { Array($0.contracts.values) } ?? [])
+			.filter { $0.content.relationType == .agent }
+			.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+		let progressByID = Dictionary(uniqueKeysWithValues: contracts.details.contracts.map { ($0.id, $0) })
 		
-		AgentMasterySectionView(summaries: summaries, actEndDate: currentAct?.timeSpan.end)
+		VStack(spacing: 12) {
+			DisclosureGroup(isExpanded: $masteriesExpanded) {
+				AgentMasterySectionView(summaries: summaries, actEndDate: currentAct?.timeSpan.end)
+					.padding(.top, 8)
+			} label: {
+				HStack {
+					Image(systemName: "star.circle.fill")
+						.foregroundStyle(Color.valorantRed)
+					Text("Agent Masteries")
+						.font(.headline)
+					Spacer()
+					Text("\(summaries.count)")
+						.font(.caption.monospacedDigit())
+						.foregroundStyle(.secondary)
+				}
+			}
+			.padding(14)
+			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14))
+			
+			DisclosureGroup(isExpanded: $legacyContractsExpanded) {
+				VStack(spacing: 8) {
+					ForEach(legacyContracts) { contract in
+						NavigationLink {
+							ContractPassDetailsView(contractInfo: contract, progress: progressByID[contract.id])
+						} label: {
+							HStack(spacing: 12) {
+								if let agentID = contract.content.agentID {
+									AgentImage.icon(agentID)
+										.frame(width: 36, height: 36)
+										.cornerRadius(8)
+								}
+								VStack(alignment: .leading, spacing: 2) {
+									Text(contract.displayName)
+										.font(.subheadline.weight(.medium))
+									let tiers = contract.content.chapters.reduce(0) { $0 + $1.levels.count }
+									let reached = progressByID[contract.id]?.levelReached ?? 0
+									Text("Tier \(reached) / \(tiers)")
+										.font(.caption2)
+										.foregroundStyle(.secondary)
+								}
+								Spacer()
+								Image(systemName: "chevron.right")
+									.font(.caption)
+									.foregroundStyle(.secondary)
+							}
+							.padding(10)
+							.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 10))
+						}
+						.buttonStyle(.plain)
+					}
+				}
+				.padding(.top, 8)
+			} label: {
+				HStack {
+					Image(systemName: "archivebox.fill")
+						.foregroundStyle(.secondary)
+					Text("Legacy Agent Contracts")
+						.font(.headline)
+					Spacer()
+					Text("\(legacyContracts.count)")
+						.font(.caption.monospacedDigit())
+						.foregroundStyle(.secondary)
+				}
+			}
+			.padding(14)
+			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14))
+		}
 	}
 	
 	// MARK: - Helpers

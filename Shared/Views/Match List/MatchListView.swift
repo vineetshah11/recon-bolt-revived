@@ -11,6 +11,7 @@ struct MatchListView: View {
 	@LocalData var summary: CareerSummary?
 	@LocalData var identity: Player.Identity?
 	@State var isEditingFilter = false
+	@State private var agentMastery: AgentMastery? = nil
 	@UserDefault.State("MatchListView.filter") var filter = MatchListFilter()
 	
 	@Environment(\.valorantLoad) private var load
@@ -37,7 +38,8 @@ struct MatchListView: View {
 	var body: some View {
 		let currentAct = seasons?.currentAct()
 		let prevAct = assets?.seasons.actBefore(currentAct)
-		let mastery = AgentMasteryCalculator.compute(
+		let mastery = AgentMasteryCalculator.buildFromRiot(
+			agentMastery,
 			userID: userID,
 			matches: cachedMatchDetails,
 			assets: assets,
@@ -64,7 +66,7 @@ struct MatchListView: View {
 			}
 			
 			Section {
-				AgentMasterySummaryBox(summaries: mastery)
+				AgentMasterySummaryBox(summaries: mastery, actEndDate: currentAct?.timeSpan.end)
 					.listRowInsets(EdgeInsets())
 					.listRowBackground(Color.clear)
 			}
@@ -196,6 +198,9 @@ struct MatchListView: View {
 		.withLocalData($matchList, id: userID, shouldAutoUpdate: true)
 		.withLocalData($summary, id: userID, shouldAutoUpdate: true)
 		.withLocalData($identity, id: userID, shouldAutoUpdate: true)
+		.valorantLoadTask(id: userID) { client in
+			agentMastery = try? await client.getAgentMastery(userID: userID)
+		}
 		.anonymizing(additionally: shouldAnonymize(userID) ? .all : .none)
 		.navigationTitle(title)
 	}
@@ -216,7 +221,10 @@ struct MatchListView: View {
 		async let identityUpdate: Void = load {
 			try await $0.fetchIdentity(for: userID, forceFetch: true)
 		}
-		_ = await (matchListUpdate, summaryUpdate, identityUpdate)
+		async let masteryUpdate: Void = load {
+			agentMastery = try? await $0.getAgentMastery(userID: userID)
+		}
+		_ = await (matchListUpdate, summaryUpdate, identityUpdate, masteryUpdate)
 	}
 	
 	func updateMatchList(update: @escaping (ValorantClient) -> (inout MatchList) async throws -> Void) async {
