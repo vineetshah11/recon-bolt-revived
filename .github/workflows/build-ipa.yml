@@ -9,8 +9,8 @@ on:
 
 jobs:
   build:
-    name: Build & Package IPA (Linux xtool)
-    runs-on: ubuntu-22.04
+    name: Build & Package IPA (macOS SwiftPM)
+    runs-on: macos-latest
 
     steps:
       - name: Checkout repository
@@ -18,24 +18,25 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Setup Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: "5.10"
-
-      - name: Install xtool & system dependencies
+      - name: Select Xcode
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libssl-dev libxml2 libcurl4 zip libfuse2
-          curl -sL https://github.com/xtool-org/xtool/releases/download/1.24.0/xtool-x86_64.AppImage -o /usr/local/bin/xtool
-          sudo chmod +x /usr/local/bin/xtool
+          sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app
+          xcodebuild -version
 
-      - name: Build IPA using xtool
+      - name: Build Recon_Bolt Package
         run: |
-          xtool build -c release
-          mkdir -p build
-          cp -v xtool/*.ipa build/ReconBolt.ipa || cp -v *.ipa build/ReconBolt.ipa || find . -name "*.ipa" -exec cp -v {} build/ReconBolt.ipa \;
-          ls -lh build/ReconBolt.ipa
+          swift build -c release --triple arm64-apple-ios16.0
+
+      - name: Package App and IPA
+        run: |
+          mkdir -p build/Payload/ReconBolt.app
+          cp .build/arm64-apple-ios16.0/release/libRecon_Bolt.dylib build/Payload/ReconBolt.app/ReconBolt 2>/dev/null || cp .build/arm64-apple-ios16.0/release/Recon_Bolt build/Payload/ReconBolt.app/ReconBolt 2>/dev/null || true
+          cp xtool-Info.plist build/Payload/ReconBolt.app/Info.plist
+          cp -R Shared/BundledAssets build/Payload/ReconBolt.app/ 2>/dev/null || true
+          cp -R Shared/BundledIcons/* build/Payload/ReconBolt.app/ 2>/dev/null || true
+          cd build
+          zip -r -q ReconBolt.ipa Payload
+          ls -lh ReconBolt.ipa
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
