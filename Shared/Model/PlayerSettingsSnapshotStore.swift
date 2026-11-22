@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 import ValorantAPI
 
 struct PlayerSettingsSnapshot: Identifiable, Codable, Equatable {

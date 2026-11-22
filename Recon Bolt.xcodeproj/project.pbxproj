@@ -7,6 +7,11 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1022D08945787F225EF089D /* FlexAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C6FEC6737B65901228E00E /* FlexAssets.swift */; };
+		F2F3FCC4280315DA6E6A46D3 /* UsernameHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F456C2BC8A26878741088709 /* UsernameHistoryStore.swift */; };
+		B93266ACC947C22177F27B45 /* LocalJSONStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F710D535247ED98A68A45AB /* LocalJSONStore.swift */; };
+		7F9797E4FF1102B67E954D14 /* UsernameHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F456C2BC8A26878741088709 /* UsernameHistoryStore.swift */; };
+		20E249941A71802741CBC736 /* LocalJSONStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F710D535247ED98A68A45AB /* LocalJSONStore.swift */; };
 		35259C3A3275B9D8B7412B10 /* FlexAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8C6FEC6737B65901228E00E /* FlexAssets.swift */; };
 		8387F60ED7F480A50AFA879B /* AccoladesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2E28C6318F29409F4119395 /* AccoladesModel.swift */; };
 		63EE535CD86AD7C9F879DC67 /* AgentMasteryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1283410341CA64A29669D24 /* AgentMasteryModel.swift */; };
@@ -1803,6 +1808,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				F2F3FCC4280315DA6E6A46D3 /* shared store in Sources */,
+				B93266ACC947C22177F27B45 /* shared store in Sources */,
 				B939C7F02948585C00ABD0C6 /* LocalDataManager.swift in Sources */,
 				B967A24029ED8CE600AB4E92 /* Widgets.intentdefinition in Sources */,
 				B939C7EF2948585000ABD0C6 /* Swift+Helpers.swift in Sources */,
@@ -2050,6 +2057,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A1022D08945787F225EF089D /* FlexAssets.swift in Sources */,
+				7F9797E4FF1102B67E954D14 /* shared store in Sources */,
+				20E249941A71802741CBC736 /* shared store in Sources */,
 				B97C8F39293C4086002F6A07 /* ValorantAPI+SwiftUI.swift in Sources */,
 				B99AA18F294B8BBA00115120 /* MatchViewData.swift in Sources */,
 				B997FF2E29D3B6DE00BB09FF /* LocalDataProvider.swift in Sources */,
