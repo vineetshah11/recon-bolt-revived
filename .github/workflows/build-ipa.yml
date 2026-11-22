@@ -9,8 +9,8 @@ on:
 
 jobs:
   build:
-    name: Build & Package IPA
-    runs-on: macos-latest
+    name: Build & Package IPA (Linux xtool)
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
@@ -18,34 +18,23 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Select Xcode
-        run: |
-          sudo xcode-select -s /Applications/Xcode_16.app || sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app
-          xcodebuild -version
+      - name: Setup Swift
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "5.10"
 
-      - name: Resolve Swift Package Dependencies
+      - name: Install xtool & build dependencies
         run: |
-          xcodebuild -resolvePackageDependencies -project "Recon Bolt.xcodeproj"
+          sudo apt-get update
+          sudo apt-get install -y libssl-dev libxml2 libcurl4 zip
+          curl -sL https://github.com/kabiroberai/xtool/releases/latest/download/xtool-linux-x86_64.tar.gz | sudo tar -xz -C /usr/local/bin
 
-      - name: Build & Archive Recon Bolt
+      - name: Build IPA using xtool
         run: |
-          xcodebuild archive \
-            -project "Recon Bolt.xcodeproj" \
-            -scheme "Recon Bolt (iOS)" \
-            -destination "generic/platform=iOS" \
-            -archivePath "build/ReconBolt.xcarchive" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            AD_HOC_CODE_SIGNING_ALLOWED=YES
-
-      - name: Package into IPA
-        run: |
-          mkdir -p build/Payload
-          cp -R "build/ReconBolt.xcarchive/Products/Applications/Recon Bolt.app" build/Payload/
-          cd build
-          zip -r -q "ReconBolt.ipa" Payload
-          ls -lh ReconBolt.ipa
+          xtool build -c release
+          mkdir -p build
+          cp -v xtool/*.ipa build/ReconBolt.ipa || cp -v *.ipa build/ReconBolt.ipa || find . -name "*.ipa" -exec cp -v {} build/ReconBolt.ipa \;
+          ls -lh build/ReconBolt.ipa
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
