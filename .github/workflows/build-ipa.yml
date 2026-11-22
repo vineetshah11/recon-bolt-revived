@@ -9,8 +9,8 @@ on:
 
 jobs:
   build:
-    name: Build & Package IPA (macOS SwiftPM)
-    runs-on: macos-latest
+    name: Build & Package IPA
+    runs-on: macos-14
 
     steps:
       - name: Checkout repository
@@ -20,17 +20,22 @@ jobs:
 
       - name: Select Xcode
         run: |
-          sudo xcode-select -s /Applications/Xcode_15.4.app || sudo xcode-select -s /Applications/Xcode.app
+          sudo xcode-select -s /Applications/Xcode_15.4.app
           xcodebuild -version
 
-      - name: Build Recon_Bolt Package
+      - name: Build Recon_Bolt Package with iOS SDK
         run: |
-          swift build -c release --triple arm64-apple-ios16.0
+          SDKROOT=$(xcrun --sdk iphoneos --show-sdk-path)
+          echo "Using SDK: $SDKROOT"
+          swift build -c release \
+            -Xswiftc -sdk -Xswiftc "$SDKROOT" \
+            -Xswiftc -target -Xswiftc arm64-apple-ios16.0
 
       - name: Package App and IPA
         run: |
           mkdir -p build/Payload/ReconBolt.app
-          cp .build/arm64-apple-ios16.0/release/libRecon_Bolt.dylib build/Payload/ReconBolt.app/ReconBolt 2>/dev/null || cp .build/arm64-apple-ios16.0/release/Recon_Bolt build/Payload/ReconBolt.app/ReconBolt 2>/dev/null || true
+          BINARY=$(find .build -name "Recon_Bolt" -type f | head -n 1)
+          cp "$BINARY" build/Payload/ReconBolt.app/ReconBolt || true
           cp xtool-Info.plist build/Payload/ReconBolt.app/Info.plist
           cp -R Shared/BundledAssets build/Payload/ReconBolt.app/ 2>/dev/null || true
           cp -R Shared/BundledIcons/* build/Payload/ReconBolt.app/ 2>/dev/null || true
