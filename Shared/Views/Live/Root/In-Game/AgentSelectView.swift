@@ -7,8 +7,13 @@ struct AgentSelectView: View {
 	@State var pregameInfo: LivePregameInfo
 	@State var hasEnded = false
 	
+	@AppStorage("instalock.enabled") private var instalockEnabled = false
+	@AppStorage("instalock.agentID") private var instalockAgentID = ""
+	@State private var lastInstalockAttempt: Date?
+
 	@Environment(\.valorantLoad) private var load
 	@Environment(\.dismiss) private var dismiss
+	@Environment(\.assets) private var assets
 	
 	var body: some View {
 		ScrollView {
@@ -78,7 +83,44 @@ struct AgentSelectView: View {
 				APIError.resourceNotFound
 			{
 				hasEnded = true
+				return
 			}
+
+			await attemptInstalock(using: $0)
+		}
+	}
+
+	/// Opt-in: locks in the preferred agent as soon as agent select is active.
+	/// Never overrides a manual pick, and does nothing unless the setting is on.
+	private func attemptInstalock(using client: ValorantClient) async {
+		guard instalockEnabled else { return }
+		guard pregameInfo.state == .agentSelectActive else { return }
+		guard let uuid = LowercaseUUID(instalockAgentID) else { return }
+		let agentID = Agent.ID(rawID: uuid)
+		guard inventory.owns(agentID) else { return }
+
+		// voting-based agent select doesn't use the usual pick/lock flow
+		let gameMode = assets?.gameModes[pregameInfo.modeID]
+		if gameMode?.gameRuleOverride(for: .majorityVoteAgents) == true { return }
+
+		guard let ownPlayer = pregameInfo.team.players.firstElement(withID: userID) else { return }
+		guard !ownPlayer.isLockedIn else { return }
+		// respect a manual pick of a different agent
+		if let currentAgent = ownPlayer.agentID, currentAgent != agentID { return }
+
+		let isTaken = pregameInfo.team.players.contains {
+			$0.id != userID && $0.isLockedIn && $0.agentID == agentID
+		}
+		guard !isTaken else { return }
+
+		// if the request keeps failing, don't retry on every one-second refresh
+		if let lastInstalockAttempt, Date.now.timeIntervalSince(lastInstalockAttempt) < 3 { return }
+		lastInstalockAttempt = .now
+
+		do {
+			pregameInfo = try await client.lockInAgent(agentID, in: pregameInfo.id)
+		} catch {
+			print("⚠️ Instalock failed:", error)
 		}
 	}
 	
