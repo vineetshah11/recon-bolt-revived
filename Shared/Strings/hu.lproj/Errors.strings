@@ -32,7 +32,7 @@ Lehetséges, hogy rossz fiókkal jelentkeztél be; %@";
 /* Should not happen anymore, but you never know ¯\_(ツ)_/¯ */
 "Missing session for account!
 If you have Pro, add an account using the same credentials to replace the account with a working version." = "Hiányzó munkamenet ehhez a fiókhoz!
-Ha rendelkezel Recon Bolt Pro előfizetéssel, kérlek jelentkezz be újra.";
+Ha rendelkezel Vantage Pro előfizetéssel, kérlek jelentkezz be újra.";
 
 /* error loading the account for a widget. */
 "No account specified." = "A megadott fiók nem található.";
@@ -80,7 +80,7 @@ Ha rendelkezel Recon Bolt Pro előfizetéssel, kérlek jelentkezz be újra.";
 "Valorant is currently undergoing scheduled maintenance. Riot is probably updating the game!" = "A Valorant jelenleg karbantartás alatt van, A Riot Games valószinüleg frissiti a játékot!";
 
 /* No comment provided by engineer. */
-"Widgets require Recon Bolt Pro!" = "Hogy tudd használni a Widgetet Recon Bolt pro előfizetésre van szükséged!";
+"Widgets require Vantage Pro!" = "Hogy tudd használni a Widgetet Vantage pro előfizetésre van szükséged!";
 
 /* Riot API Error */
 "You are sending too many requests." = "Túl sok kérést küldesz.";

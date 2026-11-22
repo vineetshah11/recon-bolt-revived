@@ -285,7 +285,7 @@ struct LoadoutShareSheet: View {
 				Text(assets?.playerTitles[loadout.identity.title]?.displayName ?? "No Title")
 					.font(.headline)
 				Spacer()
-				Text("Recon Bolt")
+				Text("Vantage")
 					.font(.caption.weight(.semibold))
 					.foregroundStyle(.secondary)
 			}

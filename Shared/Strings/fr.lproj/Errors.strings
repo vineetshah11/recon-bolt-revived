@@ -32,7 +32,7 @@ Tu t'es probablement trompé de compte; %@";
 /* Should not happen anymore, but you never know ¯\_(ツ)_/¯ */
 "Missing session for account!
 If you have Pro, add an account using the same credentials to replace the account with a working version." = "Session manquante pour le compte !
-Si vous avez acheté Recon Bolt Pro, ajoutez votre compte en utilisant les mêmes informations de connexion pour remplacer ce compte avec une version qui comprend votre achat.
+Si vous avez acheté Vantage Pro, ajoutez votre compte en utilisant les mêmes informations de connexion pour remplacer ce compte avec une version qui comprend votre achat.
 ";
 
 /* error loading the account for a widget. */
@@ -81,7 +81,7 @@ Si vous avez acheté Recon Bolt Pro, ajoutez votre compte en utilisant les même
 "Valorant is currently undergoing scheduled maintenance. Riot is probably updating the game!" = "Valorant est actuellement en maintenance. Riot met probablement à jour le jeu! ";
 
 /* No comment provided by engineer. */
-"Widgets require Recon Bolt Pro!" = "Les widgets nécessitent Recon Bolt Pro!";
+"Widgets require Vantage Pro!" = "Les widgets nécessitent Vantage Pro!";
 
 /* Riot API Error */
 "You are sending too many requests." = "Tu envoies trop de requêtes.";

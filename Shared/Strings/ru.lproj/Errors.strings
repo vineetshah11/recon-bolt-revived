@@ -80,7 +80,7 @@ If you have Pro, add an account using the same credentials to replace the accoun
 "Valorant is currently undergoing scheduled maintenance. Riot is probably updating the game!" = "В настоящее время Valorant находится на плановом техническом обслуживании. Вероятно, Riot обновляет игру!";
 
 /* No comment provided by engineer. */
-"Widgets require Recon Bolt Pro!" = "Для виджетов нужен Recon Bolt Pro!";
+"Widgets require Vantage Pro!" = "Для виджетов нужен Vantage Pro!";
 
 /* Riot API Error */
 "You are sending too many requests." = "Вы отправляете слишком много запросов.";

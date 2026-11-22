@@ -640,7 +640,7 @@ private struct MatchShareSheet: View {
 					.font(.caption)
 					.foregroundStyle(.secondary)
 				Spacer()
-				Text("Recon Bolt")
+				Text("Vantage")
 					.font(.caption.weight(.semibold))
 					.foregroundStyle(.secondary)
 			}

@@ -80,7 +80,7 @@ Se tem o Pro, adiciona uma conta usando as mesmas credenciais para substituir a 
 "Valorant is currently undergoing scheduled maintenance. Riot is probably updating the game!" = "A Valorant está atualmente em manutenção programada. Riot está provavelmente a atualizar o jogo!";
 
 /* No comment provided by engineer. */
-"Widgets require Recon Bolt Pro!" = "As widgets requerem Recon Bolt Pro!";
+"Widgets require Vantage Pro!" = "As widgets requerem Vantage Pro!";
 
 /* Riot API Error */
 "You are sending too many requests." = "Está a enviar demasiados pedidos.";

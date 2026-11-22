@@ -112,7 +112,7 @@ enum WidgetError: Error, LocalizedError {
 	var errorDescription: String? {
 		switch self {
 		case .needProVersion:
-			return String(localized: "Widgets require Recon Bolt Pro!", table: "Errors")
+			return String(localized: "Widgets require Vantage Pro!", table: "Errors")
 		}
 	}
 }

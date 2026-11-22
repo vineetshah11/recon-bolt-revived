@@ -80,7 +80,7 @@ Se hai la versione Pro, aggiungi un account utilizzando le stesse credenziali pe
 "Valorant is currently undergoing scheduled maintenance. Riot is probably updating the game!" = "Valorant è attualmente in fase di manutenzione programmata. Probabilmente Riot sta aggiornando il gioco!";
 
 /* No comment provided by engineer. */
-"Widgets require Recon Bolt Pro!" = "I Widget richiedono Recon Bolt Pro!";
+"Widgets require Vantage Pro!" = "I Widget richiedono Vantage Pro!";
 
 /* Riot API Error */
 "You are sending too many requests." = "Stai inviando troppe richieste all'API; Rallenta.";

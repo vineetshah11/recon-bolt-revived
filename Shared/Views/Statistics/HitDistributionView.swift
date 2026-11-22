@@ -114,7 +114,7 @@ struct HitDistributionView: View {
 		} header: {
 			Text("By Weapon", comment: "Hit Distribution Stats: section")
 		} footer: {
-			Text("Unfortunately, Valorant doesn't store information about which weapon was used for each hit. All we get is the weapon you started the round with and what weapon you used for each kill. Recon Bolt guesses the weapon involved in each damage based on this information, but it cannot be perfect (and neither can any other tracker).", comment: "Hit Distribution Stats: footnote")
+			Text("Unfortunately, Valorant doesn't store information about which weapon was used for each hit. All we get is the weapon you started the round with and what weapon you used for each kill. Vantage guesses the weapon involved in each damage based on this information, but it cannot be perfect (and neither can any other tracker).", comment: "Hit Distribution Stats: footnote")
 				.frame(maxWidth: .infinity, alignment: .leading)
 		}
 	}

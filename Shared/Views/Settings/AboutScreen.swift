@@ -8,7 +8,7 @@ struct AboutScreen: View {
 
 				Development was forced to stop after legal threats from Riot in 2024, even though Riot had reviewed and approved the app two years earlier. Without updates, Riot's API changes throughout 2024 gradually broke the app until users could no longer connect.
 
-				Recon Bolt Revived is brought back to life and maintained by Vineet and DT, who rebuilt Riot WebView OAuth and 2FA login, repaired the broken API endpoints, added the newer weapons and Gauntlet support, and unlocked Pro features by default. Vantage is the Valpaw edition of that revival, and they keep it running today.
+				Recon Bolt Revived / Vantage is brought back to life and maintained by Vineet and DT, who rebuilt Riot WebView OAuth and 2FA login, repaired the broken API endpoints, added the newer weapons and Gauntlet support, and unlocked Pro features by default. Vantage is the Valpaw edition of that revival, and they keep it running today.
 				""", comment: "About Screen"
 			)
 

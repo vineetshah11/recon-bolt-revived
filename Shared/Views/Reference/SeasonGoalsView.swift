@@ -726,7 +726,7 @@ private struct SeasonGoalPickerContent: View {
 					}
 					Text("Set a Season Goal")
 						.font(.title2.bold())
-					Text("Pick the rank you want to reach before the act ends. Recon Bolt projects whether you're on track from your ranked history.")
+					Text("Pick the rank you want to reach before the act ends. Vantage projects whether you're on track from your ranked history.")
 						.font(.subheadline)
 						.foregroundStyle(.secondary)
 				}

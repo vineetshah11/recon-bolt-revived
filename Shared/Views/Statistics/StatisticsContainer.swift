@@ -20,7 +20,7 @@ struct StatisticsContainer: View {
 							.font(.title.weight(.bold))
 							.padding(.bottom, 4)
 						
-						Text("Statistics require \(Text("Recon Bolt Pro").fontWeight(.medium)), a one-time purchase including a variety of features. Want to give them a look?", comment: "Statistics Pro purchase prompt: 'Recon Bolt Pro' is inserted in the placeholder with a bolder font.")
+						Text("Statistics require \(Text("Vantage Pro").fontWeight(.medium)), a one-time purchase including a variety of features. Want to give them a look?", comment: "Statistics Pro purchase prompt: 'Vantage Pro' is inserted in the placeholder with a bolder font.")
 							.frame(maxWidth: .infinity, alignment: .leading)
 							.padding(.bottom, 12)
 						

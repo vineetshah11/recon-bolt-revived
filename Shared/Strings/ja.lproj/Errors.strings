@@ -33,7 +33,7 @@
 "Valorant is currently undergoing scheduled maintenance. Riot is probably updating the game!" = "VALORANTは今メインテナンス中ですからアプリは今使えません";
 
 /* No comment provided by engineer. */
-"Widgets require Recon Bolt Pro!" = "ウィジェットを使うためにはリコンボルトプロを買わないといけません";
+"Widgets require Vantage Pro!" = "ウィジェットを使うためにはリコンボルトプロを買わないといけません";
 
 /* Riot API Error */
 "You are sending too many requests." = "アプリを使いすぎです。数分待ってやり直してください。";
