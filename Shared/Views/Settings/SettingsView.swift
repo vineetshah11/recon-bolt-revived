@@ -38,8 +38,6 @@ struct SettingsView: View {
 					} label: {
 						Label("About Recon Bolt Revived", systemImage: "questionmark")
 					}
-					
-					ListLink("DT-L21", icon: "person", destination: "https://guns.lol/dt.l21")
 				}
 			}
 			.deepLinkHandler { deepLink in

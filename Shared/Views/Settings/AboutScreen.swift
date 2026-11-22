@@ -8,20 +8,26 @@ struct AboutScreen: View {
 
 				Development was forced to stop after legal threats from Riot in 2024, even though Riot had reviewed and approved the app two years earlier. Without updates, Riot's API changes throughout 2024 gradually broke the app until users could no longer connect.
 
-				Recon Bolt Revived brings the app back online with Riot WebView OAuth and 2FA login, fixed API endpoints, newer weapons, a confirmed Dodge button in agent select, and Pro features unlocked by default.
+				Recon Bolt Revived is brought back to life and maintained by Vineet and DT. Together, they revived the project with modern Riot WebView OAuth, 2FA support, restored API endpoints, newer weapons, a confirmed Dodge button, and fully unlocked Pro features.
 				""", comment: "About Screen"
 			)
 			
 			Section(header: Text("Links", comment: "About Screen: section")) {
-				ListLink("GitHub Repo", destination: "https://github.com/TMaume/Recon-Bolt-Revived")
+				ListLink("GitHub Repo", destination: "https://github.com/vineetshah11/recon-bolt-revived")
+				ListLink("Vineet's GitHub", destination: "https://github.com/vineetshah11")
+				ListLink("DT's Page", destination: "https://guns.lol/dt.l21")
 				ListLink("Original Creator Page", destination: "https://juliand665.com/")
-				ListLink("Revived Creator Page", destination: "https://guns.lol/dt.l21")
 			}
 			
 			Section(header: Text("Credits", comment: "About Screen: section")) {
 				Text("Originally created by [Julian Dunskus](https://juliand665.com/).")
 				
-				Text("Many thanks to the volunteer translators from our Discord server who have been hard at working translating the app to new languages!", comment: "About Screen")
+				VStack(alignment: .leading, spacing: 4) {
+					Text("Revived & Maintained by [Vineet](https://discord.com/users/vineetshah_11) & [DT](https://guns.lol/dt.l21).")
+					Text("Discord: **vineetshah_11** & **dt.l21**")
+						.font(.footnote)
+						.foregroundStyle(.secondary)
+				}
 				
 				VStack(alignment: .leading, spacing: 8) {
 					Link("Valorant-API.com" as String, destination: URL(string: "https://valorant-api.com")!)
