@@ -89,6 +89,19 @@ struct StoreItemView<Item: UntypedStoreItem, PriceLabel: View>: View {
 					priceLabel
 				}
 			}
+		} else if let totem = item.totem {
+			let info = assets?.flex[totem]
+			NavigationButton {
+				fullscreenImages = info?.displayIcon.map { AssetImageCollection(images: [$0]) }
+			} label: {
+				HStack(spacing: 12) {
+					info?.displayIcon?.view()
+						.frame(width: iconSize, height: iconSize)
+					info.label()
+					Spacer()
+					priceLabel
+				}
+			}
 		} else {
 			Text("Unknown item of type \(item.itemTypeID.description)", comment: "Store Bundle Details: should never show, but if Riot adds a new kind of item to a bundle, this would show")
 				.foregroundStyle(.secondary)

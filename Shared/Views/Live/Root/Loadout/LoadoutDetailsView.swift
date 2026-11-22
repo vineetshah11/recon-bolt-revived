@@ -1,15 +1,30 @@
 import SwiftUI
 import ValorantAPI
-import CGeometry
 
 struct LoadoutDetailsView: View {
 	var fetchedLoadout: Loadout
 	@State private var loadout: UpdatableLoadout
 	var inventory: Inventory
 	
+	@LocalData private var summary: CareerSummary?
+	@EnvironmentObject private var presetManager: LoadoutPresetManager
 	@Environment(\.valorantLoad) private var load
+	@Environment(\.assets) private var assets
 	
-    var body: some View {
+	@State private var privacyExpanded = false
+	@State private var showingRandomizeDialog = false
+	@State private var showingShareSheet = false
+	@State private var isRandomizing = false
+	@State private var actRankHiddenOverride: Bool?
+	
+	init(loadout: Loadout, inventory: Inventory) {
+		self.fetchedLoadout = loadout
+		self._loadout = State(initialValue: .init(loadout))
+		self.inventory = inventory
+		self._summary = LocalData(id: loadout.subject)
+	}
+	
+	var body: some View {
 		let loadoutBinding = Binding { loadout } set: { newLoadout in
 			loadout = newLoadout
 			Task {
@@ -19,192 +34,257 @@ struct LoadoutDetailsView: View {
 			}
 		}
 		
-		LoadoutCustomizer(loadout: loadoutBinding, inventory: inventory)
-			.buttonBorderShape(.capsule)
-			.task(id: fetchedLoadout.version) {
-				loadout = .init(fetchedLoadout)
-			}
-	}
-}
-
-extension LoadoutDetailsView {
-	init(loadout: Loadout, inventory: Inventory) {
-		self.init(fetchedLoadout: loadout, loadout: .init(loadout), inventory: inventory)
-	}
-}
-
-private struct LoadoutCustomizer: View {
-	@Binding var loadout: UpdatableLoadout
-	var inventory: Inventory
-	
-	var body: some View {
-		cardPicker
-		
-		Divider()
-		
-		VStack(spacing: 16) {
-			titlePicker
+		VStack(spacing: 12) {
+			cardSection(loadoutBinding)
 			
-			sprayPicker
+			changeTitleRow(loadoutBinding)
+			
+			weaponLoadoutRow(loadoutBinding)
+			
+			privacySettingsBox(loadoutBinding)
+			
+			presetsRows(loadoutBinding)
+			
+			Divider()
+				.padding(.vertical, 4)
+			
+			SprayWheelView(expressions: loadoutBinding.expressions, inventory: inventory)
+				.padding(.vertical, 4)
+		}
+		.withLocalData($summary, id: loadout.subject)
+		.confirmationDialog(
+			"Randomize Loadout",
+			isPresented: $showingRandomizeDialog,
+			titleVisibility: .visible
+		) {
+			Button("All Owned Items") {
+				randomize(favoritesOnly: false)
+			}
+			Button("Favorites Only") {
+				randomize(favoritesOnly: true)
+			}
+			Button("Cancel", role: .cancel) {}
+		} message: {
+			Text("Replaces your equipped card, title, weapon skins, and expressions.")
+		}
+		.sheet(isPresented: $showingShareSheet) {
+			LoadoutShareSheet(loadout: loadout)
+		}
+	}
+	
+	private func cardSection(_ loadoutBinding: Binding<UpdatableLoadout>) -> some View {
+		NavigationLink {
+			PlayerCardPicker(selection: loadoutBinding.identity.card, inventory: inventory)
+		} label: {
+			ZStack(alignment: .bottomTrailing) {
+				PlayerCardImage.wide(loadout.identity.card)
+					.cornerRadius(12)
+				
+				Image(systemName: "pencil")
+					.font(.system(size: 14, weight: .bold))
+					.foregroundStyle(.white)
+					.frame(width: 30, height: 30)
+					.background(Color.black.opacity(0.65), in: Circle())
+					.padding(8)
+			}
+		}
+		.buttonStyle(.plain)
+	}
+	
+	private func changeTitleRow(_ loadoutBinding: Binding<UpdatableLoadout>) -> some View {
+		NavigationLink {
+			PlayerTitlePicker(selection: loadoutBinding.identity.title, inventory: inventory)
+		} label: {
+			LoadoutActionRow(
+				icon: "pencil.line",
+				title: "Change Title",
+				trailing: {
+					PlayerTitleLabel(titleID: loadout.identity.title)
+						.foregroundStyle(.secondary)
+						.lineLimit(1)
+				}
+			)
+		}
+		.buttonStyle(.plain)
+	}
+	
+	private func weaponLoadoutRow(_ loadoutBinding: Binding<UpdatableLoadout>) -> some View {
+		NavigationLink {
+			WeaponLoadoutView(loadout: loadoutBinding, inventory: inventory)
+		} label: {
+			LoadoutActionRow(icon: "scope", title: "Weapon Loadout")
+		}
+		.buttonStyle(.plain)
+	}
+	
+	private func privacySettingsBox(_ loadoutBinding: Binding<UpdatableLoadout>) -> some View {
+		VStack(spacing: 0) {
+			Button {
+				withAnimation(.easeInOut(duration: 0.2)) {
+					privacyExpanded.toggle()
+				}
+			} label: {
+				HStack(spacing: 12) {
+					Image(systemName: "hand.raised.fill")
+						.foregroundStyle(Color.valorantRed)
+						.frame(width: 24)
+					Text("Privacy Settings")
+						.font(.body.weight(.medium))
+					Spacer()
+					Image(systemName: privacyExpanded ? "chevron.up" : "chevron.down")
+						.font(.caption.weight(.semibold))
+						.foregroundStyle(.secondary)
+				}
+				.padding(14)
+			}
+			.buttonStyle(.plain)
+			
+			if privacyExpanded {
+				Divider()
+					.padding(.horizontal, 12)
+				
+				VStack(spacing: 12) {
+					privacyToggleRow(
+						title: "Incognito",
+						subtitle: "Hides your name from players outside your party.",
+						isOn: loadoutBinding.isIncognito
+					)
+					
+					privacyToggleRow(
+						title: "Hide Account Level",
+						subtitle: "Hides your account level from other players.",
+						isOn: loadoutBinding.identity.isLevelHidden
+					)
+					
+					privacyToggleRow(
+						title: "Hide Previous Act Rank",
+						subtitle: "Hides your previous act rank from your player card.",
+						isOn: Binding(
+							get: { actRankHiddenOverride ?? summary?.isActRankBadgeHidden ?? false },
+							set: { newValue in
+								actRankHiddenOverride = newValue
+								Task {
+									await load { client in
+										try await client.setActRankBadgeHidden(newValue)
+										try await client.fetchCareerSummary(for: loadout.subject, forceFetch: true)
+									}
+								}
+							}
+						)
+					)
+				}
+				.padding(14)
+				.background(Color.secondaryGroupedBackground.opacity(0.6))
+			}
+		}
+		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
+	}
+	
+	private func privacyToggleRow(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
+		Toggle(isOn: isOn) {
+			VStack(alignment: .leading, spacing: 2) {
+				Text(title)
+					.font(.subheadline.weight(.medium))
+				Text(subtitle)
+					.font(.caption)
+					.foregroundStyle(.secondary)
+					.lineLimit(1)
+			}
+		}
+		.tint(Color.valorantRed)
+	}
+	
+	private func presetsRows(_ loadoutBinding: Binding<UpdatableLoadout>) -> some View {
+		VStack(spacing: 8) {
+			NavigationLink {
+				LoadoutPresetsView(loadout: loadoutBinding, inventory: inventory, favoritesOnly: false)
+			} label: {
+				LoadoutActionRow(icon: "square.stack.3d.up.fill", title: "Loadout Presets")
+			}
+			.buttonStyle(.plain)
 			
 			NavigationLink {
-				WeaponLoadoutView(loadout: $loadout, inventory: inventory)
+				LoadoutPresetsView(loadout: loadoutBinding, inventory: inventory, favoritesOnly: true)
 			} label: {
-				HStack {
-					Text("Weapon Loadout")
-					Image(systemName: "chevron.forward")
-				}
+				LoadoutActionRow(icon: "star.square.on.square.fill", title: "Favorites Presets")
 			}
-			.buttonStyle(.bordered)
-		}
-		.padding(.vertical)
-	}
-	
-	var cardPicker: some View {
-		NavigationLink {
-			PlayerCardPicker(selection: $loadout.identity.card, inventory: inventory)
-		} label: {
-			PlayerCardImage.wide(loadout.identity.card)
-				.overlay(alignment: .bottomTrailing) {
-					Image(systemName: "pencil.circle.fill")
-						.foregroundStyle(.regularMaterial)
-						.font(.system(size: 24))
-						.padding(8)
-				}
-		}
-	}
-	
-	var titlePicker: some View {
-		NavigationLink {
-			PlayerTitlePicker(selection: $loadout.identity.title, inventory: inventory)
-		} label: {
-			HStack {
-				PlayerTitleLabel(titleID: loadout.identity.title)
-				
-				Image(systemName: "pencil.circle.fill")
-					.foregroundColor(.secondary)
-					.padding(.trailing, -4)
-			}
-			.foregroundColor(.primary)
-		}
-		.buttonStyle(.bordered)
-	}
-	
-	var sprayPicker: some View {
-		GeometryReader { geometry in
-			let circleRadius: CGFloat = geometry.size.width / 2
-			let center = CGPoint(x: circleRadius, y: circleRadius)
-			let innerRadius = 0.3 * circleRadius
-			let sprayCellSize = 0.8 * (circleRadius - innerRadius)
-			let slots = Spray.Slot.ID.inCCWOrder
-			let slotCount = CGFloat(slots.count)
-			let angleOffset = Angle.radians(CGFloat.pi / slotCount)
-			let lineWidth: CGFloat = 2
-			let spacing: CGFloat = 8
-			let areaColor = Color(uiColor: .secondarySystemFill)
-			let lineColor = Color.secondary
+			.buttonStyle(.plain)
 			
-			ForEach(slots.indexed(), id: \.element) { index, slot in
-				let angle = Angle.radians(2 * CGFloat.pi * (CGFloat(index) / slotCount))
-				let path = Path.donutPart(
-					startAngle: angle - angleOffset,
-					endAngle: angle + angleOffset,
-					innerRadius: innerRadius,
-					outerRadius: circleRadius
+			Button {
+				showingRandomizeDialog = true
+			} label: {
+				LoadoutActionRow(
+					icon: "dice.fill",
+					title: isRandomizing ? "Randomizing..." : "Randomize",
+					showChevron: false
 				)
-				
-				NavigationLink {
-					SprayPicker(selection: expressionBinding(for: slot), inventory: inventory)
-				} label: {
-					sprayIcon(for: slot)
-						.frame(width: sprayCellSize, height: sprayCellSize)
-						.mask(RoundedRectangle(cornerRadius: 16, style: .continuous))
-						.position(center + CGVector(angle: angle.radians, length: (circleRadius + innerRadius) / 2))
-						.contentShape(path)
-						.background {
-							path.fill(areaColor)
-							path.stroke(lineWidth: lineWidth + 2 * spacing)
-								.blendMode(.destinationOut)
-							path.stroke(areaColor, lineWidth: lineWidth)
-							path.stroke(lineColor, lineWidth: lineWidth)
-						}
-				}
-				.buttonStyle(.plain)
-				.compositingGroup()
 			}
+			.buttonStyle(.plain)
+			.disabled(isRandomizing)
 			
-			ForEach(slots.indices, id: \.self) { index in
-				let angle = Angle.radians(2 * CGFloat.pi * (CGFloat(index) / slotCount))
-				
-				ZStack {
-					Capsule().stroke(lineWidth: lineWidth + spacing).blendMode(.destinationOut)
-					Capsule().fill(areaColor)
-					Capsule().fill(lineColor)
-				}
-				.frame(width: 1.2 * circleRadius - innerRadius, height: lineWidth)
-				.position(center + CGVector(dx: (circleRadius + innerRadius) / 2, dy: 0))
-				.rotationEffect(angle + angleOffset)
-			}
-		}
-		.compositingGroup()
-		.aspectRatio(1, contentMode: .fit)
-		.frame(maxWidth: 400)
-		.padding(.horizontal)
-	}
-	
-	@ViewBuilder
-	func sprayIcon(for slot: Spray.Slot.ID) -> some View {
-		ExpressionIcon(expression: expression(for: slot))
-			.frame(maxWidth: .infinity, maxHeight: .infinity)
-	}
-	
-	func expression(for slot: Spray.Slot.ID) -> Loadout.Expression? {
-		expressionIndex(for: slot).flatMap { loadout.expressions[$0] }
-	}
-
-	func expressionBinding(for slot: Spray.Slot.ID) -> Binding<Loadout.Expression?> {
-		let index = expressionIndex(for: slot) ?? 0
-		return Binding {
-			loadout.expressions[index]
-		} set: { newValue in
-			loadout.expressions[index] = newValue
-		}
-	}
-
-	func expressionIndex(for slot: Spray.Slot.ID) -> Int? {
-		Spray.Slot.ID.inCCWOrder.firstIndex(of: slot)
-	}
-
-	struct SprayCell: View {
-		var slot: Spray.Slot.ID
-		@Binding var expression: Loadout.Expression?
-		var inventory: Inventory
-		
-		var body: some View {
-			NavigationLink {
-				SprayPicker(selection: $expression, inventory: inventory)
+			Button {
+				showingShareSheet = true
 			} label: {
-				ExpressionIcon(expression: expression)
-					.frame(maxWidth: .infinity, maxHeight: .infinity)
+				LoadoutActionRow(icon: "square.and.arrow.up", title: "Share")
 			}
 			.buttonStyle(.plain)
 		}
 	}
+	
+	private func randomize(favoritesOnly: Bool) {
+		guard let assets else { return }
+		isRandomizing = true
+		Task {
+			defer { isRandomizing = false }
+			await load { client in
+				let favs: Favorites? = favoritesOnly ? (try? await client.getFavorites()) : nil
+				let randomized = LoadoutPresetManager.randomizedLoadout(
+					from: loadout,
+					inventory: inventory,
+					assets: assets,
+					favorites: favs
+				)
+				loadout = .init(try await client.updateLoadout(to: .init(randomized)))
+			}
+		}
+	}
 }
 
-private extension Path {
-	static func donutPart(
-		startAngle: Angle, endAngle: Angle,
-		innerRadius: CGFloat, outerRadius: CGFloat
-	) -> Self {
-		.init {
-			let center = CGPoint(x: outerRadius, y: outerRadius)
-			let isClockwise = startAngle > endAngle
-			$0.addArc(center: center, radius: innerRadius, startAngle: startAngle, endAngle: endAngle, clockwise: isClockwise)
-			$0.addLine(to: center + .init(angle: endAngle.radians, length: outerRadius))
-			$0.addArc(center: center, radius: outerRadius, startAngle: endAngle, endAngle: startAngle, clockwise: !isClockwise)
-			$0.closeSubpath()
+private struct LoadoutActionRow<Trailing: View>: View {
+	var icon: String
+	var title: LocalizedStringKey
+	var showChevron = true
+	@ViewBuilder var trailing: () -> Trailing
+	
+	init(
+		icon: String,
+		title: LocalizedStringKey,
+		showChevron: Bool = true,
+		@ViewBuilder trailing: @escaping () -> Trailing = { EmptyView() }
+	) {
+		self.icon = icon
+		self.title = title
+		self.showChevron = showChevron
+		self.trailing = trailing
+	}
+	
+	var body: some View {
+		HStack(spacing: 12) {
+			Image(systemName: icon)
+				.foregroundStyle(Color.valorantRed)
+				.frame(width: 24)
+			Text(title)
+				.font(.body.weight(.medium))
+			Spacer()
+			trailing()
+			if showChevron {
+				Image(systemName: "chevron.right")
+					.font(.caption.weight(.semibold))
+					.foregroundStyle(.secondary)
+			}
 		}
+		.padding(14)
+		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
 	}
 }
 
@@ -217,6 +297,7 @@ struct LoadoutDetailsView_Previews: PreviewProvider {
 			} refresh: { _ in }
 				.forPreviews()
 		}
+		.environmentObject(LoadoutPresetManager())
 		.navigationTitle("Loadout")
 		.withToolbar()
 	}

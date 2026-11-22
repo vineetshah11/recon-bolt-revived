@@ -17,6 +17,7 @@ extension AssetClient {
 		async let seasons = getSeasons()
 		async let sprays = getSprayInfo()
 		async let buddies = getBuddyInfo()
+		async let flex = (try? getFlexInfo()) ?? []
 		async let currencies = getCurrencyInfo()
 		async let bundles = getBundleInfo()
 		async let contentTiers = getContentTiers()
@@ -69,7 +70,8 @@ extension AssetClient {
 			buddiesByLevelID: buddiesByLevelID,
 			currencies: .init(values: currencies),
 			bundles: .init(values: bundles),
-			contentTiers: .init(values: contentTiers)
+			contentTiers: .init(values: contentTiers),
+			flex: .init(values: flex)
 		)
 	}
 }

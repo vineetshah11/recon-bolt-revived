@@ -1,37 +1,150 @@
 import SwiftUI
+import ValorantAPI
 
 struct ReferenceView: View {
+	@EnvironmentObject private var accountManager: AccountManager
+	@EnvironmentObject private var socialManager: SocialManager
+	@EnvironmentObject private var wishlistManager: WishlistManager
+	
 	var body: some View {
 		AssetsUnwrappingView { assets in
 			List {
 				Section {
-					Group {
-						NavigationLink {
-							MapListView()
-						} label: {
-							Label("Maps", systemImage: "map")
-						}
-						
-						NavigationLink {
-							AgentListView()
-						} label: {
-							Label("Agents", systemImage: "person")
-						}
-						
-						NavigationLink {
-							WeaponListView()
-						} label: {
-							Label("Weapons", systemImage: "scope")
+					NavigationLink {
+						FriendsView()
+					} label: {
+						hubRow(icon: "person.2.fill", title: "Friends") {
+							Text("\(socialManager.onlineCount)")
+								.foregroundStyle(.secondary)
+								.monospacedDigit()
 						}
 					}
-					.font(.title2.weight(.medium))
-					.padding(.vertical, 8)
+					
+					if let userID = accountManager.activeAccount?.id {
+						NavigationLink {
+							BookmarkListView(userID: userID)
+						} label: {
+							hubRow(icon: "bookmark.fill", title: "Bookmarks")
+						}
+					}
+					
+					NavigationLink {
+						UsernameHistoryView()
+					} label: {
+						hubRow(icon: "person.text.rectangle", title: "Name History")
+					}
+					
+					NavigationLink {
+						LeaderboardView()
+					} label: {
+						hubRow(icon: "trophy.fill", title: "Leaderboard")
+					}
+					
+					NavigationLink {
+						PurchaseHistoryView()
+					} label: {
+						hubRow(icon: "creditcard.fill", title: "Purchase History")
+					}
+					
+					NavigationLink {
+						PlayerSettingsSnapshotsView()
+					} label: {
+						hubRow(icon: "gearshape.arrow.triangle.2.circlepath", title: "Player Settings")
+					}
+				} header: {
+					Text("Social & Account")
+				}
+				
+				Section {
+					NavigationLink {
+						SeasonGoalsView()
+					} label: {
+						hubRow(icon: "target", title: "Season Goals")
+					}
+				} header: {
+					Text("Progress")
+				}
+				
+				Section {
+					NavigationLink {
+						WishlistView()
+					} label: {
+						hubRow(icon: "heart.fill", title: "Wishlist") {
+							if !wishlistManager.entries.isEmpty {
+								Text("\(wishlistManager.entries.count)")
+									.foregroundStyle(.secondary)
+									.monospacedDigit()
+							}
+						}
+					}
+					
+					NavigationLink {
+						ShopHistoryView()
+					} label: {
+						hubRow(icon: "clock.arrow.circlepath", title: "Shop History")
+					}
+				} header: {
+					Text("Shop")
+				}
+				
+				Section {
+					NavigationLink {
+						MapListView()
+					} label: {
+						hubRow(icon: "map", title: "Maps")
+					}
+					
+					NavigationLink {
+						AgentListView()
+					} label: {
+						hubRow(icon: "person", title: "Agents")
+					}
+					
+					NavigationLink {
+						WeaponListView()
+					} label: {
+						hubRow(icon: "scope", title: "Weapons")
+					}
+					
+					NavigationLink {
+						LineupsView()
+					} label: {
+						hubRow(icon: "location.north.line", title: "Line-Ups")
+					}
+					
+					NavigationLink {
+						ContractArchiveView()
+					} label: {
+						hubRow(icon: "archivebox", title: "Contracts")
+					}
+				} header: {
+					Text("Game Info")
 				} footer: {
-					Text("Version \(assets.version.version)", comment: "Reference")
+					let ver = assets.version.riotClientVersion.isEmpty
+						? assets.version.version
+						: assets.version.riotClientVersion
+					Text("Version \(ver)", comment: "Hub")
 				}
 			}
 		}
-		.navigationTitle("Reference")
+		.navigationTitle("Hub")
+	}
+	
+	private func hubRow<Trailing: View>(
+		icon: String,
+		title: LocalizedStringKey,
+		@ViewBuilder trailing: () -> Trailing = { EmptyView() }
+	) -> some View {
+		HStack(spacing: 12) {
+			Image(systemName: icon)
+				.foregroundStyle(Color.valorantRed)
+				.frame(width: 24)
+			Text(title)
+				.font(.title3.weight(.medium))
+			Spacer()
+			trailing()
+		}
+		.padding(.vertical, 6)
 	}
 }
 
@@ -39,6 +152,9 @@ struct ReferenceView: View {
 struct ReferenceView_Previews: PreviewProvider {
 	static var previews: some View {
 		ReferenceView()
+			.environmentObject(AccountManager.mocked)
+			.environmentObject(SocialManager())
+			.environmentObject(WishlistManager())
 			.withToolbar()
 	}
 }

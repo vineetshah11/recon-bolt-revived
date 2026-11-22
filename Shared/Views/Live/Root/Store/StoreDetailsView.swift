@@ -9,6 +9,9 @@ struct StoreDetailsView: View {
 	@State var isNightMarketExpanded = false
 	
 	@Environment(\.assets) private var assets
+	@EnvironmentObject private var wishlistManager: WishlistManager
+	@EnvironmentObject private var shopHistoryStore: ShopHistoryStore
+	@EnvironmentObject private var accountManager: AccountManager
 	
 	private static let currencies: [Currency.ID] = [.valorantPoints, .radianitePoints, .kingdomCredits]
 	
@@ -73,12 +76,71 @@ struct StoreDetailsView: View {
 				remainingTimeLabel(storefront.dailySkinStore.remainingDuration)
 			}
 			
+			let wishlistMatches = wishlistManager.matchingDailyOffers(in: storefront, assets: assets)
+			if !wishlistMatches.isEmpty {
+				HStack(spacing: 10) {
+					Image(systemName: "heart.fill")
+						.foregroundStyle(Color.valorantRed)
+					VStack(alignment: .leading, spacing: 2) {
+						Text("Wishlist Match in Today's Shop!")
+							.font(.subheadline.weight(.semibold))
+						Text(wishlistMatches.map(\.skin.displayName).joined(separator: ", "))
+							.font(.caption)
+							.foregroundStyle(.secondary)
+					}
+					Spacer()
+				}
+				.padding(10)
+				.background(Color.valorantRed.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
+			}
+			
 			ForEach(storefront.dailySkinStore.offers) { offer in
 				OfferCell(offer: offer)
+					.overlay(alignment: .topLeading) {
+						if wishlistManager.isOfferWishlisted(offer, assets: assets) {
+							Image(systemName: "heart.fill")
+								.font(.caption.bold())
+								.foregroundStyle(Color.valorantRed)
+								.padding(6)
+								.background(.ultraThinMaterial, in: Circle())
+								.padding(8)
+						}
+					}
 			}
 			.cornerRadius(8)
+			
+			VStack(spacing: 8) {
+				NavigationLink {
+					WishlistView()
+				} label: {
+					storeFeatureRow(
+						icon: "heart",
+						title: "Wishlist",
+						trailingText: wishlistManager.entries.isEmpty ? nil : "\(wishlistManager.entries.count)"
+					)
+				}
+				.buttonStyle(.plain)
+				
+				NavigationLink {
+					ShopHistoryView()
+				} label: {
+					let count = shopHistoryStore.days(for: accountManager.activeAccount?.id).count
+					storeFeatureRow(
+						icon: "clock.arrow.circlepath",
+						title: "Shop History",
+						trailingText: count > 0 ? "\(count)" : nil
+					)
+				}
+				.buttonStyle(.plain)
+			}
+			.padding(.top, 4)
 		}
 		.padding()
+		.task(id: updateTime) {
+			if let accountID = accountManager.activeAccount?.id {
+				shopHistoryStore.record(storefront: storefront, for: accountID)
+			}
+		}
 		
 		Divider()
 		
@@ -192,6 +254,8 @@ struct StoreDetailsView: View {
 			(assets?.resolveBuddy(.init(rawID: reward.itemID))?.displayIcon).view()
 		case .sprays:
 			(assets?.sprays[.init(rawID: reward.itemID)]?.bestIcon).view()
+		case .totems:
+			(assets?.flex[.init(rawID: reward.itemID)]?.displayIcon).view()
 		case .cards:
 			(assets?.playerCards[.init(rawID: reward.itemID)]?.smallArt).view()
 				.cornerRadius(8)
@@ -202,6 +266,27 @@ struct StoreDetailsView: View {
 		default:
 			EmptyView()
 		}
+	}
+	
+	private func storeFeatureRow(icon: String, title: LocalizedStringKey, trailingText: String?) -> some View {
+		HStack(spacing: 12) {
+			Image(systemName: icon)
+				.foregroundStyle(Color.valorantRed)
+				.frame(width: 22)
+			Text(title)
+				.font(.body.weight(.medium))
+			Spacer()
+			if let trailingText {
+				Text(trailingText)
+					.font(.subheadline)
+					.foregroundStyle(.secondary)
+			}
+			Image(systemName: "chevron.right")
+				.font(.caption.weight(.semibold))
+				.foregroundStyle(.secondary)
+		}
+		.padding(12)
+		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
 	}
 }
 
@@ -331,6 +416,9 @@ struct StoreDetailsView_Previews: PreviewProvider {
 			} refresh: { _ in }
 				.forPreviews()
 		}
+		.environmentObject(WishlistManager())
+		.environmentObject(ShopHistoryStore())
+		.environmentObject(AccountManager.mocked)
 		.withToolbar()
 	}
 }

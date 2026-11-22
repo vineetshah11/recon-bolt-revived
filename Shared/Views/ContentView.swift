@@ -35,8 +35,8 @@ struct ContentView: View {
 			ReferenceView()
 				.withToolbar()
 				.tabItem { Label(
-					String(localized: "Reference", comment: "Top-Level Tab Title"),
-					systemImage: "book"
+					String(localized: "Hub", comment: "Top-Level Tab Title"),
+					systemImage: "square.grid.2x2.fill"
 				) }
 				.tag(Tab.reference)
 			

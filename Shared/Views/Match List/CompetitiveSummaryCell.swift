@@ -18,21 +18,41 @@ struct CompetitiveSummaryCell: View {
 				CareerSummaryView(summary: summary)
 			}
 		} label: {
-			HStack(alignment: .rankIcon, spacing: 16) {
-				Spacer(minLength: 0)
+			VStack(spacing: 12) {
+				HStack(alignment: .rankIcon, spacing: 16) {
+					Spacer(minLength: 0)
+					
+					currentActInfo
+						.fixedSize()
+						.frame(maxWidth: .infinity)
+					
+					peakInfo
+						.fixedSize()
+						.frame(maxWidth: .infinity)
+					
+					Spacer(minLength: 0)
+				}
+				.frame(maxWidth: .infinity)
+				.fixedSize(horizontal: false, vertical: true)
 				
-				currentActInfo
-					.fixedSize()
-					.frame(maxWidth: .infinity)
-				
-				peakInfo
-					.fixedSize()
-					.frame(maxWidth: .infinity)
-				
-				Spacer(minLength: 0)
+				if let act = seasons?.currentAct(),
+				   let info = summary?.competitiveInfo?.inSeason(act.id),
+				   info.gameCount > 0 {
+					Divider()
+					let wr = Double(info.winCount) * Double(100) / Double(info.gameCount)
+					HStack {
+						Text("This Act")
+							.foregroundStyle(.secondary)
+						Spacer()
+						Text(String(format: "%.1f%%", wr))
+							.foregroundStyle(Color.teal)
+							.fontWeight(.semibold)
+						Text("\(info.winCount) / \(info.gameCount)")
+							.foregroundStyle(.secondary)
+					}
+					.font(.caption.monospacedDigit())
+				}
 			}
-			.frame(maxWidth: .infinity)
-			.fixedSize(horizontal: false, vertical: true)
 			.padding(.vertical)
 			.aligningListRowSeparator()
 			.updatingGameConfig()

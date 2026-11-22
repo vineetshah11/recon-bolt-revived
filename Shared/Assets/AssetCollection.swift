@@ -26,6 +26,7 @@ struct AssetCollection: Codable {
 	let currencies: [Currency.ID: CurrencyInfo]
 	let bundles: [StoreBundle.Asset.ID: StoreBundleInfo]
 	let contentTiers: [ContentTier.ID: ContentTier]
+	let flex: [Totem.ID: FlexInfo]
 }
 
 /// just a marker at this point, but still handy for expressivity

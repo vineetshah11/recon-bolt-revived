@@ -72,6 +72,8 @@ struct ContractInfo: AssetItem, Codable, Identifiable {
 		var xp: Int
 		var vpCost: Int
 		var isPurchasableWithVP: Bool
+		var doughCost: Int?
+		var isPurchasableWithDough: Bool?
 		var reward: Reward
 	}
 	
@@ -98,6 +100,7 @@ struct ContractInfo: AssetItem, Codable, Identifiable {
 		static let skin = Self("EquippableSkinLevel")
 		static let currency = Self("Currency")
 		static let agent = Self("Character")
+		static let flex = Self("Totem")
 		
 		public var rawValue: String
 		

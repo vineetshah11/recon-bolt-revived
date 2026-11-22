@@ -15,6 +15,8 @@ struct LiveView: View {
 	}
 	@State fileprivate var loadoutInfo: LoadoutInfo?
 	@State fileprivate var storeInfo: StoreInfo?
+	@State private var accountXP: AccountXP?
+	@State private var activeRecruitment: ActiveRecruitmentEvent?
 	
 	@UserDefault.State("LiveView.expandedBoxes")
 	var expandedBoxes: Set<Box> = [.party]
@@ -54,12 +56,23 @@ struct LiveView: View {
 	}
 	
 	var missionsBox: some View {
-		RefreshableBox(title: "Missions", isExpanded: $expandedBoxes.contains(.missions)) {
-			infoOrPlaceholder(placeholder: "Missions not loaded!", contractsProgress) {
-				ContractDetailsView(contracts: .init(progress: $0, assets: assets, seasons: seasons))
+		RefreshableBox(title: "Contracts", isExpanded: $expandedBoxes.contains(.missions)) {
+			infoOrPlaceholder(placeholder: "Contracts not loaded!", contractsProgress) {
+				ContractDetailsView(
+					contracts: .init(progress: $0, assets: assets, seasons: seasons),
+					userID: userID,
+					accountXP: accountXP,
+					activeRecruitment: activeRecruitment
+				)
 			}
-		} refresh: {
-			contractsProgress = try await $0.getContractsProgress()
+		} refresh: { client in
+			async let progressTask = client.getContractsProgress()
+			async let xpTask = try? client.getAccountXP()
+			async let recruitmentTask = try? client.getActiveRecruitmentEvent()
+			let (progress, xp, recruitment) = try await (progressTask, xpTask, recruitmentTask)
+			contractsProgress = progress
+			accountXP = xp
+			activeRecruitment = recruitment
 		}
 		.id(missionsBoxID)
 	}

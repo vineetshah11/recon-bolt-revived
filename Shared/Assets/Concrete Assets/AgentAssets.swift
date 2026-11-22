@@ -26,6 +26,27 @@ struct AgentInfo: AssetItem, Codable, Identifiable {
 	var characterTags: [String]?
 	var role: Role?
 	var abilities: [Ability]?
+	var recruitmentData: RecruitmentData?
+	
+	struct RecruitmentData: Codable, Hashable {
+		var counterID: LowercaseUUID?
+		var milestoneID: LowercaseUUID?
+		var milestoneThreshold: Int
+		var useLevelVpCostOverride: Bool?
+		var levelVpCostOverride: Int?
+		var startDate: Date
+		var endDate: Date
+		
+		private enum CodingKeys: String, CodingKey {
+			case counterID = "counterId"
+			case milestoneID = "milestoneId"
+			case milestoneThreshold
+			case useLevelVpCostOverride
+			case levelVpCostOverride
+			case startDate
+			case endDate
+		}
+	}
 	
 	var displayIcon: AssetImage
 	var fullPortrait: AssetImage?

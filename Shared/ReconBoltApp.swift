@@ -13,6 +13,13 @@ struct ReconBoltApp: App {
 	@StateObject var settings = AppSettings()
 	@StateObject var store = InAppStore()
 	@StateObject var configManager = GameConfigManager()
+	@StateObject var loadoutPresetManager = LoadoutPresetManager()
+	@StateObject var wishlistManager = WishlistManager()
+	@StateObject var shopHistoryStore = ShopHistoryStore()
+	@StateObject var playerSettingsSnapshotStore = PlayerSettingsSnapshotStore()
+	@StateObject var seasonGoalStore = SeasonGoalStore()
+	@StateObject var socialManager = SocialManager()
+	@StateObject var lineupsManager = LineupsManager()
 	
 	private var isTesting: Bool {
 		ProcessInfo.processInfo.environment["XCInjectBundleInto"] != nil
@@ -28,16 +35,28 @@ struct ReconBoltApp: App {
 					store: store
 				)
 				.onAppear { onLaunch() }
+				.environmentObject(accountManager)
 				.environmentObject(bookmarkList)
 				.environmentObject(imageManager)
 				.environmentObject(settings)
 				.environmentObject(configManager)
+				.environmentObject(loadoutPresetManager)
+				.environmentObject(wishlistManager)
+				.environmentObject(shopHistoryStore)
+				.environmentObject(UsernameHistoryStore.shared)
+				.environmentObject(playerSettingsSnapshotStore)
+				.environmentObject(seasonGoalStore)
+				.environmentObject(socialManager)
+				.environmentObject(lineupsManager)
 				.environment(\.configs, configManager.configs())
 				.environment(\.assets, assetManager.assets)
 				.environment(\.location, accountManager.activeAccount?.location)
 				.environment(\.ownsProVersion, store.ownsProVersion)
 				.preferredColorScheme(settings.theme.colorScheme)
 				.tint(Color(.displayP3, red: 0.940, green: 0.019, blue: 0.311))
+				.task(id: accountManager.activeAccount?.id) {
+					await socialManager.connectIfNeeded(using: accountManager.activeAccount?.client)
+				}
 				.task(id: assetManager.assets?.version) {
 					guard let version = assetManager.assets?.version else { return }
 					accountManager.clientVersion = version.riotClientVersion

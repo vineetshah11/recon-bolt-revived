@@ -77,6 +77,7 @@ final class LocalDataProvider {
 	// TODO: still not super happy with these tbh
 	static func dataFetched(_ details: MatchDetails) {
 		shared.store(details.players.map(\.identity), asOf: details.matchInfo.gameStart)
+		UsernameHistoryStore.record(players: details.players)
 	}
 	
 	static func dataFetched(_ info: LivePregameInfo) {
@@ -88,6 +89,7 @@ final class LocalDataProvider {
 	}
 	
 	static func dataFetched(_ user: User) {
+		UsernameHistoryStore.record(user)
 		Task { await shared.userManager.store(user, asOf: .now) }
 	}
 	
