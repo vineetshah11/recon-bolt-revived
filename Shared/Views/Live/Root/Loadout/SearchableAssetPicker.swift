@@ -5,8 +5,6 @@ import RegexBuilder
 struct SearchableAssetPicker<Item: SearchableAsset, RowContent: View, Deselector: View>: View {
 	var allItems: [Item.ID: Item]
 	var ownedItems: Set<Item.ID>
-	/// shown instead of the owned count when we can't know what you own (e.g. totems, which the inventory doesn't report)
-	var footerNote: LocalizedStringKey? = nil
 	@ViewBuilder var rowContent: (Item) -> RowContent
 	@ViewBuilder var deselector: () -> Deselector
 	
@@ -32,11 +30,7 @@ struct SearchableAssetPicker<Item: SearchableAsset, RowContent: View, Deselector
 				}
 			} footer: {
 				VStack(alignment: .leading) {
-					if let footerNote {
-						Text(footerNote)
-					} else {
-						Text("\(ownedItems.count)/\(allItems.count) owned", comment: "Loadout Item Picker: number of items owned out of all such items in the game")
-					}
+					Text("\(ownedItems.count)/\(allItems.count) owned", comment: "Loadout Item Picker: number of items owned out of all such items in the game")
 					let missing = ownedItems.lazy.filter { allItems[$0] == nil }.count
 					if missing > 0 {
 						Text("\(missing) hidden due to outdated assets", comment: "Loadout Item Picker: number of hidden items—this should never show nowadays")

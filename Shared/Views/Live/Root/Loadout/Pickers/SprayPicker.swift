@@ -66,11 +66,15 @@ struct SprayPicker: View {
 	
 	private func totemList(assets: AssetCollection) -> some View {
 		let totems = assets.totems ?? [:]
+		// totems and sprays share the expressions wheel, and both are reported in the owned sprays
+		var owned = Set(totems.keys).intersection(inventory.sprays)
+		// keep the currently equipped totem visible even if the inventory cache is stale
+		if let selection, totems[selection] != nil {
+			owned.insert(selection)
+		}
 		return SearchableAssetPicker(
 			allItems: totems,
-			// the inventory doesn't report totems, so every totem the game has is offered here
-			ownedItems: Set(totems.keys),
-			footerNote: "Totem ownership isn't reported, so every totem is listed."
+			ownedItems: owned
 		) { totem in
 			SelectableRow(selection: $selection, item: totem.id) {
 				totem.displayIcon.view()
