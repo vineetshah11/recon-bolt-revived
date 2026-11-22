@@ -60,7 +60,7 @@ final class AssetManager: ObservableObject {
 	static let mockEmpty = AssetManager(assets: nil)
 	#endif
 	
-	private static let currentSchemaVersion = 2
+	private static let currentSchemaVersion = 3
 	
 	private func loadAssets() async throws -> AssetCollection {
 		let language = languageOverride
