@@ -170,6 +170,8 @@ struct FriendsView: View {
 					Text(client == nil ? "Sign in to view friends" : "Disconnected from Riot Chat")
 						.font(.subheadline)
 						.foregroundStyle(.secondary)
+					Spacer()
+					retryButton
 				case .failed(let message):
 					VStack(alignment: .leading, spacing: 2) {
 						Text("Chat Connection Failed")
@@ -179,8 +181,23 @@ struct FriendsView: View {
 							.font(.caption)
 							.foregroundStyle(.secondary)
 					}
+					Spacer()
+					retryButton
 				}
 			}
+		}
+	}
+	
+	@ViewBuilder
+	private var retryButton: some View {
+		if let client {
+			AsyncButton {
+				await socialManager.reconnect(using: client)
+			} label: {
+				Text("Retry")
+					.font(.subheadline.weight(.semibold))
+			}
+			.buttonStyle(.borderless)
 		}
 	}
 	

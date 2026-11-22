@@ -4,7 +4,7 @@ import ValorantAPI
 struct AccountSettingsView: View {
 	@ObservedObject var accountManager: AccountManager
 	
-	@State var loginTarget: LoginTarget?
+	@Binding var loginTarget: LoginTarget?
 	@State var isConfirmingSignOut = false
 	@Environment(\.ownsProVersion) private var ownsProVersion
 	
@@ -16,14 +16,6 @@ struct AccountSettingsView: View {
 				Text("Accounts", comment: "Settings: section")
 			} footer: {
 				legalBoilerplate
-			}
-			.sheet(item: $loginTarget) { target in
-				let storedCredentals = accountManager.activeAccount?.session.credentials
-				LoginForm(
-					accountManager: accountManager,
-					credentials: (target.shouldRestoreCredentials ? storedCredentals : nil) ?? .init()
-				)
-				.withLoadErrorAlerts()
 			}
 			
 			Section {
@@ -109,6 +101,11 @@ struct AccountSettingsView: View {
 			.font(.footnote)
 			.foregroundStyle(.secondary)
 			.frame(maxWidth: .infinity, alignment: .leading)
+	}
+	
+	init(accountManager: AccountManager, loginTarget: Binding<LoginTarget?> = .constant(nil)) {
+		self.accountManager = accountManager
+		self._loginTarget = loginTarget
 	}
 	
 	enum LoginTarget: Hashable, Identifiable {

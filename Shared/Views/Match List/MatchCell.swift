@@ -184,8 +184,11 @@ struct MatchCell: View {
 			
 			HStack(spacing: 12) {
 				if let myself, let agentID {
+					// fills the whole banner height, flush with the card's leading edge
 					AgentImage.icon(agentID, teamID: myself.teamID, isOVariant: isOVariant)
-						.frame(width: 62, height: 62)
+						.scaledToFill()
+						.frame(width: 74, height: 74)
+						.clipped()
 				}
 				
 				VStack(alignment: .leading, spacing: 4) {
@@ -228,7 +231,8 @@ struct MatchCell: View {
 					outcomePill(matchDetails: matchDetails, myself: myself)
 				}
 			}
-			.padding(.horizontal, 10)
+			.padding(.leading, agentID != nil ? 0 : 12)
+			.padding(.trailing, 10)
 		}
 		.frame(height: 74)
 		.clipped()

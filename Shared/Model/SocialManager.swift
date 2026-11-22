@@ -19,6 +19,7 @@ final class SocialManager: ObservableObject {
 	
 	private let client = XMPPClient()
 	private var connectedUserID: User.ID?
+	private var connectAttempt = 0
 	
 	var friends: [XMPPFriend] {
 		friendsByJID.values.sorted { lhs, rhs in
@@ -50,6 +51,9 @@ final class SocialManager: ObservableObject {
 	}
 	
 	func reconnect(using apiClient: ValorantClient) async {
+		connectAttempt += 1
+		let attempt = connectAttempt
+		await client.disconnect() // cancels any stuck in-flight attempt
 		connectedUserID = apiClient.userID
 		connectionState = .connecting
 		friendsByJID = [:]
@@ -58,6 +62,8 @@ final class SocialManager: ObservableObject {
 				await self?.handle(event)
 			}
 		} catch {
+			guard attempt == connectAttempt else { return } // superseded by a newer attempt
+			await client.disconnect()
 			connectionState = .failed(error.localizedDescription)
 		}
 	}

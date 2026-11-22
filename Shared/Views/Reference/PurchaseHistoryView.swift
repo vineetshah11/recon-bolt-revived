@@ -1,5 +1,141 @@
 import SwiftUI
+import WebKit
 import ValorantAPI
+
+/// Riot moved purchase history to support.riotgames.com, which authenticates via XSSO and then calls the Skye API
+/// with an `X-Riot-Support-Token`. That token only exists inside a browser session, so we run the official page in a
+/// (normally hidden) web view, wait for the token, and call the same endpoint the page uses.
+@MainActor
+final class RiotSupportPurchaseLoader: NSObject, ObservableObject, WKNavigationDelegate, WKUIDelegate {
+	enum State: Equatable {
+		case idle
+		case loading
+		case needsSignIn
+		case loaded
+		case failed(String)
+	}
+	
+	@Published var state: State = .idle
+	@Published var history: PurchaseHistory?
+	
+	let webView: WKWebView
+	private var pollTask: Task<Void, Never>?
+	private var isFetching = false
+	
+	private static let historyEndpoint = "https://skye-production.sgp.riotgames.com/api/v1/sspd/valorant_purchase_history"
+	
+	override init() {
+		let config = WKWebViewConfiguration()
+		config.websiteDataStore = .default() // keeps the XSSO session so later loads are silent
+		webView = WKWebView(frame: .init(x: 0, y: 0, width: 390, height: 700), configuration: config)
+		webView.customUserAgent = RiotLoginWebViewModel.mobileSafariUserAgent
+		super.init()
+		webView.navigationDelegate = self
+		webView.uiDelegate = self
+	}
+	
+	private var supportPageURL: URL {
+		let lang = (Locale.preferredLanguages.first ?? "en-US").lowercased()
+		let supported = ["en-us", "fr-fr", "de-de", "es-es", "es-mx", "it-it", "pt-br", "pl-pl", "tr-tr", "ru-ru", "ja-jp", "ko-kr"]
+		let code = supported.first { lang.hasPrefix($0) } ?? supported.first { lang.hasPrefix($0.prefix(2)) } ?? "en-us"
+		return URL(string: "https://support.riotgames.com/\(code)/valorant/billing/checking-your-purchase-history")!
+	}
+	
+	func start(cookies: [HTTPCookie]) async {
+		guard !isFetching else { return }
+		state = .loading
+		let store = webView.configuration.websiteDataStore.httpCookieStore
+		for cookie in cookies where cookie.domain.contains("riotgames.com") {
+			await store.setCookie(cookie)
+		}
+		webView.load(URLRequest(url: supportPageURL))
+		startPolling()
+	}
+	
+	func reloadPage() {
+		webView.load(URLRequest(url: supportPageURL))
+		startPolling()
+	}
+	
+	func stop() {
+		pollTask?.cancel()
+		pollTask = nil
+	}
+	
+	private func startPolling() {
+		pollTask?.cancel()
+		pollTask = Task { [weak self] in
+			let start = Date()
+			while !Task.isCancelled {
+				try? await Task.sleep(nanoseconds: 800_000_000)
+				guard let self, !Task.isCancelled else { return }
+				if let token = await self.supportToken() {
+					await self.fetchHistory(token: token)
+					return
+				}
+				// no silent session after a few seconds: let the user sign in on Riot's page
+				if self.state == .loading, Date().timeIntervalSince(start) > 7 {
+					self.state = .needsSignIn
+				}
+			}
+		}
+	}
+	
+	private func supportToken() async -> String? {
+		let js = "(() => { const t = sessionStorage.getItem('__support-token'); if (!t) return null; try { const p = JSON.parse(t); return typeof p === 'string' ? p : t } catch (e) { return t } })()"
+		guard let token = try? await webView.evaluateJavaScript(js) as? String, !token.isEmpty else { return nil }
+		return token
+	}
+	
+	private func fetchHistory(token: String) async {
+		isFetching = true
+		defer { isFetching = false }
+		state = .loading
+		let js = """
+		const r = await fetch(url, { method: 'GET', credentials: 'omit', headers: { 'X-Riot-Support-Token': token } });
+		const body = await r.text();
+		return JSON.stringify({ status: r.status, body: body });
+		"""
+		do {
+			let raw = try await webView.callAsyncJavaScript(js, arguments: ["url": Self.historyEndpoint, "token": token], contentWorld: .page)
+			guard
+				let wrapper = (raw as? String)?.data(using: .utf8),
+				let json = try JSONSerialization.jsonObject(with: wrapper) as? [String: Any],
+				let status = json["status"] as? Int,
+				let body = json["body"] as? String
+			else { throw URLError(.cannotParseResponse) }
+			guard (200..<300).contains(status) else {
+				state = .failed("Riot Support returned HTTP \(status).\n\(body.prefix(200))")
+				return
+			}
+			history = try PurchaseHistory.decode(from: Data(body.utf8))
+			state = .loaded
+		} catch {
+			state = .failed(error.localizedDescription)
+		}
+	}
+	
+	nonisolated func webView(
+		_ webView: WKWebView,
+		createWebViewWith configuration: WKWebViewConfiguration,
+		for navigationAction: WKNavigationAction,
+		windowFeatures: WKWindowFeatures
+	) -> WKWebView? {
+		MainActor.assumeIsolated {
+			if navigationAction.targetFrame == nil {
+				webView.load(navigationAction.request)
+			}
+			return nil
+		}
+	}
+}
+
+private struct RiotSupportWebView: UIViewRepresentable {
+	@ObservedObject var loader: RiotSupportPurchaseLoader
+	
+	func makeUIView(context: Context) -> WKWebView { loader.webView }
+	func updateUIView(_ uiView: WKWebView, context: Context) {}
+}
 
 struct PurchaseHistoryView: View {
 	enum Tab: String, CaseIterable, Identifiable {
@@ -13,10 +149,22 @@ struct PurchaseHistoryView: View {
 	@Environment(\.assets) private var assets
 	
 	@State private var tab: Tab = .payments
-	@State private var history: PurchaseHistory?
-	@State private var isLoading = false
-	@State private var errorMessage: String?
 	@State private var search = ""
+	@StateObject private var loader = RiotSupportPurchaseLoader()
+	
+	private var history: PurchaseHistory? { loader.history }
+	private var isLoading: Bool { loader.state == .loading || loader.state == .idle }
+	private var errorMessage: String? {
+		if case .failed(let message) = loader.state { return message }
+		return nil
+	}
+	
+	private var isShowingSignIn: Binding<Bool> {
+		Binding(
+			get: { loader.state == .needsSignIn },
+			set: { if !$0 && loader.state == .needsSignIn { loader.state = .failed("Sign in to Riot Support to view your purchase history.") } }
+		)
+	}
 	
 	var body: some View {
 		List {
@@ -34,7 +182,7 @@ struct PurchaseHistoryView: View {
 				Section {
 					HStack {
 						Spacer()
-						ProgressView("Loading from Riot Player Support...")
+						ProgressView("Loading from Riot Support...")
 						Spacer()
 					}
 					.padding(.vertical, 16)
@@ -64,6 +212,36 @@ struct PurchaseHistoryView: View {
 		}
 		.searchable(text: $search, prompt: Text("Filter history"))
 		.navigationTitle("Purchase History")
+		.background {
+			if loader.state != .needsSignIn {
+				// the web view must be in the hierarchy to run; keep it invisible while it works silently
+				RiotSupportWebView(loader: loader)
+					.frame(width: 1, height: 1)
+					.opacity(0.01)
+					.allowsHitTesting(false)
+			}
+		}
+		.sheet(isPresented: isShowingSignIn) {
+			NavigationView {
+				VStack(spacing: 0) {
+					Text("Riot Support needs you to sign in once. Tap **Sign In** on the page below; you'll stay signed in afterwards.")
+						.font(.footnote)
+						.foregroundStyle(.secondary)
+						.padding(12)
+					RiotSupportWebView(loader: loader)
+				}
+				.navigationTitle("Riot Support")
+				.navigationBarTitleDisplayMode(.inline)
+				.toolbar {
+					ToolbarItem(placement: .cancellationAction) {
+						Button("Cancel") { isShowingSignIn.wrappedValue = false }
+					}
+					ToolbarItem(placement: .primaryAction) {
+						Button { loader.reloadPage() } label: { Image(systemName: "arrow.clockwise") }
+					}
+				}
+			}
+		}
 		.refreshable {
 			await loadHistory()
 		}
@@ -72,6 +250,7 @@ struct PurchaseHistoryView: View {
 				await loadHistory()
 			}
 		}
+		.onDisappear { loader.stop() }
 	}
 	
 	@ViewBuilder
@@ -171,17 +350,9 @@ struct PurchaseHistoryView: View {
 	
 	private func loadHistory() async {
 		guard let client = accountManager.activeAccount?.client else {
-			errorMessage = "Sign in to load purchase history."
+			loader.state = .failed("Sign in to load purchase history.")
 			return
 		}
-		isLoading = true
-		errorMessage = nil
-		defer { isLoading = false }
-		
-		do {
-			history = try await client.getPurchaseHistory()
-		} catch {
-			errorMessage = error.localizedDescription
-		}
+		await loader.start(cookies: await client.getSessionCookies())
 	}
 }

@@ -4,82 +4,132 @@ import ValorantAPI
 struct SeasonGoal: Identifiable, Codable, Equatable {
 	var id = UUID()
 	var accountID: User.ID?
-	var seasonID: Season.ID?
-	var kind: Kind
+	var actID: Season.ID?
+	var targetTier: Int
+	var baselineTier: Int
+	var baselineRR: Int
+	var baselineElo: Int
 	var createdAt = Date()
-	
-	enum Kind: Codable, Equatable, Hashable {
-		case targetRank(tier: Int, rr: Int)
-		case winRate(percent: Double)
-		case matchesPlayed(count: Int)
-		case kdRatio(target: Double)
-		case headshotRate(percent: Double)
-		
-		var title: String {
-			switch self {
-			case .targetRank:
-				return "Target Rank"
-			case .winRate:
-				return "Win Rate"
-			case .matchesPlayed:
-				return "Matches Played"
-			case .kdRatio:
-				return "K/D Ratio"
-			case .headshotRate:
-				return "Headshot %"
-			}
-		}
-		
-		var iconName: String {
-			switch self {
-			case .targetRank:
-				return "shield.lefthalf.filled"
-			case .winRate:
-				return "trophy.fill"
-			case .matchesPlayed:
-				return "gamecontroller.fill"
-			case .kdRatio:
-				return "scope"
-			case .headshotRate:
-				return "target"
-			}
-		}
-	}
+	var showsOnProfile = true
 }
 
-struct SeasonGoalProgress {
-	var currentValueText: String
-	var targetValueText: String
-	var progress: Double // 0...1
+enum SeasonGoalStatus: Equatable {
+	case reached
+	case onTrack(projectedDate: Date)
+	case behindPace(projectedDate: Date?)
+	case negativePace
+	case needsMoreData(playedCount: Int, requiredCount: Int)
+}
+
+struct SeasonGoalDivisionStep: Identifiable, Equatable {
+	var id: Int { tier }
+	var tier: Int
+	var name: String
+	/// 0...1 completion through this division band `[startElo ..< endElo]`
+	var fillFraction: Double
+	var rrToReach: Int
 	var isCompleted: Bool
+}
+
+struct SeasonGoalTrajectory {
+	var currentTier: Int
+	var currentRR: Int
+	var currentTierName: String
+	var targetTier: Int
+	var targetTierName: String
+	var gamesNeededForRating: Int
+	
+	var currentElo: Int
+	var targetElo: Int
+	var rrToGo: Int
+	var rrSinceSet: Int
+	/// 0...1 climb progress from `goal.baselineElo` to `targetElo`
+	var progress: Double
+	
+	var daysLeft: Int
+	var actEndDate: Date?
+	var isPreviousAct: Bool
+	
+	var matchesPlayed: Int
+	var wins: Int
+	var losses: Int
+	var winRate: Double
+	var avgRRPerMatch: Double
+	var avgGain: Double
+	var avgLoss: Double
+	var matchesPerDay: Double
+	var matchesLeft: Int?
+	var requiredMatchesPerDay: Double?
+	var requiredWinRate: Double?
+	var momentumDelta: Double?
+	var currentStreak: Int
+	var recentChanges: [Int]
+	
+	var status: SeasonGoalStatus
+	var divisions: [SeasonGoalDivisionStep]
+	var startDivisionTier: Int
+	var nextDivision: (tier: Int, name: String, rrToGo: Int)?
 }
 
 @MainActor
 final class SeasonGoalStore: ObservableObject {
 	@Published var goals: [SeasonGoal] = []
 	
-	private let filename = "SeasonGoals.v1.json"
+	private let filename = "SeasonGoals.v2.json"
 	
 	init() {
 		goals = LocalJSONStore.load([SeasonGoal].self, from: filename) ?? []
 	}
 	
-	func goals(for accountID: User.ID?, seasonID: Season.ID? = nil) -> [SeasonGoal] {
-		goals.filter { goal in
-			let matchAccount = goal.accountID == nil || accountID == nil || goal.accountID == accountID
-			let matchSeason = seasonID == nil || goal.seasonID == nil || goal.seasonID == seasonID
-			return matchAccount && matchSeason
+	func goal(for accountID: User.ID?, actID: Season.ID?) -> SeasonGoal? {
+		let matchingAccount = goals.filter { goal in
+			goal.accountID == accountID || accountID == nil || goal.accountID == nil
 		}
-		.sorted { $0.createdAt > $1.createdAt }
+		if let actID, let exact = matchingAccount.first(where: { $0.actID == actID }) {
+			return exact
+		}
+		return matchingAccount.sorted { $0.createdAt > $1.createdAt }.first
 	}
 	
-	func addGoal(accountID: User.ID?, seasonID: Season.ID?, kind: SeasonGoal.Kind) {
-		let goal = SeasonGoal(accountID: accountID, seasonID: seasonID, kind: kind)
-		goals.insert(goal, at: 0)
+	func setGoal(
+		accountID: User.ID?,
+		actID: Season.ID?,
+		targetTier: Int,
+		currentTier: Int,
+		currentRR: Int,
+		tiers: CompetitiveTier.Collection?,
+		showsOnProfile: Bool? = nil
+	) {
+		let baselineTier = currentTier >= 3 ? currentTier : targetTier
+		let baselineRR = currentTier >= 3 ? currentRR : 0
+		let baselineElo = Self.elo(tier: baselineTier, rr: baselineRR, tiers: tiers)
+		let existingProfilePref = goal(for: accountID, actID: actID)?.showsOnProfile ?? true
+		
+		goals.removeAll { g in
+			(g.accountID == accountID || accountID == nil)
+				&& (actID == nil || g.actID == nil || g.actID == actID)
+		}
+		let newGoal = SeasonGoal(
+			accountID: accountID,
+			actID: actID,
+			targetTier: targetTier,
+			baselineTier: baselineTier,
+			baselineRR: baselineRR,
+			baselineElo: baselineElo,
+			createdAt: Date(),
+			showsOnProfile: showsOnProfile ?? existingProfilePref
+		)
+		goals.insert(newGoal, at: 0)
 		persist()
 	}
 	
-	func delete(id: UUID) {
+	func toggleShowOnProfile(id: UUID) {
+		guard let idx = goals.firstIndex(where: { $0.id == id }) else { return }
+		goals[idx].showsOnProfile.toggle()
+		persist()
+	}
+	
+	func removeGoal(id: UUID) {
 		goals.removeAll { $0.id == id }
 		persist()
 	}
@@ -88,106 +138,275 @@ final class SeasonGoalStore: ObservableObject {
 		LocalJSONStore.save(goals, to: filename)
 	}
 	
-	static func evaluate(
-		_ goal: SeasonGoal,
-		userID: User.ID,
+	// MARK: - Elo & Trajectory Calculation
+	
+	static func lowestImmortalTier(in tiers: CompetitiveTier.Collection?) -> Int {
+		tiers?.lowestImmortalPlusTier() ?? 24
+	}
+	
+	static func elo(tier: Int, rr: Int, tiers: CompetitiveTier.Collection?) -> Int {
+		guard tier >= 3 else { return 0 }
+		let lowestImm = lowestImmortalTier(in: tiers)
+		if tier < lowestImm {
+			return (tier - 3) * 100 + max(0, min(99, rr))
+		}
+		// In Immortal+, Riot stores `rr` cumulatively from Immortal 1 (0 RR).
+		let immBase = (lowestImm - 3) * 100
+		return immBase + max(0, rr)
+	}
+	
+	static func targetThresholdElo(for targetTier: Int, tiers: CompetitiveTier.Collection?) -> Int {
+		guard targetTier >= 3 else { return 0 }
+		let lowestImm = lowestImmortalTier(in: tiers)
+		if targetTier <= lowestImm {
+			return (targetTier - 3) * 100
+		}
+		let immBase = (lowestImm - 3) * 100
+		let offset = targetTier - lowestImm
+		switch offset {
+		case 1: return immBase + 100 // Immortal 2
+		case 2: return immBase + 200 // Immortal 3
+		default: return immBase + 450 // Radiant threshold baseline
+		}
+	}
+	
+	static func currentRank(
 		summary: CareerSummary?,
-		matches: [MatchDetails],
-		assets: AssetCollection?,
-		currentAct: Act?
-	) -> SeasonGoalProgress {
-		let seasonID = goal.seasonID ?? currentAct?.id
-		let seasonInfo = seasonID.flatMap { summary?.competitiveInfo?.bySeason?[$0] }
-		let filteredMatches: [MatchDetails] = {
-			guard let act = seasonID.flatMap({ assets?.seasons.acts[$0] }) ?? currentAct else {
-				return matches
+		matchList: MatchList?,
+		act: Act?
+	) -> (tier: Int, rr: Int, gamesNeeded: Int) {
+		if let act, let seasonInfo = summary?.competitiveInfo?.bySeason?[act.id], seasonInfo.competitiveTier >= 3 {
+			return (seasonInfo.competitiveTier, seasonInfo.adjustedRankedRating, seasonInfo.gamesNeededForRating)
+		}
+		if let latestRanked = matchList?.matches.first(where: { $0.isRanked && (act == nil || act!.timeSpan.contains($0.startTime)) }) {
+			return (latestRanked.tierAfterUpdate, latestRanked.tierProgressAfterUpdate, 0)
+		}
+		if let latest = summary?.latestUpdate, latest.isRanked {
+			return (latest.tierAfterUpdate, latest.tierProgressAfterUpdate, 0)
+		}
+		let gamesNeeded = act.flatMap { summary?.competitiveInfo?.bySeason?[$0.id]?.gamesNeededForRating } ?? 0
+		return (0, 0, gamesNeeded)
+	}
+	
+	static func compute(
+		goal: SeasonGoal,
+		summary: CareerSummary?,
+		matchList: MatchList?,
+		currentAct: Act?,
+		seasons: SeasonCollection.Accessor?
+	) -> SeasonGoalTrajectory {
+		let tiers = seasons?.currentTiers()
+		let rank = currentRank(summary: summary, matchList: matchList, act: currentAct)
+		let currentTierName = tiers?.tier(rank.tier)?.name ?? (rank.tier == 0 ? "Unranked" : "Tier \(rank.tier)")
+		let targetTierName = tiers?.tier(goal.targetTier)?.name ?? "Tier \(goal.targetTier)"
+		
+		let currentElo = elo(tier: rank.tier, rr: rank.rr, tiers: tiers)
+		let targetElo = targetThresholdElo(for: goal.targetTier, tiers: tiers)
+		let rrToGo = max(0, targetElo - currentElo)
+		let effectiveBaselineElo = rank.tier >= 3 ? goal.baselineElo : 0
+		let rrSinceSet = rank.tier >= 3 ? (currentElo - effectiveBaselineElo) : 0
+		
+		let progress: Double = {
+			if rrToGo == 0 && rank.tier >= goal.targetTier { return Double(1) }
+			let denom = targetElo - effectiveBaselineElo
+			if denom > 0 {
+				return min(Double(1), max(Double(0), Double(currentElo - effectiveBaselineElo) / Double(denom)))
 			}
-			return matches.filter { act.timeSpan.contains($0.matchInfo.gameStart) }
+			return rank.tier >= goal.targetTier ? Double(1) : Double(0)
 		}()
 		
-		switch goal.kind {
-		case let .targetRank(targetTier, targetRR):
-			let currentTier = seasonInfo?.competitiveTier ?? summary?.latestUpdate?.tierAfterUpdate ?? 0
-			let currentRR = seasonInfo?.rankedRating ?? summary?.latestUpdate?.tierProgressAfterUpdate ?? 0
-			let actForTiers = currentAct ?? assets?.seasons.actsInOrder.last
-			let tiers = actForTiers.flatMap { assets?.seasons.competitiveTiers[$0.competitiveTiers] }
-			let currentName = tiers?.tier(currentTier)?.name ?? "Unranked"
-			let targetName = tiers?.tier(targetTier)?.name ?? "Tier \(targetTier)"
-			
-			let currentScore: Double = Double(currentTier * 100 + min(currentRR, 99))
-			let targetScore: Double = Double(targetTier * 100 + targetRR)
-			let ratio: Double = targetScore > 0 ? min(1, max(0, currentScore / targetScore)) : 0
-			let done = currentTier > targetTier || (currentTier == targetTier && currentRR >= targetRR)
-			
-			return SeasonGoalProgress(
-				currentValueText: "\(currentName) (\(currentRR) RR)",
-				targetValueText: targetRR > 0 ? "\(targetName) (\(targetRR) RR)" : targetName,
-				progress: done ? 1 : ratio,
-				isCompleted: done
-			)
-			
-		case let .winRate(percent):
-			let wins = seasonInfo?.winCount ?? filteredMatches.filter { match in
-				guard let player = match.players.firstElement(withID: userID) else { return false }
-				return match.teams.first(where: { $0.id == player.teamID })?.won == true
-			}.count
-			let games = seasonInfo?.gameCount ?? filteredMatches.count
-			let currentWR: Double = games > 0 ? Double(wins) * Double(100) / Double(games) : 0
-			let ratio: Double = percent > 0 ? min(1, max(0, currentWR / percent)) : 0
-			return SeasonGoalProgress(
-				currentValueText: String(format: "%.1f%% (%d/%d)", currentWR, wins, games),
-				targetValueText: String(format: "%.0f%%", percent),
-				progress: ratio,
-				isCompleted: currentWR >= percent && games > 0
-			)
-			
-		case let .matchesPlayed(count):
-			let played = max(seasonInfo?.gameCount ?? 0, filteredMatches.count)
-			let ratio: Double = count > 0 ? min(1, Double(played) / Double(count)) : 0
-			return SeasonGoalProgress(
-				currentValueText: "\(played) matches",
-				targetValueText: "\(count) matches",
-				progress: ratio,
-				isCompleted: played >= count
-			)
-			
-		case let .kdRatio(target):
-			var kills = 0
-			var deaths = 0
-			for match in filteredMatches {
-				guard let stats = match.players.firstElement(withID: userID)?.stats else { continue }
-				kills += stats.kills
-				deaths += stats.deaths
+		let isPreviousAct = (goal.actID != nil && currentAct != nil && goal.actID != currentAct?.id)
+		let actEnd = currentAct?.timeSpan.end
+		let actStart = currentAct?.timeSpan.start ?? goal.createdAt
+		let now = Date()
+		let daysLeft: Int = {
+			guard let actEnd else { return 0 }
+			let secs = max(Double(0), actEnd.timeIntervalSince(now))
+			return Int(ceil(secs / Double(86_400)))
+		}()
+		
+		// Ranked matches from this Act, chronological oldest -> newest for streak, newest first for chips.
+		let actRanked = (matchList?.matches ?? []).filter { match in
+			guard match.isRanked && !match.isDodge else { return false }
+			if let currentAct {
+				return currentAct.timeSpan.contains(match.startTime)
 			}
-			let kd: Double = deaths > 0 ? Double(kills) / Double(deaths) : Double(kills)
-			let ratio: Double = target > 0 ? min(1, max(0, kd / target)) : 0
-			return SeasonGoalProgress(
-				currentValueText: String(format: "%.2f K/D", kd),
-				targetValueText: String(format: "%.2f K/D", target),
-				progress: ratio,
-				isCompleted: kd >= target && !filteredMatches.isEmpty
-			)
-			
-		case let .headshotRate(percent):
-			var head = 0
-			var total = 0
-			for match in filteredMatches {
-				for round in match.roundResults {
-					guard let stats = round.stats(for: userID) else { continue }
-					for dmg in stats.damageDealt {
-						head += dmg.headshots
-						total += dmg.headshots + dmg.bodyshots + dmg.legshots
-					}
+			return true
+		}
+		.sorted { $0.startTime > $1.startTime }
+		
+		let recentChanges = Array(actRanked.prefix(10).map(\.ratingEarned))
+		let currentStreak: Int = {
+			guard let first = actRanked.first?.ratingEarned, first != 0 else { return 0 }
+			let positive = first > 0
+			var count = 0
+			for m in actRanked {
+				if m.ratingEarned == 0 { continue }
+				if (m.ratingEarned > 0) == positive {
+					count += 1
+				} else {
+					break
 				}
 			}
-			let hs: Double = total > 0 ? Double(head) * Double(100) / Double(total) : 0
-			let ratio: Double = percent > 0 ? min(1, max(0, hs / percent)) : 0
-			return SeasonGoalProgress(
-				currentValueText: String(format: "%.1f%%", hs),
-				targetValueText: String(format: "%.0f%%", percent),
-				progress: ratio,
-				isCompleted: hs >= percent && total > 0
+			return positive ? count : -count
+		}()
+		
+		let matchesPlayed = actRanked.count
+		let gainList = actRanked.map(\.ratingEarned).filter { $0 > 0 }
+		let lossList = actRanked.map(\.ratingEarned).filter { $0 < 0 }
+		let wins = gainList.count
+		let losses = lossList.count
+		let decided = wins + losses
+		let winRate: Double = decided > 0 ? (Double(wins) / Double(decided)) : Double(0)
+		let totalRR = actRanked.reduce(0) { $0 + $1.ratingEarned }
+		let avgRR: Double = matchesPlayed > 0 ? Double(totalRR) / Double(matchesPlayed) : Double(0)
+		let avgGain: Double = gainList.isEmpty ? Double(20) : Double(gainList.reduce(0, +)) / Double(gainList.count)
+		let avgLoss: Double = lossList.isEmpty ? Double(18) : Double(abs(lossList.reduce(0, +))) / Double(lossList.count)
+		
+		let firstMatchDate = actRanked.last?.startTime ?? actStart
+		let spanStart = max(actStart, firstMatchDate)
+		let daysActive = max(Double(1), now.timeIntervalSince(spanStart) / Double(86_400))
+		let matchesPerDay = Double(matchesPlayed) / daysActive
+		
+		let momentumDelta: Double? = {
+			guard actRanked.count >= 5 else { return nil }
+			let recent5 = Double(actRanked.prefix(5).reduce(0) { $0 + $1.ratingEarned }) / Double(5)
+			return recent5 - avgRR
+		}()
+		
+		let matchesLeft: Int? = {
+			if rrToGo == 0 { return 0 }
+			guard avgRR > Double(0.25) else { return nil }
+			return Int(ceil(Double(rrToGo) / avgRR))
+		}()
+		
+		let projectedDate: Date? = {
+			guard let left = matchesLeft, left > 0, matchesPerDay > Double(0.05) else { return nil }
+			let daysNeeded = Double(left) / matchesPerDay
+			guard daysNeeded < Double(3650) else { return nil }
+			return now.addingTimeInterval(daysNeeded * Double(86_400))
+		}()
+		
+		let requiredMatchesPerDay: Double? = {
+			guard rrToGo > 0, daysLeft > 0 else { return nil }
+			let paceDenom = max(avgRR, Double(5))
+			return (Double(rrToGo) / paceDenom) / Double(daysLeft)
+		}()
+		
+		let requiredWinRate: Double? = {
+			guard rrToGo > 0, daysLeft > 0 else { return nil }
+			let estMatches = max(1, Int(round(max(matchesPerDay, Double(0.5)) * Double(daysLeft))))
+			let neededAvgRR = Double(rrToGo) / Double(estMatches)
+			// neededAvgRR = wr * avgGain - (1 - wr) * avgLoss => wr = (neededAvgRR + avgLoss) / (avgGain + avgLoss)
+			let denom = avgGain + avgLoss
+			guard denom > Double(0) else { return nil }
+			let raw = (neededAvgRR + avgLoss) / denom
+			return min(Double(1), max(Double(0), raw))
+		}()
+		
+		let minSample = 3
+		let status: SeasonGoalStatus = {
+			if rrToGo == 0 && rank.tier >= goal.targetTier {
+				return .reached
+			}
+			if matchesPlayed < minSample {
+				return .needsMoreData(playedCount: matchesPlayed, requiredCount: minSample)
+			}
+			if avgRR <= Double(0) {
+				return .negativePace
+			}
+			if let projectedDate {
+				if let actEnd, projectedDate <= actEnd {
+					return .onTrack(projectedDate: projectedDate)
+				}
+				return .behindPace(projectedDate: projectedDate)
+			}
+			return .behindPace(projectedDate: nil)
+		}()
+		
+		// Division steps for "The Climb"
+		let lowestImm = lowestImmortalTier(in: tiers)
+		let baselineTierValid = goal.baselineTier >= 3 ? goal.baselineTier : max(3, rank.tier >= 3 ? rank.tier : goal.targetTier - 3)
+		let startTier = min(baselineTierValid, rank.tier >= 3 ? rank.tier : baselineTierValid, max(3, goal.targetTier - 1))
+		
+		let sortedTierNumbers = (tiers?.tiers.values
+			.map(\.number)
+			.filter { $0 >= 3 }
+			.sorted()) ?? Array(3...27)
+		
+		let climbTiers = sortedTierNumbers.filter { $0 >= startTier && $0 < goal.targetTier }
+		let steps: [SeasonGoalDivisionStep] = climbTiers.map { tierNum in
+			let bandStart = targetThresholdElo(for: tierNum, tiers: tiers)
+			let nextTierNum = sortedTierNumbers.first(where: { $0 > tierNum }) ?? (tierNum + 1)
+			let bandEnd = min(targetElo, targetThresholdElo(for: nextTierNum, tiers: tiers))
+			let span = max(1, bandEnd - bandStart)
+			let fraction: Double = {
+				if currentElo >= bandEnd { return Double(1) }
+				if currentElo <= bandStart { return Double(0) }
+				return Double(currentElo - bandStart) / Double(span)
+			}()
+			let stepName = tiers?.tier(nextTierNum)?.name ?? "Tier \(nextTierNum)"
+			return SeasonGoalDivisionStep(
+				tier: nextTierNum,
+				name: stepName,
+				fillFraction: fraction,
+				rrToReach: max(0, bandEnd - currentElo),
+				isCompleted: currentElo >= bandEnd
 			)
 		}
+		
+		let nextDiv: (tier: Int, name: String, rrToGo: Int)? = {
+			guard rrToGo > 0, rank.tier < goal.targetTier else { return nil }
+			if rank.tier < 3 {
+				let startRankNum = sortedTierNumbers.first ?? 3
+				let nextName = tiers?.tier(startRankNum)?.name ?? "Iron 1"
+				return (startRankNum, nextName, max(0, 100 - rank.rr))
+			}
+			if rank.tier >= lowestImm {
+				let imm2Threshold = targetThresholdElo(for: goal.targetTier, tiers: tiers)
+				let nextT = sortedTierNumbers.first(where: { $0 > rank.tier }) ?? goal.targetTier
+				let stepTarget = min(imm2Threshold, targetThresholdElo(for: nextT, tiers: tiers))
+				let nextName = tiers?.tier(nextT)?.name ?? targetTierName
+				return (nextT, nextName, max(0, stepTarget - currentElo))
+			}
+			let nextT = sortedTierNumbers.first(where: { $0 > rank.tier }) ?? min(goal.targetTier, rank.tier + 1)
+			let nextName = tiers?.tier(nextT)?.name ?? "Tier \(nextT)"
+			return (nextT, nextName, max(0, 100 - rank.rr))
+		}()
+		
+		return SeasonGoalTrajectory(
+			currentTier: rank.tier,
+			currentRR: rank.rr,
+			currentTierName: currentTierName,
+			targetTier: goal.targetTier,
+			targetTierName: targetTierName,
+			gamesNeededForRating: rank.gamesNeeded,
+			currentElo: currentElo,
+			targetElo: targetElo,
+			rrToGo: rrToGo,
+			rrSinceSet: rrSinceSet,
+			progress: progress,
+			daysLeft: daysLeft,
+			actEndDate: actEnd,
+			isPreviousAct: isPreviousAct,
+			matchesPlayed: matchesPlayed,
+			wins: wins,
+			losses: losses,
+			winRate: winRate,
+			avgRRPerMatch: avgRR,
+			avgGain: avgGain,
+			avgLoss: avgLoss,
+			matchesPerDay: matchesPerDay,
+			matchesLeft: matchesLeft,
+			requiredMatchesPerDay: requiredMatchesPerDay,
+			requiredWinRate: requiredWinRate,
+			momentumDelta: momentumDelta,
+			currentStreak: currentStreak,
+			recentChanges: recentChanges,
+			status: status,
+			divisions: steps,
+			startDivisionTier: startTier,
+			nextDivision: nextDiv
+		)
 	}
 }

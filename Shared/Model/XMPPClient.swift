@@ -4,21 +4,44 @@ import ValorantAPI
 
 struct XMPPRegion {
 	var affinity: String
+	/// XMPP stream domain, i.e. `<domain>.pvp.net`
+	var domain: String
+	/// prefix of `<prefix>.chat.si.riotgames.com`
+	var hostPrefix: String
 	
-	var host: String {
-		"\(affinity).chat.si.riotgames.com"
-	}
+	var host: String { "\(hostPrefix).chat.si.riotgames.com" }
 	
-	var domain: String {
+	/// Riot's affinity → chat server table (same mapping Valpaw uses). Note e.g. `eu1.chat.si.riotgames.com` doesn't exist—EU is `euw1`.
+	init(affinity rawAffinity: String) {
+		let affinity = rawAffinity.lowercased()
+		self.affinity = affinity
 		switch affinity {
-		case "eu1", "eu2", "eu3", "eu":
-			return "eu1"
-		case "na1", "na2", "us1", "us2", "us", "la1", "la2", "br1", "br":
-			return affinity == "na2" || affinity == "us1" || affinity == "us2" || affinity == "us" ? "na1" : affinity
-		case "as2", "sa1", "sea1", "ap1":
-			return affinity == "sa1" || affinity == "sea1" ? "sa1" : "ap1"
+		case "asia", "jp1":
+			(domain, hostPrefix) = ("jp1", "jp1")
+		case "br", "br1", "us-br1":
+			(domain, hostPrefix) = ("br1", "br")
+		case "eu", "eu1", "euw1", "ru1", "tr1":
+			(domain, hostPrefix) = ("eu1", "euw1")
+		case "eun1", "eu2":
+			(domain, hostPrefix) = ("eu2", "eun1")
+		case "kr1", "oc1":
+			(domain, hostPrefix) = ("kr1", "kr1")
+		case "la1", "us":
+			(domain, hostPrefix) = ("la1", "la1")
+		case "la2", "us-la2":
+			(domain, hostPrefix) = ("la2", "la2")
+		case "na1", "na2", "us1", "us2":
+			(domain, hostPrefix) = ("na1", "na2")
+		case "pbe1":
+			(domain, hostPrefix) = ("pb1", "pbe1")
+		case "sea1", "sa1", "ap1":
+			(domain, hostPrefix) = ("sa1", "sa1")
+		case "sea2", "sa2":
+			(domain, hostPrefix) = ("sa2", "sa2")
+		case "sea3", "sa3":
+			(domain, hostPrefix) = ("sa3", "sa3")
 		default:
-			return affinity
+			(domain, hostPrefix) = (affinity, affinity)
 		}
 	}
 	
@@ -31,8 +54,10 @@ struct XMPPRegion {
 			while payload.count % 4 != 0 { payload.append("=") }
 			if let data = Data(base64Encoded: payload),
 			   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
-				if let affinity = json["affinity"] as? String, !affinity.isEmpty {
-					return XMPPRegion(affinity: affinity)
+				for key in ["affinity", "desired.affinity"] {
+					if let affinity = json[key] as? String, !affinity.isEmpty {
+						return XMPPRegion(affinity: affinity)
+					}
 				}
 				if let desired = json["desired"] as? [String: Any],
 				   let affinity = desired["affinity"] as? String, !affinity.isEmpty {
@@ -58,6 +83,7 @@ enum XMPPError: Error, LocalizedError {
 	case authenticationFailed
 	case bufferOverflow
 	case notConnected
+	case timedOut(String)
 	
 	var errorDescription: String? {
 		switch self {
@@ -66,6 +92,7 @@ enum XMPPError: Error, LocalizedError {
 		case .authenticationFailed: return "XMPP authentication failed."
 		case .bufferOverflow: return "XMPP buffer exceeded maximum size."
 		case .notConnected: return "Not connected to Riot chat server."
+		case .timedOut(let step): return "Riot Chat did not respond (\(step)). Check your connection and retry."
 		}
 	}
 }
@@ -179,6 +206,7 @@ actor XMPPClient {
 		// 1. Open XMPP stream & SASL auth
 		try await openStream(region: resolvedRegion)
 		_ = try await readUntil(contains: "X-Riot-RSO-PAS")
+		buffer = ""
 		
 		let authStanza = "<auth mechanism=\"X-Riot-RSO-PAS\" xmlns=\"urn:ietf:params:xml:xmpp-sasl\"><rso_token>\(escapeXML(rso))</rso_token><pas_token>\(escapeXML(pas))</pas_token></auth>"
 		try await sendRaw(authStanza)
@@ -191,6 +219,7 @@ actor XMPPClient {
 		// 2. Restart stream -> Bind -> Session -> Entitlements
 		try await openStream(region: resolvedRegion)
 		_ = try await readUntil(contains: "</stream:features>")
+		buffer = ""
 		
 		try await sendRaw("<iq id=\"_xmpp_bind1\" type=\"set\"><bind xmlns=\"urn:ietf:params:xml:xmpp-bind\"><puuid-mode enabled=\"true\"/><resource>RC-VALORANT-SWIFT</resource></bind></iq>")
 		let bindResp = try await readUntil(contains: "_xmpp_bind1")
@@ -203,6 +232,13 @@ actor XMPPClient {
 		
 		try await sendRaw("<iq id=\"xmpp_entitlements_0\" type=\"set\"><entitlements xmlns=\"urn:riotgames:entitlements\"><token xmlns=\"\">\(escapeXML(ent))</token></entitlements></iq>")
 		_ = try await readUntil(contains: "xmpp_entitlements_0")
+		// drop handshake stanzas so the receive loop starts with a clean buffer
+		if let range = buffer.range(of: "xmpp_entitlements_0"),
+		   let close = buffer.range(of: "</iq>", range: range.upperBound..<buffer.endIndex) ?? buffer.range(of: "/>", range: range.upperBound..<buffer.endIndex) {
+			buffer.removeSubrange(buffer.startIndex..<close.upperBound)
+		} else {
+			buffer = ""
+		}
 		
 		await onEvent(.connected(myJID: myJID))
 		
@@ -268,29 +304,45 @@ actor XMPPClient {
 		try await sendRaw(open)
 	}
 	
-	private func awaitReady(connection: NWConnection) async throws {
+	private func awaitReady(connection: NWConnection, timeout: TimeInterval = 12) async throws {
 		final class StateBox: @unchecked Sendable {
+			let lock = NSLock()
 			var resolved = false
+			func resolve() -> Bool {
+				lock.lock(); defer { lock.unlock() }
+				if resolved { return false }
+				resolved = true
+				return true
+			}
 		}
 		let box = StateBox()
+		let host = region?.host ?? "chat server"
 		try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
 			connection.stateUpdateHandler = { state in
-				guard !box.resolved else { return }
 				switch state {
 				case .ready:
-					box.resolved = true
-					continuation.resume()
+					if box.resolve() { continuation.resume() }
 				case .failed(let err):
-					box.resolved = true
-					continuation.resume(throwing: XMPPError.connectionFailed(err.localizedDescription))
+					if box.resolve() { continuation.resume(throwing: XMPPError.connectionFailed(err.localizedDescription)) }
+				case .waiting(let err):
+					// e.g. DNS failure: NWConnection would otherwise wait forever
+					if box.resolve() {
+						connection.cancel()
+						continuation.resume(throwing: XMPPError.connectionFailed("\(host): \(err.localizedDescription)"))
+					}
 				case .cancelled:
-					box.resolved = true
-					continuation.resume(throwing: XMPPError.connectionClosed)
+					if box.resolve() { continuation.resume(throwing: XMPPError.connectionClosed) }
 				default:
 					break
 				}
 			}
 			connection.start(queue: queue)
+			queue.asyncAfter(deadline: .now() + timeout) {
+				if box.resolve() {
+					connection.cancel()
+					continuation.resume(throwing: XMPPError.timedOut("connecting to \(host)"))
+				}
+			}
 		}
 	}
 	
@@ -306,6 +358,22 @@ actor XMPPClient {
 					continuation.resume()
 				}
 			})
+		}
+	}
+	
+	/// Receives with a deadline: if nothing arrives in time the connection is cancelled, which fails the pending receive.
+	private func receiveChunk(timeout: TimeInterval) async throws -> String {
+		guard let connection else { throw XMPPError.connectionClosed }
+		let timer = DispatchWorkItem { connection.cancel() }
+		queue.asyncAfter(deadline: .now() + timeout, execute: timer)
+		defer { timer.cancel() }
+		do {
+			return try await receiveChunk()
+		} catch {
+			if timer.isCancelled == false, connection.state == .cancelled {
+				throw XMPPError.timedOut("reading from Riot Chat")
+			}
+			throw error
 		}
 	}
 	
@@ -331,9 +399,15 @@ actor XMPPClient {
 		try await readUntil(anyOf: [marker])
 	}
 	
-	private func readUntil(anyOf markers: [String]) async throws -> String {
+	private func readUntil(anyOf markers: [String], timeout: TimeInterval = 12) async throws -> String {
+		let deadline = Date().addingTimeInterval(timeout)
 		while !markers.contains(where: { buffer.contains($0) }) {
-			let chunk = try await receiveChunk()
+			if buffer.contains("<stream:error") || buffer.contains("</stream:stream>") {
+				throw XMPPError.connectionClosed
+			}
+			let remaining = deadline.timeIntervalSinceNow
+			guard remaining > 0 else { throw XMPPError.timedOut("waiting for \(markers.first ?? "response")") }
+			let chunk = try await receiveChunk(timeout: remaining)
 			buffer.append(chunk)
 			if buffer.utf8.count > maxBufferBytes {
 				throw XMPPError.bufferOverflow

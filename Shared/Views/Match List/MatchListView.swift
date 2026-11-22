@@ -20,6 +20,8 @@ struct MatchListView: View {
 	@Environment(\.assets) private var assets
 	@Environment(\.seasons) private var seasons
 	@EnvironmentObject private var bookmarkList: BookmarkList
+	@EnvironmentObject private var goalStore: SeasonGoalStore
+	@EnvironmentObject private var accountManager: AccountManager
 	
 	private var shownMatches: [CompetitiveUpdate] {
 		matchList?.matches ?? []
@@ -50,7 +52,8 @@ struct MatchListView: View {
 		let accolades = AccoladesCalculator.compute(
 			userID: userID,
 			matches: cachedMatchDetails,
-			act: currentAct
+			act: currentAct,
+			seasons: seasons
 		)
 		let sessions = SessionRecapBuilder.buildSessions(
 			userID: userID,
@@ -74,6 +77,19 @@ struct MatchListView: View {
 				AgentMasterySummaryBox(summaries: mastery, actEndDate: currentAct?.timeSpan.end)
 				
 				AccoladesSummaryBox(userID: userID, matches: cachedMatchDetails, report: accolades)
+				
+				if userID == accountManager.activeAccount?.id,
+				   let activeGoal = goalStore.goal(for: userID, actID: currentAct?.id),
+				   activeGoal.showsOnProfile {
+					let trajectory = SeasonGoalStore.compute(
+						goal: activeGoal,
+						summary: summary,
+						matchList: matchList,
+						currentAct: currentAct,
+						seasons: seasons
+					)
+					SeasonGoalProgressModule(goal: activeGoal, trajectory: trajectory, currentAct: currentAct)
+				}
 				
 				HStack(spacing: 12) {
 					NavigationLink {
@@ -498,6 +514,8 @@ struct MatchListView_Previews: PreviewProvider {
 		)
 		.withToolbar()
 		.environmentObject(BookmarkList())
+		.environmentObject(SeasonGoalStore())
+		.environmentObject(AccountManager.mocked)
 	}
 }
 #endif

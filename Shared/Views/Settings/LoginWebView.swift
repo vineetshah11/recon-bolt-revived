@@ -15,10 +15,15 @@ final class RiotLoginWebViewModel: NSObject, ObservableObject, WKNavigationDeleg
 	private var hasLoadedInitialURL = false
 	private var didCompleteAuth = false
 	
+	static let mobileSafariUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+	
 	override init() {
 		let config = WKWebViewConfiguration()
-		config.websiteDataStore = .nonPersistent()
+		// persistent store: iOS may suspend/evict the web content process while you're in Mail
+		// fetching the 2FA code; a non-persistent store loses the half-finished login when that happens.
+		config.websiteDataStore = .default()
 		let webView = WKWebView(frame: .zero, configuration: config)
+		webView.customUserAgent = Self.mobileSafariUserAgent
 		self.webView = webView
 		super.init()
 		webView.navigationDelegate = self
@@ -29,6 +34,25 @@ final class RiotLoginWebViewModel: NSObject, ObservableObject, WKNavigationDeleg
 		guard !hasLoadedInitialURL else { return }
 		hasLoadedInitialURL = true
 		reload()
+	}
+	
+	/// Called once when the user starts a new sign-in: drops previous Riot auth cookies (so another account can sign in), then loads the login page.
+	func startNewSession() {
+		hasLoadedInitialURL = true
+		didCompleteAuth = false
+		isLoading = true
+		let store = webView.configuration.websiteDataStore.httpCookieStore
+		store.getAllCookies { [weak self] cookies in
+			let authCookies = cookies.filter { $0.domain.contains("auth.riotgames.com") || $0.domain.contains("authenticate.riotgames.com") }
+			let group = DispatchGroup()
+			for cookie in authCookies {
+				group.enter()
+				store.delete(cookie) { group.leave() }
+			}
+			group.notify(queue: .main) {
+				MainActor.assumeIsolated { self?.reload() }
+			}
+		}
 	}
 	
 	func reload() {
@@ -120,6 +144,17 @@ final class RiotLoginWebViewModel: NSObject, ObservableObject, WKNavigationDeleg
 			if nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorCancelled { return }
 			self.isLoading = false
 			self.loadError = error.localizedDescription
+		}
+	}
+	
+	nonisolated func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+		// iOS killed the web process in the background: restore the *current* page rather than restarting the login.
+		Task { @MainActor in
+			if webView.url != nil {
+				webView.reload()
+			} else {
+				self.reload()
+			}
 		}
 	}
 	

@@ -41,9 +41,15 @@ final class AssetManager: ObservableObject {
 		isDownloading = true
 		defer { isDownloading = false }
 		
-		self.error = nil
+		// Only publish actual changes: this runs on every scene activation (e.g. returning from Mail
+		// during 2FA), and a spurious objectWillChange re-renders the whole app, including open sheets.
+		if self.error != nil { self.error = nil }
 		do {
-			assets = try await loadAssets()
+			let loaded = try await loadAssets()
+			if let current = assets, current.version == loaded.version, current.language == loaded.language, !current.flex.isEmpty {
+				return
+			}
+			assets = loaded
 		} catch {
 			self.error = error
 		}

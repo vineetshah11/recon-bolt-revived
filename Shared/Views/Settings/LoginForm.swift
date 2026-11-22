@@ -3,9 +3,8 @@ import ValorantAPI
 
 struct LoginForm: View {
 	@ObservedObject var accountManager: AccountManager
-	var credentials = Credentials()
+	@ObservedObject var webViewModel: RiotLoginWebViewModel
 	@State var isSigningIn = false
-	@StateObject private var webViewModel = RiotLoginWebViewModel()
 	
 	@Environment(\.loadWithErrorAlerts) private var load
 	@Environment(\.dismiss) private var dismiss
@@ -69,7 +68,7 @@ struct LoginForm: View {
 #if DEBUG
 struct LoginForm_Previews: PreviewProvider {
 	static var previews: some View {
-		LoginForm(accountManager: .mocked)
+		LoginForm(accountManager: .mocked, webViewModel: .init())
 			.withToolbar()
 	}
 }

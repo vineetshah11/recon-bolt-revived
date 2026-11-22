@@ -9,13 +9,16 @@ struct SettingsView: View {
 	@ObservedObject var store: InAppStore
 	
 	@StateObject var iconManager = AppIconManager()
+	/// Lives outside the `Form` so re-renders of the list (e.g. on scene activation) can never recreate the login sheet.
+	@State private var loginTarget: AccountSettingsView.LoginTarget?
+	@StateObject private var loginWebViewModel = RiotLoginWebViewModel()
 	
 	@Namespace private var storefrontID
 	
 	var body: some View {
 		ScrollViewReader { scrollView in
 			Form {
-				AccountSettingsView(accountManager: accountManager)
+				AccountSettingsView(accountManager: accountManager, loginTarget: $loginTarget)
 				
 				Section(header: Text("Settings", comment: "Settings: section")) {
 					mainSettings()
@@ -79,6 +82,14 @@ struct SettingsView: View {
 					scrollView.scrollTo(storefrontID, anchor: .center)
 				}
 			}
+		}
+		.sheet(item: $loginTarget) { _ in
+			LoginForm(accountManager: accountManager, webViewModel: loginWebViewModel)
+				.withLoadErrorAlerts()
+		}
+		.onChange(of: loginTarget) { target in
+			// fresh Riot login page only when a new sign-in starts, never on app/scene re-activation
+			if target != nil { loginWebViewModel.startNewSession() }
 		}
 		.navigationTitle("Settings")
 	}
