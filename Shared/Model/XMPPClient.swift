@@ -205,10 +205,13 @@ actor XMPPClient {
 		
 		// 1. Open XMPP stream & SASL auth
 		try await openStream(region: resolvedRegion)
-		_ = try await readUntil(contains: "X-Riot-RSO-PAS")
+		let featuresResp = try await readUntil(contains: "</stream:features>")
+		guard featuresResp.contains("X-Riot-RSO-PAS") else {
+			throw XMPPError.authenticationFailed
+		}
 		buffer = ""
 		
-		let authStanza = "<auth mechanism=\"X-Riot-RSO-PAS\" xmlns=\"urn:ietf:params:xml:xmpp-sasl\"><rso_token>\(escapeXML(rso))</rso_token><pas_token>\(escapeXML(pas))</pas_token></auth>"
+		let authStanza = "<auth mechanism=\"X-Riot-RSO-PAS\" xmlns=\"urn:ietf:params:xml:ns:xmpp-sasl\"><rso_token>\(escapeXML(rso))</rso_token><pas_token>\(escapeXML(pas))</pas_token></auth>"
 		try await sendRaw(authStanza)
 		let authResp = try await readUntil(anyOf: ["<success", "<failure"])
 		if authResp.contains("<failure") {
@@ -221,24 +224,17 @@ actor XMPPClient {
 		_ = try await readUntil(contains: "</stream:features>")
 		buffer = ""
 		
-		try await sendRaw("<iq id=\"_xmpp_bind1\" type=\"set\"><bind xmlns=\"urn:ietf:params:xml:xmpp-bind\"><puuid-mode enabled=\"true\"/><resource>RC-VALORANT-SWIFT</resource></bind></iq>")
-		let bindResp = try await readUntil(contains: "_xmpp_bind1")
+		try await sendRaw("<iq id=\"_xmpp_bind1\" type=\"set\"><bind xmlns=\"urn:ietf:params:xml:ns:xmpp-bind\"><puuid-mode enabled=\"true\"/><resource>RC-VALORANT-SWIFT</resource></bind></iq>")
+		let bindResp = try await readIQResponse(id: "_xmpp_bind1")
 		if let extractedJID = extractTagContent(from: bindResp, tag: "jid") {
 			self.myJID = extractedJID.components(separatedBy: "/").first ?? extractedJID
 		}
 		
-		try await sendRaw("<iq id=\"_xmpp_session1\" type=\"set\"><session xmlns=\"urn:ietf:params:xml:xmpp-session\"/></iq>")
-		_ = try await readUntil(contains: "_xmpp_session1")
+		try await sendRaw("<iq id=\"_xmpp_session1\" type=\"set\"><session xmlns=\"urn:ietf:params:xml:ns:xmpp-session\"/></iq>")
+		_ = try await readIQResponse(id: "_xmpp_session1")
 		
 		try await sendRaw("<iq id=\"xmpp_entitlements_0\" type=\"set\"><entitlements xmlns=\"urn:riotgames:entitlements\"><token xmlns=\"\">\(escapeXML(ent))</token></entitlements></iq>")
-		_ = try await readUntil(contains: "xmpp_entitlements_0")
-		// drop handshake stanzas so the receive loop starts with a clean buffer
-		if let range = buffer.range(of: "xmpp_entitlements_0"),
-		   let close = buffer.range(of: "</iq>", range: range.upperBound..<buffer.endIndex) ?? buffer.range(of: "/>", range: range.upperBound..<buffer.endIndex) {
-			buffer.removeSubrange(buffer.startIndex..<close.upperBound)
-		} else {
-			buffer = ""
-		}
+		_ = try await readIQResponse(id: "xmpp_entitlements_0")
 		
 		await onEvent(.connected(myJID: myJID))
 		
@@ -416,9 +412,52 @@ actor XMPPClient {
 		return buffer
 	}
 	
+	private func readIQResponse(id: String, timeout: TimeInterval = 12) async throws -> String {
+		let deadline = Date().addingTimeInterval(timeout)
+		while true {
+			if let iqStart = findIQStart(containingID: id, in: buffer) {
+				let searchRange = iqStart..<buffer.endIndex
+				let closeRange: Range<String.Index>? = {
+					if let closeIQ = buffer.range(of: "</iq>", range: searchRange) {
+						return closeIQ
+					}
+					if let selfClose = buffer.range(of: "/>", range: searchRange),
+					   let firstGT = buffer.range(of: ">", range: searchRange),
+					   selfClose.upperBound == firstGT.upperBound {
+						return selfClose
+					}
+					return nil
+				}()
+				if let closeRange {
+					let stanza = String(buffer[iqStart..<closeRange.upperBound])
+					buffer.removeSubrange(buffer.startIndex..<closeRange.upperBound)
+					return stanza
+				}
+			}
+			if buffer.contains("<stream:error") || buffer.contains("</stream:stream>") {
+				throw XMPPError.connectionClosed
+			}
+			let remaining = deadline.timeIntervalSinceNow
+			guard remaining > 0 else { throw XMPPError.timedOut("waiting for \(id)") }
+			let chunk = try await receiveChunk(timeout: remaining)
+			buffer.append(chunk)
+			if buffer.utf8.count > maxBufferBytes {
+				throw XMPPError.bufferOverflow
+			}
+		}
+	}
+	
+	private func findIQStart(containingID id: String, in xml: String) -> String.Index? {
+		guard let idRange = xml.range(of: id) else { return nil }
+		return xml.range(of: "<iq", options: .backwards, range: xml.startIndex..<idRange.lowerBound)?.lowerBound
+	}
+	
 	private func runReceiveLoop() async {
 		while isRunning && !Task.isCancelled {
 			do {
+				while let stanza = popNextStanza() {
+					await handleStanza(stanza)
+				}
 				let chunk = try await receiveChunk()
 				buffer.append(chunk)
 				if buffer.utf8.count > maxBufferBytes {
@@ -526,8 +565,16 @@ actor XMPPClient {
 			let puuidStr = extractAttribute("puuid", from: itemXML) ?? jid.components(separatedBy: "@").first
 			let puuid = puuidStr.flatMap(User.ID.init)
 			let subscription = extractAttribute("subscription", from: itemXML) ?? "both"
-			let gameName = unescapeXML(extractAttribute("name", from: itemXML) ?? extractNestedAttribute("id", attr: "name", from: itemXML) ?? "")
-			let tagLine = unescapeXML(extractAttribute("tagline", from: itemXML) ?? extractNestedAttribute("id", attr: "tagline", from: itemXML) ?? "")
+			let gameName = unescapeXML(
+				extractNestedAttribute("id", attr: "name", from: itemXML)
+				?? extractNestedAttribute("item", attr: "name", from: itemXML)
+				?? ""
+			)
+			let tagLine = unescapeXML(
+				extractNestedAttribute("id", attr: "tagline", from: itemXML)
+				?? extractNestedAttribute("item", attr: "tagline", from: itemXML)
+				?? ""
+			)
 			
 			guard !jid.isEmpty else { continue }
 			result.append(XMPPFriend(
