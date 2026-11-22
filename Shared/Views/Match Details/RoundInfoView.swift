@@ -154,7 +154,7 @@ extension String {
 
 extension RoundEvent {
 	func formattedTime() -> AnyView {
-		AnyView(Recon_Bolt.formattedTime(millis: roundTimeMillis))
+		AnyView(ReconBolt.formattedTime(millis: roundTimeMillis))
 	}
 }
 

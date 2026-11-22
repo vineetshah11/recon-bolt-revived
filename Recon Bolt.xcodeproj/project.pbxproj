@@ -99,6 +99,7 @@
 		B941B69B25A62FFB00F675C1 /* UserDefault in Frameworks */ = {isa = PBXBuildFile; productRef = B941B69A25A62FFB00F675C1 /* UserDefault */; };
 		B941B6DE25A7BC3800F675C1 /* View+Styling.swift in Sources */ = {isa = PBXBuildFile; fileRef = B941B6DD25A7BC3800F675C1 /* View+Styling.swift */; };
 		B941B6E525A7C48300F675C1 /* LoginForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = B941B6E425A7C48300F675C1 /* LoginForm.swift */; };
+		AA11BB223344556677889901 /* LoginWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA11BB223344556677889900 /* LoginWebView.swift */; };
 		B941B6EC25A7C83700F675C1 /* example_updates.json in Resources */ = {isa = PBXBuildFile; fileRef = B941B6EB25A7C83700F675C1 /* example_updates.json */; };
 		B94288A129F7A97700F9415B /* MediaSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B94288A029F7A97700F9415B /* MediaSheets.swift */; };
 		B94288A329F7A99900F9415B /* SkinDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B94288A229F7A99900F9415B /* SkinDetailsView.swift */; };
@@ -480,6 +481,7 @@
 		B941B65525A5BC8A00F675C1 /* macOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = macOS.entitlements; sourceTree = "<group>"; };
 		B941B6DD25A7BC3800F675C1 /* View+Styling.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "View+Styling.swift"; sourceTree = "<group>"; };
 		B941B6E425A7C48300F675C1 /* LoginForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginForm.swift; sourceTree = "<group>"; };
+		AA11BB223344556677889900 /* LoginWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginWebView.swift; sourceTree = "<group>"; };
 		B941B6EB25A7C83700F675C1 /* example_updates.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = example_updates.json; sourceTree = "<group>"; };
 		B94288A029F7A97700F9415B /* MediaSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSheets.swift; sourceTree = "<group>"; };
 		B94288A229F7A99900F9415B /* SkinDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinDetailsView.swift; sourceTree = "<group>"; };
@@ -1303,6 +1305,7 @@
 			isa = PBXGroup;
 			children = (
 				B941B6E425A7C48300F675C1 /* LoginForm.swift */,
+				AA11BB223344556677889900 /* LoginWebView.swift */,
 				B9F66ACD266DC31E008560FD /* SettingsView.swift */,
 				B9DCC24228C96F5400C03B90 /* AboutScreen.swift */,
 				B9DCC24028C96EF900C03B90 /* AssetsInfoView.swift */,
@@ -1742,6 +1745,7 @@
 				B9B11A6328D8F847006EC232 /* Keychain.swift in Sources */,
 				B9EE6E6E26594374007E28B5 /* KillBreakdownView.swift in Sources */,
 				B941B6E525A7C48300F675C1 /* LoginForm.swift in Sources */,
+				AA11BB223344556677889901 /* LoginWebView.swift in Sources */,
 				B9131D65266AF6C600E85F46 /* ReferenceView.swift in Sources */,
 				B95B1A4C269CE1810080EC81 /* ScoreSummaryView.swift in Sources */,
 				B94091B825D09F0200EE5DF2 /* MatchListView.swift in Sources */,
@@ -2394,7 +2398,7 @@
 				DEVELOPMENT_TEAM = V2EPDFA9PV;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = iOS/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -2425,7 +2429,7 @@
 				DEVELOPMENT_TEAM = V2EPDFA9PV;
 				ENABLE_PREVIEWS = YES;
 				INFOPLIST_FILE = iOS/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
