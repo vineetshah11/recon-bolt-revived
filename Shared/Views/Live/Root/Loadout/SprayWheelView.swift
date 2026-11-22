@@ -34,7 +34,7 @@ struct SprayWheelView: View {
 					} label: {
 						ZStack {
 							sliceShape
-								.fill(Color.secondaryGroupedBackground)
+								.fill(Color.tertiaryGroupedBackground)
 							sliceShape
 								.stroke(Color.separator, lineWidth: 1.5)
 							

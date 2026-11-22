@@ -102,9 +102,17 @@ struct ExpressionPicker: View {
 	
 	@ViewBuilder
 	private var flexSection: some View {
-		let allFlex = Array((assets?.flex ?? [:]).values)
+		let allFlex = Array((assets?.flex ?? [:]).values).filter { $0.id != .none }
+		let ownedFlexIDs: Set<Totem.ID> = {
+			var set = inventory.totems.union(FlexInfo.defaultItems)
+			if let equipped = selection.totem, equipped != .none {
+				set.insert(equipped)
+			}
+			set.remove(.none)
+			return set
+		}()
 		let items = allFlex
-			.filter { !ownedOnly || inventory.totems.contains($0.id) }
+			.filter { !ownedOnly || ownedFlexIDs.contains($0.id) }
 			.filter { search.isEmpty || $0.displayName.localizedCaseInsensitiveContains(search) }
 			.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
 		
@@ -114,7 +122,7 @@ struct ExpressionPicker: View {
 					.foregroundStyle(.secondary)
 			} else {
 				ForEach(items) { flex in
-					let isOwned = inventory.totems.contains(flex.id)
+					let isOwned = ownedFlexIDs.contains(flex.id)
 					SelectableRow(
 						isSelected: selection.totem == flex.id,
 						select: {
@@ -141,7 +149,8 @@ struct ExpressionPicker: View {
 				}
 			}
 		} footer: {
-			Text("\(inventory.totems.count)/\(allFlex.count) flex owned")
+			let ownedCount = allFlex.filter { ownedFlexIDs.contains($0.id) }.count
+			Text("\(ownedCount)/\(allFlex.count) flex owned")
 		}
 	}
 }

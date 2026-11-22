@@ -60,7 +60,7 @@ final class AssetManager: ObservableObject {
 	static let mockEmpty = AssetManager(assets: nil)
 	#endif
 	
-	private static let currentSchemaVersion = 3
+	private static let currentSchemaVersion = 4
 	
 	private func loadAssets() async throws -> AssetCollection {
 		let language = languageOverride
@@ -73,7 +73,8 @@ final class AssetManager: ObservableObject {
 			storage.schemaVersion == Self.currentSchemaVersion,
 			let stored = storage.assets,
 			stored.version == version,
-			stored.language == language
+			stored.language == language,
+			!stored.flex.isEmpty
 		{
 			return stored
 		} else {

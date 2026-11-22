@@ -4,20 +4,38 @@ import ValorantAPI
 struct AgentMasterySectionView: View {
 	var summaries: [AgentMasterySummary]
 	var actEndDate: Date?
+	var isEmbedded: Bool = false
 	
 	var body: some View {
 		VStack(alignment: .leading, spacing: 12) {
-			HStack {
-				Text("Agent Mastery")
-					.font(.headline)
-				Spacer()
+			if isEmbedded {
 				if let actEndDate, actEndDate > Date() {
-					HStack(spacing: 4) {
-						CountdownText(target: actEndDate)
-						Image(systemName: "clock")
+					HStack {
+						Text("Current Act")
+							.font(.caption.weight(.semibold))
+							.foregroundStyle(.secondary)
+						Spacer()
+						HStack(spacing: 4) {
+							CountdownText(target: actEndDate)
+							Image(systemName: "clock")
+						}
+						.font(.caption.monospacedDigit())
+						.foregroundStyle(.secondary)
 					}
-					.font(.caption.monospacedDigit())
-					.foregroundStyle(.secondary)
+				}
+			} else {
+				HStack {
+					Text("Agent Mastery")
+						.font(.headline)
+					Spacer()
+					if let actEndDate, actEndDate > Date() {
+						HStack(spacing: 4) {
+							CountdownText(target: actEndDate)
+							Image(systemName: "clock")
+						}
+						.font(.caption.monospacedDigit())
+						.foregroundStyle(.secondary)
+					}
 				}
 			}
 			
@@ -25,7 +43,7 @@ struct AgentMasterySectionView: View {
 				NavigationLink {
 					AgentMasteryDetailView(summary: top, actEndDate: actEndDate)
 				} label: {
-					AgentMasteryHeroCard(summary: top)
+					AgentMasteryHeroCard(summary: top, isEmbedded: isEmbedded)
 				}
 				.buttonStyle(.plain)
 			} else {
@@ -52,13 +70,19 @@ struct AgentMasterySectionView: View {
 						.font(.subheadline.weight(.medium))
 						.frame(maxWidth: .infinity)
 						.padding(.vertical, 10)
-						.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 10))
+						.background(
+							isEmbedded ? Color.secondaryGroupedBackground : Color.tertiaryGroupedBackground,
+							in: RoundedRectangle(cornerRadius: 10)
+						)
 				}
 				.buttonStyle(.plain)
 			}
 		}
-		.padding(14)
-		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14))
+		.padding(isEmbedded ? 0 : 14)
+		.background(
+			isEmbedded ? Color.clear : Color.secondaryGroupedBackground,
+			in: RoundedRectangle(cornerRadius: 14)
+		)
 	}
 	
 	private func compactRow(for summary: AgentMasterySummary) -> some View {
@@ -114,9 +138,14 @@ struct AgentMasterySectionView: View {
 struct AgentMasteryHeroCard: View {
 	var summary: AgentMasterySummary
 	var showProgressBar: Bool = true
+	var isEmbedded: Bool = false
 	
 	var body: some View {
-		VStack(alignment: .leading, spacing: 12) {
+		let cardBackground: Color = showProgressBar
+			? (isEmbedded ? Color.secondaryGroupedBackground : Color.tertiaryGroupedBackground.opacity(0.65))
+			: .clear
+		
+		VStack(alignment: .leading, spacing: showProgressBar ? 0 : 12) {
 			ZStack(alignment: .bottomTrailing) {
 				HStack(alignment: .center) {
 					VStack(alignment: .leading, spacing: 6) {
@@ -155,7 +184,9 @@ struct AgentMasteryHeroCard: View {
 			}
 			.background(
 				LinearGradient(
-					colors: [Color.secondaryGroupedBackground, Color.tertiaryGroupedBackground],
+					colors: showProgressBar
+						? [Color.white.opacity(0.05), Color.clear]
+						: [Color.secondaryGroupedBackground, Color.tertiaryGroupedBackground],
 					startPoint: .topLeading,
 					endPoint: .bottomTrailing
 				),
@@ -163,21 +194,31 @@ struct AgentMasteryHeroCard: View {
 			)
 			
 			if showProgressBar {
-				Text("\(summary.xpInCurrentLevel.formatted()) / \(summary.nextLevelMPNeeded.formatted()) MP to Act Level \(summary.currentActLevel + 1)")
-					.font(.caption.monospacedDigit())
-					.foregroundStyle(.secondary)
-				
-				MasterySegmentedBar(
-					actLevel: summary.currentActLevel,
-					inLevelProgress: summary.levelProgress
-				)
+				VStack(alignment: .leading, spacing: 8) {
+					Text("\(summary.xpInCurrentLevel.formatted()) / \(summary.nextLevelMPNeeded.formatted()) MP to Act Level \(summary.currentActLevel + 1)")
+						.font(.caption.monospacedDigit())
+						.foregroundStyle(.secondary)
+					
+					MasterySegmentedBar(
+						actLevel: summary.currentActLevel,
+						inLevelProgress: summary.levelProgress
+					)
+				}
+				.padding(.horizontal, 12)
+				.padding(.bottom, 12)
+				.padding(.top, 4)
 			}
 		}
-		.padding(showProgressBar ? 12 : 0)
 		.background(
-			showProgressBar ? Color.tertiaryGroupedBackground.opacity(0.65) : Color.clear,
-			in: RoundedRectangle(cornerRadius: 12)
+			cardBackground,
+			in: RoundedRectangle(cornerRadius: 12, style: .continuous)
 		)
+		.overlay {
+			if showProgressBar {
+				RoundedRectangle(cornerRadius: 12, style: .continuous)
+					.stroke(Color.separator.opacity(0.35), lineWidth: 0.5)
+			}
+		}
 	}
 }
 

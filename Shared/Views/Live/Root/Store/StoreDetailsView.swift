@@ -286,7 +286,7 @@ struct StoreDetailsView: View {
 				.foregroundStyle(.secondary)
 		}
 		.padding(12)
-		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
+		.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
 	}
 }
 

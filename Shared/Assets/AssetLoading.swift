@@ -17,7 +17,7 @@ extension AssetClient {
 		async let seasons = getSeasons()
 		async let sprays = getSprayInfo()
 		async let buddies = getBuddyInfo()
-		async let flex = (try? getFlexInfo()) ?? []
+		async let flex = ((try? getFlexInfo()) ?? []).filter { $0.id != .none }
 		async let currencies = getCurrencyInfo()
 		async let bundles = getBundleInfo()
 		async let contentTiers = getContentTiers()

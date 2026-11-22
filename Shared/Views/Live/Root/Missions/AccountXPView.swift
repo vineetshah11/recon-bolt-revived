@@ -18,7 +18,7 @@ struct AccountXPView: View {
 				.foregroundStyle(.secondary)
 				.frame(maxWidth: .infinity, alignment: .leading)
 				.padding(14)
-				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14))
+				.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14))
 		}
 	}
 	
@@ -85,7 +85,7 @@ struct AccountXPView: View {
 			}
 		}
 		.padding(14)
-		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14))
+		.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14))
 	}
 	
 	@ViewBuilder
@@ -133,7 +133,7 @@ struct AccountXPView: View {
 							}
 						}
 						.padding(10)
-						.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 10))
+						.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 10))
 					}
 				}
 				
@@ -158,7 +158,7 @@ struct AccountXPView: View {
 				}
 			}
 			.padding(14)
-			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14))
+			.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14))
 		}
 	}
 	

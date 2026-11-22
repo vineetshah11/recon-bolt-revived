@@ -34,23 +34,77 @@ struct LoadoutDetailsView: View {
 			}
 		}
 		
-		VStack(spacing: 12) {
+		VStack(spacing: 14) {
 			cardSection(loadoutBinding)
 			
-			changeTitleRow(loadoutBinding)
+			// Block 1: Title, Weapon Loadout & Privacy Settings
+			LoadoutBlockCard {
+				changeTitleRow(loadoutBinding)
+				
+				Divider()
+					.padding(.leading, 50)
+				
+				weaponLoadoutRow(loadoutBinding)
+				
+				Divider()
+					.padding(.leading, 50)
+				
+				privacySettingsSection(loadoutBinding)
+			}
 			
-			weaponLoadoutRow(loadoutBinding)
+			// Block 2: Presets & Randomize
+			LoadoutBlockCard {
+				NavigationLink {
+					LoadoutPresetsView(loadout: loadoutBinding, inventory: inventory, favoritesOnly: false)
+				} label: {
+					LoadoutActionRow(icon: "square.stack.3d.up.fill", title: "Loadout Presets")
+				}
+				.buttonStyle(.plain)
+				
+				Divider()
+					.padding(.leading, 50)
+				
+				NavigationLink {
+					LoadoutPresetsView(loadout: loadoutBinding, inventory: inventory, favoritesOnly: true)
+				} label: {
+					LoadoutActionRow(icon: "star.square.on.square.fill", title: "Favorites Presets")
+				}
+				.buttonStyle(.plain)
+				
+				Divider()
+					.padding(.leading, 50)
+				
+				Button {
+					showingRandomizeDialog = true
+				} label: {
+					LoadoutActionRow(
+						icon: "dice.fill",
+						title: isRandomizing ? "Randomizing..." : "Randomize",
+						showChevron: false
+					)
+				}
+				.buttonStyle(.plain)
+				.disabled(isRandomizing)
+			}
 			
-			privacySettingsBox(loadoutBinding)
-			
-			presetsRows(loadoutBinding)
+			// Block 3: Standalone Share action
+			LoadoutBlockCard {
+				Button {
+					showingShareSheet = true
+				} label: {
+					LoadoutActionRow(icon: "square.and.arrow.up", title: "Share")
+				}
+				.buttonStyle(.plain)
+			}
+			.padding(.top, 4)
 			
 			Divider()
-				.padding(.vertical, 4)
+				.padding(.vertical, 2)
 			
 			SprayWheelView(expressions: loadoutBinding.expressions, inventory: inventory)
 				.padding(.vertical, 4)
 		}
+		.padding(14)
 		.withLocalData($summary, id: loadout.subject)
 		.confirmationDialog(
 			"Randomize Loadout",
@@ -117,7 +171,7 @@ struct LoadoutDetailsView: View {
 		.buttonStyle(.plain)
 	}
 	
-	private func privacySettingsBox(_ loadoutBinding: Binding<UpdatableLoadout>) -> some View {
+	private func privacySettingsSection(_ loadoutBinding: Binding<UpdatableLoadout>) -> some View {
 		VStack(spacing: 0) {
 			Button {
 				withAnimation(.easeInOut(duration: 0.2)) {
@@ -135,14 +189,13 @@ struct LoadoutDetailsView: View {
 						.font(.caption.weight(.semibold))
 						.foregroundStyle(.secondary)
 				}
-				.padding(14)
+				.padding(.horizontal, 14)
+				.padding(.vertical, 13)
+				.contentShape(Rectangle())
 			}
 			.buttonStyle(.plain)
 			
 			if privacyExpanded {
-				Divider()
-					.padding(.horizontal, 12)
-				
 				VStack(spacing: 12) {
 					privacyToggleRow(
 						title: "Incognito",
@@ -173,11 +226,12 @@ struct LoadoutDetailsView: View {
 						)
 					)
 				}
-				.padding(14)
-				.background(Color.secondaryGroupedBackground.opacity(0.6))
+				.padding(12)
+				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 10))
+				.padding(.horizontal, 12)
+				.padding(.bottom, 12)
 			}
 		}
-		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
 	}
 	
 	private func privacyToggleRow(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
@@ -192,43 +246,6 @@ struct LoadoutDetailsView: View {
 			}
 		}
 		.tint(Color.valorantRed)
-	}
-	
-	private func presetsRows(_ loadoutBinding: Binding<UpdatableLoadout>) -> some View {
-		VStack(spacing: 8) {
-			NavigationLink {
-				LoadoutPresetsView(loadout: loadoutBinding, inventory: inventory, favoritesOnly: false)
-			} label: {
-				LoadoutActionRow(icon: "square.stack.3d.up.fill", title: "Loadout Presets")
-			}
-			.buttonStyle(.plain)
-			
-			NavigationLink {
-				LoadoutPresetsView(loadout: loadoutBinding, inventory: inventory, favoritesOnly: true)
-			} label: {
-				LoadoutActionRow(icon: "star.square.on.square.fill", title: "Favorites Presets")
-			}
-			.buttonStyle(.plain)
-			
-			Button {
-				showingRandomizeDialog = true
-			} label: {
-				LoadoutActionRow(
-					icon: "dice.fill",
-					title: isRandomizing ? "Randomizing..." : "Randomize",
-					showChevron: false
-				)
-			}
-			.buttonStyle(.plain)
-			.disabled(isRandomizing)
-			
-			Button {
-				showingShareSheet = true
-			} label: {
-				LoadoutActionRow(icon: "square.and.arrow.up", title: "Share")
-			}
-			.buttonStyle(.plain)
-		}
 	}
 	
 	private func randomize(favoritesOnly: Bool) {
@@ -246,6 +263,24 @@ struct LoadoutDetailsView: View {
 				)
 				loadout = .init(try await client.updateLoadout(to: .init(randomized)))
 			}
+		}
+	}
+}
+
+private struct LoadoutBlockCard<Content: View>: View {
+	@ViewBuilder var content: Content
+	
+	var body: some View {
+		VStack(spacing: 0) {
+			content
+		}
+		.background(
+			Color.tertiaryGroupedBackground,
+			in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+		)
+		.overlay {
+			RoundedRectangle(cornerRadius: 14, style: .continuous)
+				.stroke(Color.separator.opacity(0.3), lineWidth: 0.5)
 		}
 	}
 }
@@ -283,8 +318,9 @@ private struct LoadoutActionRow<Trailing: View>: View {
 					.foregroundStyle(.secondary)
 			}
 		}
-		.padding(14)
-		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
+		.padding(.horizontal, 14)
+		.padding(.vertical, 13)
+		.contentShape(Rectangle())
 	}
 }
 
