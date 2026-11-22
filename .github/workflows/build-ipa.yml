@@ -26,7 +26,7 @@ jobs:
       - name: Build Recon Bolt (iOS) Archive
         run: |
           xcodebuild archive \
-            -scheme "Recon_Bolt" \
+            -scheme "Recon Bolt (iOS)" \
             -destination "generic/platform=iOS" \
             -archivePath "build/ReconBolt.xcarchive" \
             CODE_SIGNING_ALLOWED=NO \
