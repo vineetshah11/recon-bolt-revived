@@ -5,6 +5,7 @@ struct AccountSettingsView: View {
 	@ObservedObject var accountManager: AccountManager
 	
 	@Binding var loginTarget: LoginTarget?
+	var showSignOutButton: Bool = true
 	@State var isConfirmingSignOut = false
 	@Environment(\.ownsProVersion) private var ownsProVersion
 	
@@ -18,38 +19,43 @@ struct AccountSettingsView: View {
 				legalBoilerplate
 			}
 			
-			Section {
-				if accountManager.activeAccount?.session.hasExpired == true {
-					HStack {
-						Text("Session expired!", comment: "Account Settings: shown when the current account's session has expired")
-						Spacer()
-						Button {
-							loginTarget = .sessionRefresh
-						} label: {
-							Text("Refresh", comment: "Account Settings: button to refresh expired session")
+			let isExpired = accountManager.activeAccount?.session.hasExpired == true
+			if isExpired || showSignOutButton {
+				Section {
+					if isExpired {
+						HStack {
+							Text("Session expired!", comment: "Account Settings: shown when the current account's session has expired")
+							Spacer()
+							Button {
+								loginTarget = .sessionRefresh
+							} label: {
+								Text("Refresh", comment: "Account Settings: button to refresh expired session")
+							}
+							.font(.body.bold())
 						}
-						.font(.body.bold())
 					}
-				}
-				
-				Button {
-					isConfirmingSignOut = true
-				} label: {
-					Text("Sign Out of All Accounts", comment: "Account Settings: button")
-				}
-				.disabled(accountManager.storedAccounts.isEmpty)
-				.confirmationDialog(
-					Text("Are You Sure?", comment: "Account Settings: title for alert to confirm signing out of all accounts—not always visible; iOS decides when to show this"),
-					isPresented: $isConfirmingSignOut
-				) {
-					Button(role: .destructive) {
-						accountManager.clear()
-					} label: {
-						Text("Sign Out", comment: "Account Settings: button in alert to confirm signing out of all accounts")
+					
+					if showSignOutButton {
+						Button {
+							isConfirmingSignOut = true
+						} label: {
+							Text("Sign Out of All Accounts", comment: "Account Settings: button")
+						}
+						.disabled(accountManager.storedAccounts.isEmpty)
+						.confirmationDialog(
+							Text("Are You Sure?", comment: "Account Settings: title for alert to confirm signing out of all accounts—not always visible; iOS decides when to show this"),
+							isPresented: $isConfirmingSignOut
+						) {
+							Button(role: .destructive) {
+								accountManager.clear()
+							} label: {
+								Text("Sign Out", comment: "Account Settings: button in alert to confirm signing out of all accounts")
+							}
+						}
 					}
+				} header: {
+					Text("Management", comment: "Settings: section")
 				}
-			} header: {
-				Text("Management", comment: "Settings: section")
 			}
 		}
 	}
@@ -103,9 +109,14 @@ struct AccountSettingsView: View {
 			.frame(maxWidth: .infinity, alignment: .leading)
 	}
 	
-	init(accountManager: AccountManager, loginTarget: Binding<LoginTarget?> = .constant(nil)) {
+	init(
+		accountManager: AccountManager,
+		loginTarget: Binding<LoginTarget?> = .constant(nil),
+		showSignOutButton: Bool = true
+	) {
 		self.accountManager = accountManager
 		self._loginTarget = loginTarget
+		self.showSignOutButton = showSignOutButton
 	}
 	
 	enum LoginTarget: Hashable, Identifiable {

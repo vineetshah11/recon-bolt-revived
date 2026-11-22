@@ -51,6 +51,10 @@ final class BookmarkList: ObservableObject {
 		}
 	}
 	
+	func clearAll() {
+		bookmarks = []
+	}
+	
 	struct Entry: Hashable, Identifiable, Codable, DefaultsValueConvertible {
 		let user: User.ID
 		let location: Location

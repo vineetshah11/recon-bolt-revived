@@ -39,7 +39,7 @@ struct MultifactorPromptView: View {
 			.padding(.vertical)
 			
 			if didSessionExpire {
-				Text("Your session has expired! Recon Bolt has tried to refresh it for you, but needs 2FA confirmation.")
+				Text("Your session has expired! Vantage has tried to refresh it for you, but needs 2FA confirmation.")
 					.frame(maxWidth: .infinity, alignment: .leading)
 				Color.clear.frame(height: 0)
 			}

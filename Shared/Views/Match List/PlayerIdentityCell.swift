@@ -8,6 +8,8 @@ struct PlayerIdentityCell: View {
 	
 	@Environment(\.assets) private var assets
 	@Environment(\.shouldAnonymize) private var shouldAnonymize
+	@AppStorage("UserLabel.canCopy") private var canCopy = true
+	@State private var didCopyName = false
 	
 	var body: some View {
 		VStack(spacing: 0) {
@@ -19,11 +21,32 @@ struct PlayerIdentityCell: View {
 						
 						Text("#\(user.tagLine)")
 							.foregroundStyle(.secondary)
+						
+						if didCopyName {
+							Label("Copied", systemImage: "checkmark.circle.fill")
+								.font(.caption.weight(.semibold))
+								.foregroundStyle(.green)
+								.padding(.leading, 4)
+						}
 					} else {
 						Text("Player")
 							.fontWeight(.semibold)
 							.foregroundStyle(.secondary)
 							.placeholder(if: user == nil)
+					}
+				}
+				.contentShape(Rectangle())
+				.onTapGesture {
+					guard canCopy, let user, !shouldAnonymize(user.id) else { return }
+					UIPasteboard.general.string = "\(user.gameName)#\(user.tagLine)"
+					UIImpactFeedbackGenerator(style: .light).impactOccurred()
+					withAnimation {
+						didCopyName = true
+					}
+					DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) {
+						withAnimation {
+							didCopyName = false
+						}
 					}
 				}
 				

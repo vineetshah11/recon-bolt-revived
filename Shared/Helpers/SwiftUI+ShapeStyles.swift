@@ -57,7 +57,7 @@ struct _AccentedOrFadedForegroundStyle: ShapeStyle {
 	
 	func _apply(to shape: inout _ShapeStyle_Shape) {
 		if isAccented {
-			Color.accentColor._apply(to: &shape)
+			TintShapeStyle.tint._apply(to: &shape)
 		} else {
 			// quaternary would be perfect for this but for some reason it's more opaque in widgets specifically??
 			HierarchicalShapeStyle.primary.opacity(0.1)._apply(to: &shape)

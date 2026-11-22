@@ -22,6 +22,7 @@ struct MatchListView: View {
 	@EnvironmentObject private var bookmarkList: BookmarkList
 	@EnvironmentObject private var goalStore: SeasonGoalStore
 	@EnvironmentObject private var accountManager: AccountManager
+	@EnvironmentObject private var settings: AppSettings
 	
 	private var shownMatches: [CompetitiveUpdate] {
 		matchList?.matches ?? []
@@ -159,9 +160,15 @@ struct MatchListView: View {
 						.padding(.leading, 4)
 						.padding(.top, 4)
 					
-					LazyVStack(spacing: 12) {
+					LazyVStack(spacing: settings.isCompactListStyle ? 4 : 12) {
 						ForEach(shownMatches) { match in
-							MatchCell(match: match, userID: userID, filter: filter, inList: false)
+							MatchCell(
+								match: match,
+								userID: userID,
+								filter: filter,
+								inList: false,
+								isCompact: settings.isCompactListStyle
+							)
 						}
 					}
 					
@@ -516,6 +523,7 @@ struct MatchListView_Previews: PreviewProvider {
 		.environmentObject(BookmarkList())
 		.environmentObject(SeasonGoalStore())
 		.environmentObject(AccountManager.mocked)
+		.environmentObject(AppSettings())
 	}
 }
 #endif

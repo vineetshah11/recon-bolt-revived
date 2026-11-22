@@ -21,6 +21,8 @@ extension AssetClient {
 		async let currencies = getCurrencyInfo()
 		async let bundles = getBundleInfo()
 		async let contentTiers = getContentTiers()
+		async let levelBorders = (try? getLevelBorders()) ?? []
+		
 		// this seems to be what skins are actually referred to by…
 		let skinsByLevelID = try await Dictionary(
 			uniqueKeysWithValues: weapons.lazy.flatMap { weapon in
@@ -60,7 +62,8 @@ extension AssetClient {
 			currencies: .init(values: currencies),
 			bundles: .init(values: bundles),
 			contentTiers: .init(values: contentTiers),
-			flex: .init(values: flex)
+			flex: .init(values: flex),
+			levelBorders: .init(values: levelBorders)
 		)
 	}
 }

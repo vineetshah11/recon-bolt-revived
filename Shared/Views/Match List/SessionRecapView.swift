@@ -214,7 +214,7 @@ struct SessionRecapView: View {
 	}
 }
 
-// MARK: - Valpaw Hero Recap Card
+// MARK: - Hero Recap Card
 
 private struct SessionRecapCard: View {
 	let session: PlaySession

@@ -49,13 +49,19 @@ struct PlayerSettingsSnapshotsView: View {
 						Label("Save Current Cloud Settings Snapshot", systemImage: "square.and.arrow.down")
 					}
 				} else if let cloudError {
-					VStack(alignment: .leading, spacing: 4) {
+					VStack(alignment: .leading, spacing: 8) {
 						Text("Unavailable")
 							.font(.subheadline.weight(.semibold))
 							.foregroundStyle(.orange)
 						Text(cloudError)
 							.font(.caption)
 							.foregroundStyle(.secondary)
+						Button {
+							Task { await fetchCloudSettings() }
+						} label: {
+							Label("Retry", systemImage: "arrow.clockwise")
+								.font(.subheadline.weight(.medium))
+						}
 					}
 				}
 			} header: {

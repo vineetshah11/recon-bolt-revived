@@ -12,21 +12,44 @@ struct SettingsView: View {
 	/// Lives outside the `Form` so re-renders of the list (e.g. on scene activation) can never recreate the login sheet.
 	@State private var loginTarget: AccountSettingsView.LoginTarget?
 	@StateObject private var loginWebViewModel = RiotLoginWebViewModel()
+	@State private var showingAccentColorPicker = false
 	
 	@Namespace private var storefrontID
 	
 	var body: some View {
 		ScrollViewReader { scrollView in
 			Form {
-				AccountSettingsView(accountManager: accountManager, loginTarget: $loginTarget)
+				AccountSettingsView(
+					accountManager: accountManager,
+					loginTarget: $loginTarget,
+					showSignOutButton: false
+				)
 				
 				Section(header: Text("Settings", comment: "Settings: section")) {
 					mainSettings()
+				}
+				
+				Section {
+					NavigationLink {
+						StorageView(accountManager: accountManager, assetManager: assetManager, settings: settings)
+					} label: {
+						Label {
+							Text("Storage and Data")
+						} icon: {
+							Image(systemName: "arrow.up.arrow.down")
+								.foregroundStyle(.tint)
+						}
+					}
 					
 					NavigationLink {
-						AdvancedSettingsView(accountManager: accountManager, assetManager: assetManager)
+						AdvancedSettingsView(accountManager: accountManager, assetManager: assetManager, settings: settings)
 					} label: {
-						Label("Advanced Settings", systemImage: "gearshape.2")
+						Label {
+							Text("Advanced Settings")
+						} icon: {
+							Image(systemName: "slider.horizontal.3")
+								.foregroundStyle(.tint)
+						}
 					}
 				}
 				
@@ -49,7 +72,7 @@ struct SettingsView: View {
 							HStack {
 								Text("Agent to Instalock", comment: "Settings: picker for the agent that gets locked in")
 								Spacer()
-								Text(instalockAgentName)
+								Text(settings.instalockAgent.flatMap { assetManager.assets?.agents[$0]?.displayName } ?? String(localized: "Not Selected", comment: "Instalock Agent: no agent chosen"))
 									.foregroundStyle(.secondary)
 							}
 						} icon: {
@@ -63,18 +86,19 @@ struct SettingsView: View {
 					Text("When enabled, Vantage locks in the chosen agent as soon as Agent Select starts. This only works while the Agent Select screen is open (turn on auto-show for live matches to make it automatic), and only for agents you own.", comment: "Settings: instalock explanation")
 				}
 
-				Section(String(localized: "In-App Store", defaultValue: "Store", comment: "Settings: section")) {
-					InAppStorefront(store: store)
-						.id(storefrontID)
-				}
-				
 				Section(header: Text("About", comment: "Settings: section")) {
 					NavigationLink {
 						AboutScreen()
 					} label: {
-						Label("About Vantage", systemImage: "questionmark")
+						Label {
+							Text("About Vantage")
+						} icon: {
+							Image(systemName: "questionmark")
+								.foregroundStyle(.tint)
+						}
 					}
 				}
+				.id(storefrontID)
 			}
 			.deepLinkHandler { deepLink in
 				guard case .inApp(.storefront) = deepLink else { return }
@@ -89,7 +113,9 @@ struct SettingsView: View {
 		}
 		.onChange(of: loginTarget) { target in
 			// fresh Riot login page only when a new sign-in starts, never on app/scene re-activation
-			if target != nil { loginWebViewModel.startNewSession() }
+			if target != nil {
+				loginWebViewModel.startNewSession(clearWebData: settings.clearWebSignInDataOnOpen)
+			}
 		}
 		.navigationTitle("Settings")
 	}
@@ -106,6 +132,7 @@ struct SettingsView: View {
 				Text("Theme", comment: "Settings: picker")
 			} icon: {
 				Image(systemName: "sun.max")
+					.foregroundStyle(.tint)
 			}
 		}
 		
@@ -121,40 +148,172 @@ struct SettingsView: View {
 				}
 			} icon: {
 				Image(systemName: "square.dashed")
+					.foregroundStyle(.tint)
 			}
 		}
 		
-		Toggle(isOn: $settings.vibrateOnMatchFound) {
+		Button {
+			showingAccentColorPicker = true
+		} label: {
 			Label {
-				Text("Vibrate when Match Found", comment: "Settings: toggle")
+				HStack {
+					Text("Custom Accent Color")
+					Spacer()
+					Circle()
+						.fill(settings.effectiveAccentColor)
+						.frame(width: 24, height: 24)
+						.overlay {
+							Circle()
+								.strokeBorder(Color.primary.opacity(0.2), lineWidth: 1)
+						}
+				}
 			} icon: {
-				Image(systemName: "bell")
+				Image(systemName: "paintpalette")
+					.foregroundStyle(.tint)
 			}
 		}
+		.buttonStyle(.plain)
+		.background(
+			AccentColorPickerPresenter(isPresented: $showingAccentColorPicker, settings: settings)
+				.frame(width: 0, height: 0)
+		)
 		
-		Link(destination: URL(string: UIApplication.openSettingsURLString)!) {
-			NavigationLink {} label: { // i just want the chevron lol
-				Label {
-					HStack {
-						Text("Change Language", comment: "Settings: button")
-						Spacer()
-						Image(systemName: "link")
+		Button {
+			settings.resetAccentColor()
+		} label: {
+			Label {
+				HStack {
+					Text("Reset to Default Color")
+						.foregroundStyle(settings.hasCustomAccentColor ? Color.accentColor : Color.secondary)
+					Spacer()
+					if !settings.hasCustomAccentColor {
+						Text("Default")
 							.foregroundStyle(.secondary)
 					}
-				} icon: {
-					Image(systemName: "globe")
 				}
+			} icon: {
+				Image(systemName: "arrow.counterclockwise")
+					.foregroundStyle(settings.hasCustomAccentColor ? Color.accentColor : Color.secondary)
 			}
-			.tint(.primary)
+		}
+		.disabled(!settings.hasCustomAccentColor)
+	}
+}
+
+private extension AppSettings.Theme {
+	var name: Text {
+		switch self {
+		case .system:
+			return Text("Match System", comment: "App Theme: automatically match the system theme")
+		case .light:
+			return Text("Light Mode", comment: "App Theme")
+		case .dark:
+			return Text("Dark Mode", comment: "App Theme")
 		}
 	}
+}
 
-	var instalockAgentName: String {
-		guard let id = settings.instalockAgent else {
-			return String(localized: "Not Selected", comment: "Instalock Agent: no agent chosen")
+private struct AccentColorPickerPresenter: UIViewControllerRepresentable {
+	@Binding var isPresented: Bool
+	@ObservedObject var settings: AppSettings
+	
+	func makeCoordinator() -> Coordinator {
+		Coordinator(parent: self)
+	}
+	
+	func makeUIViewController(context: Context) -> UIViewController {
+		UIViewController()
+	}
+	
+	func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+		context.coordinator.parent = self
+		guard isPresented, context.coordinator.presentedPicker == nil else { return }
+		
+		let picker = UIColorPickerViewController()
+		picker.title = "Accent Color"
+		picker.supportsAlpha = false
+		picker.selectedColor = settings.pickerSelectedUIColor
+		picker.delegate = context.coordinator
+		picker.presentationController?.delegate = context.coordinator
+		
+		context.coordinator.initialComponents = settings.customAccentColorComponents
+		context.coordinator.didFinish = false
+		context.coordinator.presentedPicker = picker
+		
+		DispatchQueue.main.async {
+			let host: UIViewController?
+			if uiViewController.viewIfLoaded?.window != nil, uiViewController.presentedViewController == nil {
+				host = uiViewController
+			} else {
+				host = Self.topViewController()
+			}
+			guard let host, host.presentedViewController == nil else {
+				context.coordinator.presentedPicker = nil
+				isPresented = false
+				return
+			}
+			host.present(picker, animated: true)
 		}
-		return assetManager.assets?.agents[id]?.displayName
-			?? String(localized: "Unknown Agent", comment: "placeholder")
+	}
+	
+	private static func topViewController() -> UIViewController? {
+		let keyWindow = UIApplication.shared.connectedScenes
+			.compactMap { $0 as? UIWindowScene }
+			.flatMap(\.windows)
+			.first(where: \.isKeyWindow)
+			?? UIApplication.shared.connectedScenes
+			.compactMap { $0 as? UIWindowScene }
+			.flatMap(\.windows)
+			.first
+		var current = keyWindow?.rootViewController
+		while let presented = current?.presentedViewController {
+			current = presented
+		}
+		return current
+	}
+	
+	final class Coordinator: NSObject, UIColorPickerViewControllerDelegate, UIAdaptivePresentationControllerDelegate {
+		var parent: AccentColorPickerPresenter
+		weak var presentedPicker: UIColorPickerViewController?
+		var initialComponents = ""
+		var didFinish = false
+		
+		init(parent: AccentColorPickerPresenter) {
+			self.parent = parent
+		}
+		
+		func colorPickerViewController(
+			_ viewController: UIColorPickerViewController,
+			didSelect color: UIColor,
+			continuously: Bool
+		) {
+			Task { @MainActor [settings = parent.settings] in
+				settings.setCustomAccentColor(color)
+			}
+		}
+		
+		func colorPickerViewControllerDidFinish(_ viewController: UIColorPickerViewController) {
+			finishIfNeeded()
+		}
+		
+		func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+			finishIfNeeded()
+		}
+		
+		private func finishIfNeeded() {
+			guard !didFinish else { return }
+			didFinish = true
+			presentedPicker = nil
+			let settings = parent.settings
+			let initial = initialComponents
+			Task { @MainActor [weak self] in
+				self?.parent.isPresented = false
+				try? await Task.sleep(for: .milliseconds(180))
+				if settings.customAccentColorComponents != initial {
+					settings.reloadAppForAccentChange()
+				}
+			}
+		}
 	}
 }
 
@@ -174,13 +333,13 @@ private struct InstalockAgentPicker: View {
 				allItems: agents,
 				ownedItems: owned
 			) { agent in
-				SelectableRow(selection: $selection, item: agent.id) {
+				SelectableRow(isSelected: selection == agent.id, select: { selection = agent.id }) {
 					agent.displayIcon.view()
 						.frame(width: 48, height: 48)
 					Text(agent.displayName)
 				}
 			} deselector: {
-				SelectableRow(selection: $selection, item: nil) {
+				SelectableRow(isSelected: selection == nil, select: { selection = nil }) {
 					Label("No Instalock Agent", systemImage: "xmark")
 				}
 			}
@@ -203,81 +362,13 @@ extension AgentInfo: SearchableAsset {
 	var searchableText: String { displayName }
 }
 
-struct AdvancedSettingsView: View {
-	@ObservedObject var accountManager: AccountManager
-	@ObservedObject var assetManager: AssetManager
-	@StateObject var storageManager = StorageManager()
-	@State var hasRefreshedWidgets = false
-	
-	var body: some View {
-		Form {
-			Section {
-				NavigationLink("Manage Assets") {
-					AssetsInfoView(assetManager: assetManager)
-				}
-				
-				if let activeAccount = accountManager.activeAccount {
-					NavigationLink {
-						ClientLogView(client: activeAccount.client)
-					} label: {
-						Text("Request Log", comment: "Advanced Settings: button to open request log")
-					}
-				}
-				
-				NavigationLink {
-					StorageManagementView(manager: storageManager, accountManager: accountManager)
-						.withLoadErrorAlerts()
-				} label: {
-					HStack {
-						Text("Manage Local Storage")
-						Spacer()
-						if let total = try? storageManager.totalBytes?.get() {
-							Text(total, format: .byteCount(style: .file))
-								.foregroundStyle(.secondary)
-						}
-					}
-				}
-			}
-			
-			Section {
-				Button("Force Refresh Widgets") {
-					WidgetCenter.shared.reloadAllTimelines()
-					hasRefreshedWidgets = true
-				}
-			} footer: {
-				Text("If your widgets seem broken, use this button to request an immediate refresh from iOS.")
-			}
-			.alert("Widget Refresh Requested", isPresented: $hasRefreshedWidgets) {
-				Button("OK") {}
-			} message: {
-				Text("iOS is a bit finnicky about this, so widgets may not refresh right away—feel free to reboot your device if this doesn't help!")
-			}
-
-		}
-		.navigationTitle("Advanced Settings")
-	}
-}
-
-private extension AppSettings.Theme {
-	var name: Text {
-		switch self {
-		case .system:
-			return Text("Match System", comment: "App Theme: automatically match the system theme")
-		case .light:
-			return Text("Light Mode", comment: "App Theme")
-		case .dark:
-			return Text("Dark Mode", comment: "App Theme")
-		}
-	}
-}
-
 #if DEBUG
 struct SettingsView_Previews: PreviewProvider {
 	static var previews: some View {
 		SettingsView(accountManager: .mocked, assetManager: .forPreviews, settings: .init(), store: .init())
 			.withToolbar()
 		
-		AdvancedSettingsView(accountManager: .mocked, assetManager: .forPreviews)
+		AdvancedSettingsView(accountManager: .mocked, assetManager: .forPreviews, settings: .init())
 			.withToolbar()
 			.previewDisplayName("Advanced Settings")
 		

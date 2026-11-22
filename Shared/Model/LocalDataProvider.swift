@@ -134,6 +134,9 @@ extension ValorantClient {
 	}
 	
 	func autoFetchMatchListDetails(for matchList: MatchList) {
+		if let autoDownload = UserDefaults.standard.object(forKey: "MatchList.autoDownload") as? Bool, !autoDownload {
+			return
+		}
 		Task.detached { [self] in
 			guard let newestMatch = matchList.matches.first else { return }
 			

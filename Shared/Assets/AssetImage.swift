@@ -57,6 +57,8 @@ struct AssetImage: Hashable, Identifiable {
 		)
 		.appendingPathComponent("AssetImage", isDirectory: true)
 	
+	static var cacheFolderURL: URL { localFolder }
+	
 	private static let localFolder: URL = {
 		if let groupURL = fileManager.containerURL(forSecurityApplicationGroupIdentifier: "group.juliand665.Recon-Bolt.shared") {
 			return groupURL

@@ -36,22 +36,25 @@ final class RiotLoginWebViewModel: NSObject, ObservableObject, WKNavigationDeleg
 		reload()
 	}
 	
-	/// Called once when the user starts a new sign-in: drops previous Riot auth cookies (so another account can sign in), then loads the login page.
-	func startNewSession() {
+	static func clearAllWebsiteData() async {
+		await WKWebsiteDataStore.default().removeData(
+			ofTypes: WKWebsiteDataStore.allWebsiteDataTypes(),
+			modifiedSince: .distantPast
+		)
+	}
+	
+	/// Called once when the user starts a new sign-in: drops previous Riot/third-party web data if enabled, then loads the login page.
+	func startNewSession(clearWebData: Bool = true) {
 		hasLoadedInitialURL = true
 		didCompleteAuth = false
 		isLoading = true
-		let store = webView.configuration.websiteDataStore.httpCookieStore
-		store.getAllCookies { [weak self] cookies in
-			let authCookies = cookies.filter { $0.domain.contains("auth.riotgames.com") || $0.domain.contains("authenticate.riotgames.com") }
-			let group = DispatchGroup()
-			for cookie in authCookies {
-				group.enter()
-				store.delete(cookie) { group.leave() }
-			}
-			group.notify(queue: .main) {
-				MainActor.assumeIsolated { self?.reload() }
-			}
+		guard clearWebData else {
+			reload()
+			return
+		}
+		Task { @MainActor [weak self] in
+			await Self.clearAllWebsiteData()
+			self?.reload()
 		}
 	}
 	

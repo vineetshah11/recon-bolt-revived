@@ -8,8 +8,10 @@ struct MatchCell: View {
 	let userID: User.ID
 	let filter: MatchListFilter
 	var inList: Bool = true
+	var isCompact: Bool = false
 	
 	@LocalData var matchDetails: MatchDetails?
+	@AppStorage("MatchList.autoDownload") private var autoDownloadMatches = true
 	
 	@Environment(\.valorantLoad) private var load
 	@Environment(\.assets) private var assets
@@ -18,7 +20,7 @@ struct MatchCell: View {
 		matchInfo
 			.if(inList) { view in
 				view
-					.listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+					.listRowInsets(EdgeInsets(top: isCompact ? 3 : 6, leading: 16, bottom: isCompact ? 3 : 6, trailing: 16))
 					.listRowSeparator(.hidden)
 					.listRowBackground(Color.clear)
 					.swipeActions(edge: .leading) {
@@ -50,6 +52,12 @@ struct MatchCell: View {
 			}
 			.id(match.id)
 			.withLocalData($matchDetails, id: match.id)
+			.task(id: match.id) {
+				guard autoDownloadMatches, matchDetails == nil, match.mapID != nil else { return }
+				await load { client in
+					_ = try? await client.fetchMatchDetails(for: match.id)
+				}
+			}
 	}
 	
 	@ViewBuilder
@@ -76,7 +84,7 @@ struct MatchCell: View {
 					cardBanner(mapID: mapID)
 					cardFooter
 				}
-				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: isCompact ? 11 : 16, style: .continuous))
 				.clipped()
 				
 				if inList {
@@ -155,11 +163,12 @@ struct MatchCell: View {
 				changeInfo
 			}
 		}
-		.padding(.horizontal, 12)
-		.padding(.vertical, 10)
+		.padding(.horizontal, isCompact ? 10 : 12)
+		.padding(.vertical, isCompact ? 6 : 10)
 	}
 	
 	private func cardBanner(mapID: MapID) -> some View {
+		let bannerHeight: CGFloat = isCompact ? 54 : 74
 		let myself = matchDetails?.players.firstElement(withID: userID)
 		let agentID = myself?.agentID
 		let isOVariant = (myself != nil && matchDetails != nil) ? Team.ID.isGauntletOVariant(
@@ -172,7 +181,7 @@ struct MatchCell: View {
 		return ZStack(alignment: .leading) {
 			MapImage.wideImage(mapID)
 				.scaledToFill()
-				.frame(maxWidth: .infinity, minHeight: 74, maxHeight: 74)
+				.frame(maxWidth: .infinity, minHeight: bannerHeight, maxHeight: bannerHeight)
 				.clipped()
 				.overlay {
 					LinearGradient(
@@ -182,24 +191,24 @@ struct MatchCell: View {
 					)
 				}
 			
-			HStack(spacing: 12) {
+			HStack(spacing: isCompact ? 10 : 12) {
 				if let myself, let agentID {
 					// fills the whole banner height, flush with the card's leading edge
 					AgentImage.icon(agentID, teamID: myself.teamID, isOVariant: isOVariant)
 						.scaledToFill()
-						.frame(width: 74, height: 74)
+						.frame(width: bannerHeight, height: bannerHeight)
 						.clipped()
 				}
 				
-				VStack(alignment: .leading, spacing: 4) {
+				VStack(alignment: .leading, spacing: isCompact ? 2 : 4) {
 					if let agentID {
 						AgentLabel(agent: agentID)
-							.font(.headline.bold())
+							.font(isCompact ? .subheadline.bold() : .headline.bold())
 							.foregroundStyle(.white)
 							.shadow(color: .black.opacity(0.6), radius: 2, y: 1)
 					} else {
 						MapImage.LabelText(mapID: mapID)
-							.font(.headline.bold())
+							.font(isCompact ? .subheadline.bold() : .headline.bold())
 							.foregroundStyle(.white)
 					}
 					
@@ -234,7 +243,7 @@ struct MatchCell: View {
 			.padding(.leading, agentID != nil ? 0 : 12)
 			.padding(.trailing, 10)
 		}
-		.frame(height: 74)
+		.frame(height: bannerHeight)
 		.clipped()
 	}
 	
@@ -288,8 +297,8 @@ struct MatchCell: View {
 					.foregroundStyle(.secondary)
 			}
 		}
-		.padding(.horizontal, 12)
-		.padding(.vertical, 10)
+		.padding(.horizontal, isCompact ? 10 : 12)
+		.padding(.vertical, isCompact ? 6 : 10)
 	}
 	
 	@ViewBuilder
@@ -368,10 +377,11 @@ struct MatchCell: View {
 }
 
 extension MatchCell {
-	init(match: CompetitiveUpdate, userID: User.ID, filter: MatchListFilter, inList: Bool = true) {
+	init(match: CompetitiveUpdate, userID: User.ID, filter: MatchListFilter, inList: Bool = true, isCompact: Bool = false) {
 		self.init(
 			match: match, userID: userID, filter: filter,
 			inList: inList,
+			isCompact: isCompact,
 			matchDetails: .init(id: match.id)
 		)
 	}

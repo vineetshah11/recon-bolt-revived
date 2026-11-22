@@ -48,6 +48,8 @@ struct ContentView: View {
 				) }
 				.tag(Tab.settings)
 		}
+		.tint(settings.effectiveAccentColor)
+		.accentColor(settings.effectiveAccentColor)
 		.modifier(LiquidGlassTabBarModifier())
 		.task(id: accountManager.requiresAction) {
 			if accountManager.requiresAction {

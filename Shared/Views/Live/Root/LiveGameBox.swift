@@ -37,11 +37,12 @@ struct LiveGameBox: View {
 			.padding(16)
 		} refresh: { try await refresh(using: $0) }
 			.onChange(of: activeMatch) { [activeMatch] newMatch in
-				if shouldAutoRefresh, shouldAutoShow, activeMatch?.id != newMatch?.id {
+				if shouldAutoShow, activeMatch?.id != newMatch?.id {
 					shownMatch = newMatch
 				}
 				if settings.vibrateOnMatchFound, activeMatch == nil, newMatch != nil {
 					AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+					UINotificationFeedbackGenerator().notificationOccurred(.success)
 				}
 			}
 	}

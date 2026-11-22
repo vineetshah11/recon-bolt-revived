@@ -11,7 +11,7 @@ struct XMPPRegion {
 	
 	var host: String { "\(hostPrefix).chat.si.riotgames.com" }
 	
-	/// Riot's affinity → chat server table (same mapping Valpaw uses). Note e.g. `eu1.chat.si.riotgames.com` doesn't exist—EU is `euw1`.
+	/// Riot's affinity → chat server table. Note e.g. `eu1.chat.si.riotgames.com` doesn't exist—EU is `euw1`.
 	init(affinity rawAffinity: String) {
 		let affinity = rawAffinity.lowercased()
 		self.affinity = affinity

@@ -4,6 +4,7 @@ import ValorantAPI
 struct FriendsView: View {
 	@EnvironmentObject private var socialManager: SocialManager
 	@EnvironmentObject private var accountManager: AccountManager
+	@EnvironmentObject private var settings: AppSettings
 	@Environment(\.assets) private var assets
 	
 	@State private var search = ""
@@ -12,6 +13,8 @@ struct FriendsView: View {
 	@State private var friendTag = ""
 	@State private var actionError: String?
 	@State private var showingChanges = false
+	@State private var contextChatFriend: XMPPFriend?
+	@State private var contextProfileUserID: User.ID?
 	
 	private var client: ValorantClient? {
 		accountManager.activeAccount?.client
@@ -52,9 +55,28 @@ struct FriendsView: View {
 		.navigationTitle("Friends")
 		.navigationBarTitleDisplayMode(.inline)
 		.background(
-			NavigationLink("", isActive: $showingChanges) {
-				FriendListChangesView()
+			HStack {
+				NavigationLink("", isActive: $showingChanges) {
+					FriendListChangesView()
+				}
+				NavigationLink("", isActive: Binding(
+					get: { contextChatFriend != nil },
+					set: { if !$0 { contextChatFriend = nil } }
+				)) {
+					if let friend = contextChatFriend {
+						ChatView(friend: friend)
+					}
+				}
+				NavigationLink("", isActive: Binding(
+					get: { contextProfileUserID != nil },
+					set: { if !$0 { contextProfileUserID = nil } }
+				)) {
+					if let userID = contextProfileUserID {
+						MatchListView(userID: userID)
+					}
+				}
 			}
+			.frame(width: 0, height: 0)
 			.hidden()
 		)
 		.toolbar {
@@ -135,6 +157,23 @@ struct FriendsView: View {
 			.disabled(socialManager.connectionState != .connected)
 			
 			Menu {
+				Menu {
+					Picker("Sort By", selection: $settings.friendsSortOrder) {
+						ForEach(AppSettings.FriendsSortOrder.allCases, id: \.self) { order in
+							Label(order.title, systemImage: order.icon)
+								.tag(order)
+						}
+					}
+				} label: {
+					Label("Sort: \(settings.friendsSortOrder.shortTitle)", systemImage: "arrow.up.arrow.down")
+				}
+				
+				Toggle(isOn: $settings.openProfileDirectly) {
+					Label("Open Profile Directly", systemImage: "person.crop.circle")
+				}
+				
+				Divider()
+				
 				if let client {
 					Button {
 						Task { await socialManager.refreshNow(using: client) }
@@ -305,9 +344,10 @@ struct FriendsView: View {
 		
 		return buckets.map { key, members in
 			let sortedMembers = members.sorted { lhs, rhs in
-				if lhs.isPartyOwner != rhs.isPartyOwner { return lhs.isPartyOwner }
-				if lhs.status != rhs.status { return lhs.status < rhs.status }
-				return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+				if settings.friendsSortOrder == .defaultOrder, lhs.isPartyOwner != rhs.isPartyOwner {
+					return lhs.isPartyOwner
+				}
+				return compareFriends(lhs, rhs, isOffline: false)
 			}
 			let sample = sortedMembers.first
 			let totalSize = max(sortedMembers.count, sample?.partySize ?? sortedMembers.count)
@@ -333,6 +373,22 @@ struct FriendsView: View {
 			)
 		}
 		.sorted { lhs, rhs in
+			switch settings.friendsSortOrder {
+			case .alphabeticalAsc:
+				return lhs.leadName.localizedCaseInsensitiveCompare(rhs.leadName) == .orderedAscending
+			case .alphabeticalDesc:
+				return lhs.leadName.localizedCaseInsensitiveCompare(rhs.leadName) == .orderedDescending
+			case .rank:
+				let lRank = lhs.members.compactMap(\.competitiveTier).max() ?? -1
+				let rRank = rhs.members.compactMap(\.competitiveTier).max() ?? -1
+				if lRank != rRank { return lRank > rRank }
+			case .level:
+				let lLevel = lhs.members.compactMap(\.accountLevel).max() ?? -1
+				let rLevel = rhs.members.compactMap(\.accountLevel).max() ?? -1
+				if lLevel != rLevel { return lLevel > rLevel }
+			case .defaultOrder, .lastSeen:
+				break
+			}
 			if lhs.topSortRank != rhs.topSortRank {
 				return lhs.topSortRank < rhs.topSortRank
 			}
@@ -520,7 +576,7 @@ struct FriendsView: View {
 		let orderedGames = byGame.keys.sorted()
 		
 		ForEach(orderedGames, id: \.self) { game in
-			let list = byGame[game] ?? []
+			let list = (byGame[game] ?? []).sorted { compareFriends($0, $1, isOffline: false) }
 			VStack(alignment: .leading, spacing: 8) {
 				Text("\(game) — \(list.count)")
 					.font(.subheadline.weight(.medium))
@@ -548,18 +604,7 @@ struct FriendsView: View {
 			.filter {
 				!$0.isIncomingRequest && !$0.isOutgoingRequest && $0.status == .offline && matchesSearch($0)
 			}
-			.sorted { lhs, rhs in
-				switch (lhs.lastOnline, rhs.lastOnline) {
-				case let (.some(l), .some(r)) where l != r:
-					return l > r
-				case (.some, .none):
-					return true
-				case (.none, .some):
-					return false
-				default:
-					return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
-				}
-			}
+			.sorted { compareFriends($0, $1, isOffline: true) }
 		if !offline.isEmpty {
 			VStack(alignment: .leading, spacing: 8) {
 				Text("Offline — \(offline.count)")
@@ -580,11 +625,72 @@ struct FriendsView: View {
 		}
 	}
 	
+	// MARK: - Sorting
+	
+	private func compareFriends(_ lhs: XMPPFriend, _ rhs: XMPPFriend, isOffline: Bool) -> Bool {
+		let tieBreak: () -> Bool = {
+			if isOffline {
+				return compareByLastOnlineOrName(lhs, rhs)
+			}
+			if lhs.status != rhs.status {
+				return lhs.status < rhs.status
+			}
+			return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+		}
+		
+		switch settings.friendsSortOrder {
+		case .defaultOrder:
+			if isOffline {
+				return settings.sortOfflineByLastSeen
+					? compareByLastOnlineOrName(lhs, rhs)
+					: (lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending)
+			}
+			if lhs.status != rhs.status { return lhs.status < rhs.status }
+			return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+		case .alphabeticalAsc:
+			return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+		case .alphabeticalDesc:
+			return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedDescending
+		case .lastSeen:
+			return tieBreak()
+		case .rank:
+			let lRank = lhs.competitiveTier ?? -1
+			let rRank = rhs.competitiveTier ?? -1
+			if lRank != rRank { return lRank > rRank }
+			return tieBreak()
+		case .level:
+			let lLevel = lhs.accountLevel ?? -1
+			let rLevel = rhs.accountLevel ?? -1
+			if lLevel != rLevel { return lLevel > rLevel }
+			return tieBreak()
+		}
+	}
+	
+	private func compareByLastOnlineOrName(_ lhs: XMPPFriend, _ rhs: XMPPFriend) -> Bool {
+		switch (lhs.lastOnline, rhs.lastOnline) {
+		case let (.some(l), .some(r)) where l != r:
+			return l > r
+		case (.some, .none):
+			return true
+		case (.none, .some):
+			return false
+		default:
+			return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+		}
+	}
+	
 	// MARK: - Friend Card Row
 	
 	private func friendPartyRow(_ friend: XMPPFriend, isOfflineStyle: Bool = false) -> some View {
-		NavigationLink {
-			ChatView(friend: friend)
+		let hasUnread = (socialManager.unreadByJID[friend.jid] ?? 0) > 0
+		let opensProfileDirectly = settings.openProfileDirectly && !hasUnread && friend.puuid != nil
+		
+		return NavigationLink {
+			if opensProfileDirectly, let puuid = friend.puuid {
+				MatchListView(userID: puuid)
+			} else {
+				ChatView(friend: friend)
+			}
 		} label: {
 			HStack(spacing: 12) {
 				if let cardID = friend.playerCardID {
@@ -661,9 +767,15 @@ struct FriendsView: View {
 		}
 		.buttonStyle(.plain)
 		.contextMenu {
-			if let puuid = friend.puuid {
-				NavigationLink {
-					MatchListView(userID: puuid)
+			if opensProfileDirectly {
+				Button {
+					contextChatFriend = friend
+				} label: {
+					Label("Open Chat", systemImage: "message")
+				}
+			} else if let puuid = friend.puuid {
+				Button {
+					contextProfileUserID = puuid
 				} label: {
 					Label("Open Profile", systemImage: "person.crop.circle")
 				}
@@ -903,7 +1015,7 @@ private struct PresenceBadgeView: View {
 	}
 }
 
-// MARK: - Valpaw-style Chat View
+// MARK: - Friend Chat View
 
 struct ChatView: View {
 	let friend: XMPPFriend
