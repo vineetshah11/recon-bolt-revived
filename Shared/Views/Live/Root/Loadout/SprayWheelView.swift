@@ -47,7 +47,7 @@ struct SprayWheelView: View {
 											.font(.system(size: 10, weight: .bold))
 											.foregroundStyle(.white)
 											.padding(3)
-											.background(Color.valorantRed, in: Circle())
+											.background(Color.accentColor, in: Circle())
 											.offset(x: 4, y: 4)
 									}
 								}

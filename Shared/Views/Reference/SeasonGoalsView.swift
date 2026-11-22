@@ -44,7 +44,7 @@ struct SeasonGoalsView: View {
 					VStack(spacing: 10) {
 						Image(systemName: "target")
 							.font(.largeTitle)
-							.foregroundStyle(Color.valorantRed)
+							.foregroundStyle(Color.accentColor)
 						Text("No Season Goals Set")
 							.font(.headline)
 						Text("Set a target rank, win rate, matches played, K/D, or headshot percentage goal for this Act.")
@@ -72,7 +72,7 @@ struct SeasonGoalsView: View {
 						VStack(alignment: .leading, spacing: 8) {
 							HStack {
 								Image(systemName: goal.kind.iconName)
-									.foregroundStyle(eval?.isCompleted == true ? Color.green : Color.valorantRed)
+									.foregroundStyle(eval?.isCompleted == true ? Color.green : Color.accentColor)
 								Text(goal.kind.title)
 									.font(.headline)
 								Spacer()
@@ -88,7 +88,7 @@ struct SeasonGoalsView: View {
 									ZStack(alignment: .leading) {
 										Capsule().fill(Color.secondary.opacity(0.2))
 										Capsule()
-											.fill(eval.isCompleted ? Color.green : Color.valorantRed)
+											.fill(eval.isCompleted ? Color.green : Color.accentColor)
 											.frame(width: max(6, geo.size.width * CGFloat(eval.progress)))
 									}
 								}

@@ -62,10 +62,9 @@ enum AccoladeType: String, CaseIterable, Identifiable {
 	
 	var badgeColor: Color {
 		switch self {
-		case .mvp, .kills, .damage: return .valorantRed
 		case .ace: return Color(red: 0.95, green: 0.65, blue: 0.15)
 		case .clutches: return Color(red: 0.2, green: 0.78, blue: 0.62)
-		default: return Color(red: 0.96, green: 0.32, blue: 0.36)
+		default: return .accentColor
 		}
 	}
 }

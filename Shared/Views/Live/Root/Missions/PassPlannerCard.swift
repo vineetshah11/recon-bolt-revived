@@ -15,7 +15,7 @@ struct PassPlannerCard: View {
 			} label: {
 				HStack(spacing: 10) {
 					Image(systemName: isExpanded ? "lock.open.fill" : "calendar.badge.clock")
-						.foregroundStyle(Color.valorantRed)
+						.foregroundStyle(Color.accentColor)
 					Text("Pass Planner")
 						.font(.subheadline.weight(.semibold))
 					Spacer()
@@ -38,7 +38,7 @@ struct PassPlannerCard: View {
 					if let includeEpilogue {
 						Toggle("Include Epilogue (Levels 51–55)", isOn: includeEpilogue)
 							.font(.caption)
-							.tint(Color.valorantRed)
+							.tint(Color.accentColor)
 					}
 					
 					HStack {

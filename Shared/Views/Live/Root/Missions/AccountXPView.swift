@@ -39,7 +39,7 @@ struct AccountXPView: View {
 				Spacer()
 				Text("\(xp.progress.level)")
 					.font(.title2.bold().monospacedDigit())
-					.foregroundStyle(Color.valorantRed)
+					.foregroundStyle(Color.accentColor)
 			}
 			
 			GeometryReader { geo in
@@ -47,7 +47,7 @@ struct AccountXPView: View {
 					Capsule()
 						.fill(Color.secondary.opacity(0.2))
 					Capsule()
-						.fill(Color.valorantRed)
+						.fill(Color.accentColor)
 						.frame(width: max(6, geo.size.width * CGFloat(ratio)))
 				}
 			}

@@ -227,7 +227,7 @@ struct FriendsView: View {
 						.foregroundStyle(.white)
 						.padding(.horizontal, 7)
 						.padding(.vertical, 3)
-						.background(Color.valorantRed, in: Capsule())
+						.background(Color.accentColor, in: Capsule())
 				}
 			}
 			.padding(.vertical, 2)
@@ -276,7 +276,7 @@ struct FriendsView: View {
 	
 	private func color(for status: XMPPFriendStatus) -> Color {
 		switch status {
-		case .inGame, .pregame: return .valorantRed
+		case .inGame, .pregame: return .accentColor
 		case .online: return .green
 		case .away: return .orange
 		case .offline: return .gray
@@ -338,7 +338,7 @@ struct ChatView: View {
 				} label: {
 					Image(systemName: "arrow.up.circle.fill")
 						.font(.title2)
-						.foregroundStyle(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary : Color.valorantRed)
+						.foregroundStyle(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary : Color.accentColor)
 				}
 				.disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || socialManager.connectionState != .connected)
 			}
@@ -390,7 +390,7 @@ struct ChatView: View {
 					.padding(.horizontal, 12)
 					.padding(.vertical, 8)
 					.background(
-						msg.isOutgoing ? Color.valorantRed : Color.secondaryGroupedBackground,
+						msg.isOutgoing ? Color.accentColor : Color.secondaryGroupedBackground,
 						in: RoundedRectangle(cornerRadius: 14)
 					)
 					.foregroundStyle(msg.isOutgoing ? .white : .primary)

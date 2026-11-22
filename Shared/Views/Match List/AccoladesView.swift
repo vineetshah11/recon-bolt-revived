@@ -6,64 +6,108 @@ struct AccoladesSummaryBox: View {
 	var matches: [MatchDetails]
 	var report: AccoladesReport
 	
+	@State private var isExpanded = false
+	
 	var body: some View {
-		NavigationLink {
-			AccoladesView(userID: userID, matches: matches)
-		} label: {
-			VStack(alignment: .leading, spacing: 12) {
-				HStack {
-					Image(systemName: "chevron.right")
-						.font(.caption.bold())
-						.foregroundStyle(Color.valorantRed)
-					Text("Accolades")
-						.font(.headline)
-					Spacer()
+		VStack(alignment: .leading, spacing: 12) {
+			HStack {
+				Button {
+					withAnimation(.easeInOut(duration: 0.2)) {
+						isExpanded.toggle()
+					}
+				} label: {
+					HStack(spacing: 8) {
+						Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+							.font(.caption.bold())
+							.foregroundStyle(Color.accentColor)
+						Text("Accolades")
+							.font(.headline)
+							.foregroundStyle(.primary)
+					}
+					.contentShape(Rectangle())
+				}
+				.buttonStyle(.plain)
+				
+				Spacer()
+				
+				NavigationLink {
+					AccoladesView(userID: userID, matches: matches)
+				} label: {
 					Image(systemName: "chevron.right")
 						.font(.caption.weight(.semibold))
 						.foregroundStyle(.secondary)
+						.padding(.leading, 8)
+				}
+				.buttonStyle(.plain)
+			}
+			
+			HStack {
+				Text("This Act")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+				Spacer()
+				Text("\(report.totalEarned) earned")
+					.font(.caption.weight(.semibold).monospacedDigit())
+			}
+			
+			if report.items.isEmpty {
+				Text("Play matches in the current Act to earn performance accolades.")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			} else if !isExpanded {
+				HStack(spacing: 12) {
+					ForEach(Array(report.items.prefix(3))) { item in
+						accoladeCircleItem(item)
+					}
+				}
+			} else {
+				LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 12) {
+					ForEach(report.items) { item in
+						accoladeCircleItem(item)
+					}
 				}
 				
-				HStack {
-					Text("This Act")
-						.font(.caption)
-						.foregroundStyle(.secondary)
-					Spacer()
-					Text("\(report.totalEarned) earned")
-						.font(.caption.weight(.semibold).monospacedDigit())
-				}
-				
-				let top3 = Array(report.items.prefix(3))
-				if top3.isEmpty {
-					Text("Play matches in the current Act to earn performance accolades.")
-						.font(.caption)
-						.foregroundStyle(.secondary)
-				} else {
-					HStack(spacing: 12) {
-						ForEach(top3) { item in
-							VStack(spacing: 6) {
-								ZStack {
-									Circle()
-										.fill(item.type.badgeColor)
-										.frame(width: 44, height: 44)
-									Image(systemName: item.type.iconName)
-										.font(.system(size: 18, weight: .bold))
-										.foregroundStyle(.white)
-								}
-								Text("×\(item.count)")
-									.font(.subheadline.bold().monospacedDigit())
-								Text(item.type.title)
-									.font(.caption2)
-									.foregroundStyle(.secondary)
-							}
-							.frame(maxWidth: .infinity)
-						}
+				let allTimeReport = AccoladesCalculator.compute(
+					userID: userID,
+					matches: matches,
+					act: nil
+				)
+				if allTimeReport.totalEarned > report.totalEarned {
+					Divider()
+						.opacity(0.4)
+					HStack {
+						Text("All Cached Matches")
+							.font(.caption)
+							.foregroundStyle(.secondary)
+						Spacer()
+						Text("\(allTimeReport.totalEarned) earned")
+							.font(.caption.weight(.semibold).monospacedDigit())
 					}
 				}
 			}
-			.padding(14)
-			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14))
 		}
-		.buttonStyle(.plain)
+		.padding(14)
+		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+	}
+	
+	private func accoladeCircleItem(_ item: AccoladeSummary) -> some View {
+		VStack(spacing: 6) {
+			ZStack {
+				Circle()
+					.fill(item.type.badgeColor)
+					.frame(width: 44, height: 44)
+				Image(systemName: item.type.iconName)
+					.font(.system(size: 18, weight: .bold))
+					.foregroundStyle(.white)
+			}
+			Text("×\(item.count)")
+				.font(.subheadline.bold().monospacedDigit())
+			Text(item.type.title)
+				.font(.caption2)
+				.foregroundStyle(.secondary)
+				.lineLimit(1)
+		}
+		.frame(maxWidth: .infinity)
 	}
 }
 
@@ -106,7 +150,7 @@ struct AccoladesView: View {
 					Spacer()
 					Text("\(report.totalEarned)")
 						.font(.title2.bold().monospacedDigit())
-						.foregroundStyle(Color.valorantRed)
+						.foregroundStyle(Color.accentColor)
 				}
 				.padding(.vertical, 4)
 			}

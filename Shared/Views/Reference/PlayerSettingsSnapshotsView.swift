@@ -209,7 +209,7 @@ private struct PlayerSettingsSnapshotDetailView: View {
 					onRestore()
 				} label: {
 					Label("Restore to Riot Cloud", systemImage: "icloud.and.arrow.up")
-						.foregroundStyle(Color.valorantRed)
+						.foregroundStyle(Color.accentColor)
 				}
 				
 				Button {

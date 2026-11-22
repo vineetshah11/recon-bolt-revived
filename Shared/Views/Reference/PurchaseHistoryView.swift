@@ -96,7 +96,7 @@ struct PurchaseHistoryView: View {
 						Spacer()
 						Text(formattedAmount(sum, currency: currency))
 							.font(.headline.monospacedDigit())
-							.foregroundStyle(Color.valorantRed)
+							.foregroundStyle(Color.accentColor)
 					}
 				}
 			}

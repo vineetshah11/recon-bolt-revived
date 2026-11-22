@@ -24,7 +24,7 @@ struct ShopHistoryView: View {
 					VStack(spacing: 10) {
 						Image(systemName: "clock.arrow.circlepath")
 							.font(.largeTitle)
-							.foregroundStyle(Color.valorantRed)
+							.foregroundStyle(Color.accentColor)
 						Text("No Shop History Yet")
 							.font(.headline)
 						Text("Each time you check your Daily Store in Recon Bolt, today's 4 offers are archived here automatically.")
@@ -59,7 +59,7 @@ struct ShopHistoryView: View {
 												if wishlistManager.contains(resolved.skin.id) {
 													Image(systemName: "heart.fill")
 														.font(.caption2)
-														.foregroundStyle(Color.valorantRed)
+														.foregroundStyle(Color.accentColor)
 												}
 											}
 											Text(resolved.weapon.displayName)

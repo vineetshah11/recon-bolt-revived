@@ -20,7 +20,7 @@ struct UsernameHistoryView: View {
 		List {
 			Section {
 				Toggle("Only Players With Name Changes", isOn: $onlyRenamed)
-					.tint(Color.valorantRed)
+					.tint(Color.accentColor)
 			}
 			
 			if timelines.isEmpty {
@@ -46,8 +46,8 @@ struct UsernameHistoryView: View {
 											.font(.caption.bold())
 											.padding(.horizontal, 8)
 											.padding(.vertical, 2)
-											.background(Color.valorantRed.opacity(0.18), in: Capsule())
-											.foregroundStyle(Color.valorantRed)
+											.background(Color.accentColor.opacity(0.18), in: Capsule())
+											.foregroundStyle(Color.accentColor)
 									}
 								}
 								

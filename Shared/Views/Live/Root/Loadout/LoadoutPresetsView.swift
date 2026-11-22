@@ -214,9 +214,12 @@ struct LoadoutPresetInspectorView: View {
 struct LoadoutShareSheet: View {
 	var loadout: UpdatableLoadout
 	
+	@EnvironmentObject private var imageManager: ImageManager
 	@Environment(\.assets) private var assets
 	@Environment(\.dismiss) private var dismiss
+	@State private var preloadedImages: [AssetImage: UIImage] = [:]
 	@State private var renderedImage: UIImage?
+	@State private var isRendering = true
 	
 	private let showcaseWeapons: [Weapon.ID] = [
 		.vandal, .phantom, .operator, .sheriff, .ghost, .melee
@@ -226,7 +229,7 @@ struct LoadoutShareSheet: View {
 		NavigationStack {
 			ScrollView {
 				VStack(spacing: 16) {
-					shareCard
+					snapshotCardView(images: preloadedImages, useLiveFallback: true)
 					
 					if let renderedImage {
 						let swiftUIImage = Image(uiImage: renderedImage)
@@ -238,9 +241,12 @@ struct LoadoutShareSheet: View {
 								.font(.headline)
 								.frame(maxWidth: .infinity)
 								.padding()
-								.background(Color.valorantRed, in: RoundedRectangle(cornerRadius: 12))
+								.background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12))
 								.foregroundStyle(.white)
 						}
+					} else if isRendering {
+						ProgressView("Preparing image...")
+							.padding(.vertical, 8)
 					}
 				}
 				.padding()
@@ -253,15 +259,27 @@ struct LoadoutShareSheet: View {
 				}
 			}
 			.task {
-				renderSnapshot()
+				await prepareAndRenderSnapshot()
 			}
 		}
 	}
 	
-	private var shareCard: some View {
+	private func snapshotCardView(images: [AssetImage: UIImage], useLiveFallback: Bool) -> some View {
 		VStack(alignment: .leading, spacing: 12) {
-			PlayerCardImage.wide(loadout.identity.card)
-				.cornerRadius(12)
+			let cardAsset = assets?.playerCards[loadout.identity.card]?.wideArt
+			Group {
+				if let cardAsset, let uiImage = images[cardAsset] {
+					Image(uiImage: uiImage)
+						.resizable()
+						.aspectRatio(452.0 / 128.0, contentMode: .fit)
+				} else if useLiveFallback {
+					PlayerCardImage.wide(loadout.identity.card)
+				} else {
+					Color.secondaryGroupedBackground
+						.aspectRatio(452.0 / 128.0, contentMode: .fit)
+				}
+			}
+			.cornerRadius(12)
 			
 			HStack {
 				Text(assets?.playerTitles[loadout.identity.title]?.displayName ?? "No Title")
@@ -277,14 +295,24 @@ struct LoadoutShareSheet: View {
 					if let gun = loadout.guns[gunID],
 					   let weapon = assets?.weapons[gunID],
 					   let resolved = assets?.resolveSkin(gun.skin.level) {
+						let weaponAsset = resolved.chroma(gun.skin.chroma)?.fullRender ?? resolved.displayIcon
 						VStack(alignment: .leading, spacing: 4) {
 							Text(weapon.displayName)
 								.font(.caption2.weight(.semibold))
 								.foregroundStyle(.secondary)
-							(resolved.chroma(gun.skin.chroma)?.fullRender ?? resolved.displayIcon)?
-								.view()
-								.frame(height: 36)
-								.frame(maxWidth: .infinity)
+							Group {
+								if let weaponAsset, let uiImage = images[weaponAsset] {
+									Image(uiImage: uiImage)
+										.resizable()
+										.scaledToFit()
+								} else if useLiveFallback, let weaponAsset {
+									weaponAsset.view(preferFullResolution: true)
+								} else {
+									Color.clear
+								}
+							}
+							.frame(height: 36)
+							.frame(maxWidth: .infinity)
 							Text(resolved.skin.displayName)
 								.font(.caption.weight(.medium))
 								.lineLimit(1)
@@ -301,14 +329,42 @@ struct LoadoutShareSheet: View {
 	}
 	
 	@MainActor
-	private func renderSnapshot() {
+	private func prepareAndRenderSnapshot() async {
+		isRendering = true
+		var targets: [AssetImage] = []
+		if let card = assets?.playerCards[loadout.identity.card]?.wideArt {
+			targets.append(card)
+		}
+		for gunID in showcaseWeapons {
+			if let gun = loadout.guns[gunID],
+			   let resolved = assets?.resolveSkin(gun.skin.level),
+			   let icon = resolved.chroma(gun.skin.chroma)?.fullRender ?? resolved.displayIcon {
+				targets.append(icon)
+			}
+		}
+		
+		var loaded: [AssetImage: UIImage] = [:]
+		for asset in targets {
+			if let cached = asset.load() {
+				loaded[asset] = cached
+			} else {
+				_ = try? await asset.ensureDownloaded()
+				if let downloaded = asset.load() {
+					loaded[asset] = downloaded
+				}
+			}
+		}
+		preloadedImages = loaded
+		
 		let renderer = ImageRenderer(
-			content: shareCard
+			content: snapshotCardView(images: loaded, useLiveFallback: false)
 				.environment(\.assets, assets)
+				.environmentObject(imageManager)
 				.frame(width: 360)
 				.preferredColorScheme(.dark)
 		)
-		renderer.scale = 3
+		renderer.scale = 3.0
 		renderedImage = renderer.uiImage
+		isRendering = false
 	}
 }

@@ -180,7 +180,7 @@ struct LoadoutDetailsView: View {
 			} label: {
 				HStack(spacing: 12) {
 					Image(systemName: "hand.raised.fill")
-						.foregroundStyle(Color.valorantRed)
+						.foregroundStyle(Color.accentColor)
 						.frame(width: 24)
 					Text("Privacy Settings")
 						.font(.body.weight(.medium))
@@ -245,7 +245,7 @@ struct LoadoutDetailsView: View {
 					.lineLimit(1)
 			}
 		}
-		.tint(Color.valorantRed)
+		.tint(Color.accentColor)
 	}
 	
 	private func randomize(favoritesOnly: Bool) {
@@ -306,7 +306,7 @@ private struct LoadoutActionRow<Trailing: View>: View {
 	var body: some View {
 		HStack(spacing: 12) {
 			Image(systemName: icon)
-				.foregroundStyle(Color.valorantRed)
+				.foregroundStyle(Color.accentColor)
 				.frame(width: 24)
 			Text(title)
 				.font(.body.weight(.medium))

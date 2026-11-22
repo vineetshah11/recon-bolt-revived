@@ -30,7 +30,7 @@ struct BundleDetailsView: View {
 	@ViewBuilder
 	func contents(for info: StoreBundleInfo) -> some View {
 		Section {
-			info.displayIcon.view()
+			info.displayIcon.view(aspectRatio: 16.0 / 9.0, preferFullResolution: true)
 				.listRowInsets(.init())
 				.aligningListRowSeparator()
 				.overlay(alignment: .bottomTrailing) {

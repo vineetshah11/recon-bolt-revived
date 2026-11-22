@@ -22,10 +22,8 @@ struct StoreDetailsView: View {
 					BundleDetailsView(bundle: bundle)
 				} label: {
 					bundleCell(for: bundle)
-						.background(Color.tertiaryGroupedBackground)
-						.cornerRadius(8)
-						.tint(.primary)
 				}
+				.buttonStyle(.plain)
 			}
 			
 			if let offers = storefront.accessoryStore.offers {
@@ -80,7 +78,7 @@ struct StoreDetailsView: View {
 			if !wishlistMatches.isEmpty {
 				HStack(spacing: 10) {
 					Image(systemName: "heart.fill")
-						.foregroundStyle(Color.valorantRed)
+						.foregroundStyle(Color.accentColor)
 					VStack(alignment: .leading, spacing: 2) {
 						Text("Wishlist Match in Today's Shop!")
 							.font(.subheadline.weight(.semibold))
@@ -91,7 +89,7 @@ struct StoreDetailsView: View {
 					Spacer()
 				}
 				.padding(10)
-				.background(Color.valorantRed.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
+				.background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 10))
 			}
 			
 			ForEach(storefront.dailySkinStore.offers) { offer in
@@ -100,14 +98,14 @@ struct StoreDetailsView: View {
 						if wishlistManager.isOfferWishlisted(offer, assets: assets) {
 							Image(systemName: "heart.fill")
 								.font(.caption.bold())
-								.foregroundStyle(Color.valorantRed)
+								.foregroundStyle(Color.accentColor)
 								.padding(6)
 								.background(.ultraThinMaterial, in: Circle())
 								.padding(8)
 						}
 					}
 			}
-			.cornerRadius(8)
+			.cornerRadius(12)
 			
 			VStack(spacing: 8) {
 				NavigationLink {
@@ -163,27 +161,74 @@ struct StoreDetailsView: View {
 	func bundleCell(for bundle: StoreBundle) -> some View {
 		VStack(spacing: 0) {
 			if let info = assets?.bundles[bundle.assetID] {
-				info.displayIcon.view()
-					.aspectRatio(1648/804, contentMode: .fill)
+				Color.clear
+					.aspectRatio(16.0 / 9.0, contentMode: .fit)
+					.overlay {
+						info.displayIcon.view(aspectRatio: 16.0 / 9.0, preferFullResolution: true)
+							.scaledToFill()
+					}
+					.clipped()
+					.overlay(alignment: .bottom) {
+						LinearGradient(
+							colors: [.clear, Color.tertiaryGroupedBackground.opacity(0.65)],
+							startPoint: .top,
+							endPoint: .bottom
+						)
+						.frame(height: 28)
+					}
 				
-				HStack {
+				VStack(spacing: 4) {
 					Text(info.displayName)
-						.fontWeight(.medium)
-						.multilineTextAlignment(.leading)
+						.font(.title3.bold())
+						.multilineTextAlignment(.center)
+						.foregroundStyle(.primary)
+					
+					if let extra = info.extraDescription, !extra.isEmpty {
+						Text(extra)
+							.font(.caption.italic())
+							.foregroundStyle(.secondary)
+							.multilineTextAlignment(.center)
+							.lineLimit(2)
+					}
+				}
+				.frame(maxWidth: .infinity)
+				.padding(.horizontal, 14)
+				.padding(.vertical, 12)
+				
+				Divider()
+					.opacity(0.35)
+				
+				let totalCost = bundle.items.lazy.map(\.discountedPrice).reduce(0, +)
+				HStack {
+					HStack(spacing: 6) {
+						assets?.currencies[bundle.currencyID]?.displayIcon.view(renderingMode: .template)
+							.frame(width: 18, height: 18)
+						Text(totalCost.formatted())
+							.monospacedDigit()
+					}
+					.font(.subheadline.weight(.medium))
+					.foregroundStyle(.secondary)
 					
 					Spacer()
 					
 					remainingTimeLabel(bundle.remainingDuration)
 					
 					Image(systemName: "chevron.forward")
+						.font(.caption.weight(.semibold))
 						.foregroundStyle(.secondary)
-						.imageScale(.small)
 				}
-				.padding(12)
+				.padding(.horizontal, 14)
+				.padding(.vertical, 10)
 			} else {
 				Text("Unknown Bundle", comment: "placeholder")
-					.padding(12)
+					.padding(14)
 			}
+		}
+		.background(Color.tertiaryGroupedBackground)
+		.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+		.overlay {
+			RoundedRectangle(cornerRadius: 16, style: .continuous)
+				.stroke(Color.separator.opacity(0.28), lineWidth: 0.5)
 		}
 	}
 	
@@ -271,7 +316,7 @@ struct StoreDetailsView: View {
 	private func storeFeatureRow(icon: String, title: LocalizedStringKey, trailingText: String?) -> some View {
 		HStack(spacing: 12) {
 			Image(systemName: icon)
-				.foregroundStyle(Color.valorantRed)
+				.foregroundStyle(Color.accentColor)
 				.frame(width: 22)
 			Text(title)
 				.font(.body.weight(.medium))
@@ -308,8 +353,11 @@ struct OfferCell: View {
 		} label: {
 			VStack {
 				let chroma = resolved?.skin.chromas.first
-				(chroma?.fullRender ?? chroma?.displayIcon ?? resolved?.displayIcon)?.view()
-					.frame(height: 60)
+				(chroma?.fullRender ?? chroma?.displayIcon ?? resolved?.displayIcon)?
+					.view(preferFullResolution: true)
+					.frame(height: 68)
+					.frame(maxWidth: .infinity)
+					.padding(.horizontal, 12)
 				
 				HStack(alignment: .lastTextBaseline) {
 					(resolved?.skin).label()

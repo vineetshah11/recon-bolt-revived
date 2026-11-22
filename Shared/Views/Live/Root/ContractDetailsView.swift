@@ -89,7 +89,7 @@ struct ContractDetailsView: View {
 										.stroke(Color.separator, lineWidth: 1)
 								}
 							}
-							.foregroundStyle(isSelected ? Color.valorantRed : .secondary)
+							.foregroundStyle(isSelected ? Color.accentColor : .secondary)
 					}
 					.buttonStyle(.plain)
 				}
@@ -199,7 +199,7 @@ struct ContractDetailsView: View {
 					GeometryReader { geo in
 						ZStack(alignment: .leading) {
 							Capsule().fill(Color.secondary.opacity(0.2))
-							Capsule().fill(Color.valorantRed)
+							Capsule().fill(Color.accentColor)
 								.frame(width: max(6, geo.size.width * CGFloat(min(1, max(0, ratio)))))
 						}
 					}
@@ -308,7 +308,7 @@ struct ContractDetailsView: View {
 					GeometryReader { geo in
 						ZStack(alignment: .leading) {
 							Capsule().fill(Color.secondary.opacity(0.2))
-							Capsule().fill(Color.valorantRed)
+							Capsule().fill(Color.accentColor)
 								.frame(width: max(6, geo.size.width * CGFloat(pct)))
 						}
 					}
@@ -430,7 +430,7 @@ struct ContractDetailsView: View {
 				} label: {
 					HStack(spacing: 10) {
 						Image(systemName: "star.circle.fill")
-							.foregroundStyle(Color.valorantRed)
+							.foregroundStyle(Color.accentColor)
 						Text("Agent Masteries")
 							.font(.headline)
 							.foregroundStyle(.primary)

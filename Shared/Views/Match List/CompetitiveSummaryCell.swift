@@ -4,6 +4,7 @@ import HandyOperators
 
 struct CompetitiveSummaryCell: View {
 	let summary: CareerSummary?
+	var showThisActFooter: Bool = true
 	
 	@Environment(\.seasons) private var seasons
 	@Environment(\.colorScheme) private var colorScheme
@@ -35,7 +36,8 @@ struct CompetitiveSummaryCell: View {
 				.frame(maxWidth: .infinity)
 				.fixedSize(horizontal: false, vertical: true)
 				
-				if let act = seasons?.currentAct(),
+				if showThisActFooter,
+				   let act = seasons?.currentAct(),
 				   let info = summary?.competitiveInfo?.inSeason(act.id),
 				   info.gameCount > 0 {
 					Divider()

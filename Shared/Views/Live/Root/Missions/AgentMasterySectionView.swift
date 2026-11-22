@@ -57,7 +57,7 @@ struct AgentMasterySectionView: View {
 				NavigationLink {
 					AgentMasteryDetailView(summary: summary, actEndDate: actEndDate)
 				} label: {
-					compactRow(for: summary)
+					AgentMasteryCompactRow(summary: summary)
 				}
 				.buttonStyle(.plain)
 			}
@@ -84,8 +84,12 @@ struct AgentMasterySectionView: View {
 			in: RoundedRectangle(cornerRadius: 14)
 		)
 	}
+}
+
+struct AgentMasteryCompactRow: View {
+	var summary: AgentMasterySummary
 	
-	private func compactRow(for summary: AgentMasterySummary) -> some View {
+	var body: some View {
 		HStack(spacing: 12) {
 			ZStack(alignment: .bottomTrailing) {
 				AgentImage.icon(summary.agentID)
@@ -271,7 +275,7 @@ struct AgentMasteryDetailView: View {
 				Spacer()
 				Text("\(summary.xpInCurrentLevel.formatted()) / \(summary.nextLevelMPNeeded.formatted()) MP")
 					.font(.subheadline.weight(.semibold).monospacedDigit())
-					.foregroundStyle(Color.valorantRed)
+					.foregroundStyle(Color.accentColor)
 			}
 			
 			MasterySegmentedBar(
@@ -307,7 +311,7 @@ struct AgentMasteryDetailView: View {
 							Group {
 								if unlocked {
 									Image(systemName: "checkmark.circle.fill")
-										.foregroundStyle(Color.valorantRed, .white)
+										.foregroundStyle(Color.accentColor, .white)
 										.font(.system(size: 18))
 								} else {
 									Image(systemName: "lock.fill")
@@ -379,7 +383,7 @@ struct AgentMasteryDetailView: View {
 							.font(.caption.bold().monospacedDigit())
 							.frame(width: 24, height: 24)
 							.background(
-								isUnlocked ? Color.valorantRed : Color.tertiaryGroupedBackground,
+								isUnlocked ? Color.accentColor : Color.tertiaryGroupedBackground,
 								in: Circle()
 							)
 							.foregroundStyle(isUnlocked ? .white : .secondary)
@@ -477,7 +481,7 @@ struct MasterySegmentedBar: View {
 								.fill(Color.secondary.opacity(0.25))
 							if fill > 0 {
 								Capsule()
-									.fill(step < actLevel ? Color.valorantRed : Color.valorantRed.opacity(0.85))
+									.fill(step < actLevel ? Color.accentColor : Color.accentColor.opacity(0.85))
 									.frame(width: geo.size.width * CGFloat(min(1, max(0, fill))))
 							}
 						}
@@ -489,16 +493,16 @@ struct MasterySegmentedBar: View {
 			if !compact {
 				HStack {
 					Image(systemName: actLevel >= 1 ? "diamond.fill" : "diamond")
-						.foregroundStyle(actLevel >= 1 ? Color.valorantRed : .secondary)
+						.foregroundStyle(actLevel >= 1 ? Color.accentColor : .secondary)
 					Spacer()
 					Image(systemName: actLevel >= 4 ? "diamond.fill" : "diamond")
-						.foregroundStyle(actLevel >= 4 ? Color.valorantRed : .secondary)
+						.foregroundStyle(actLevel >= 4 ? Color.accentColor : .secondary)
 					Spacer()
 					Image(systemName: actLevel >= 7 ? "diamond.fill" : "diamond")
-						.foregroundStyle(actLevel >= 7 ? Color.valorantRed : .secondary)
+						.foregroundStyle(actLevel >= 7 ? Color.accentColor : .secondary)
 					Spacer()
 					Image(systemName: actLevel >= 10 ? "diamond.fill" : "diamond")
-						.foregroundStyle(actLevel >= 10 ? Color.valorantRed : .secondary)
+						.foregroundStyle(actLevel >= 10 ? Color.accentColor : .secondary)
 				}
 				.font(.system(size: 8))
 				.padding(.horizontal, 12)
@@ -511,40 +515,55 @@ struct AgentMasterySummaryBox: View {
 	var summaries: [AgentMasterySummary]
 	var actEndDate: Date? = nil
 	
+	@State private var isExpanded = false
+	
 	var body: some View {
 		VStack(alignment: .leading, spacing: 12) {
-			NavigationLink {
-				AgentMasteryListView(summaries: summaries, actEndDate: actEndDate)
-			} label: {
-				HStack {
-					Image(systemName: "chevron.right")
-						.font(.caption.bold())
-						.foregroundStyle(Color.valorantRed)
-					Text("Agent Mastery")
-						.font(.headline)
-					Spacer()
+			HStack {
+				Button {
+					withAnimation(.easeInOut(duration: 0.2)) {
+						isExpanded.toggle()
+					}
+				} label: {
+					HStack(spacing: 8) {
+						Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+							.font(.caption.bold())
+							.foregroundStyle(Color.accentColor)
+						Text("Agent Mastery")
+							.font(.headline)
+							.foregroundStyle(.primary)
+					}
+					.contentShape(Rectangle())
+				}
+				.buttonStyle(.plain)
+				
+				Spacer()
+				
+				NavigationLink {
+					AgentMasteryListView(summaries: summaries, actEndDate: actEndDate)
+				} label: {
 					Image(systemName: "chevron.right")
 						.font(.caption.weight(.semibold))
 						.foregroundStyle(.secondary)
+						.padding(.leading, 8)
 				}
+				.buttonStyle(.plain)
 			}
-			.buttonStyle(.plain)
 			
-			let top3 = Array(summaries.prefix(3))
-			if top3.isEmpty {
+			if summaries.isEmpty {
 				Text("No agent mastery data available yet.")
 					.font(.caption)
 					.foregroundStyle(.secondary)
-			} else {
+			} else if !isExpanded {
 				HStack(spacing: 12) {
-					ForEach(top3) { item in
+					ForEach(Array(summaries.prefix(3))) { item in
 						NavigationLink {
 							AgentMasteryDetailView(summary: item, actEndDate: actEndDate)
 						} label: {
 							VStack(spacing: 6) {
 								ZStack(alignment: .bottomTrailing) {
 									AgentImage.icon(item.agentID)
-										.frame(width: 54, height: 54)
+										.frame(width: 56, height: 56)
 										.cornerRadius(10)
 									let badge = max(item.currentActLevel, item.lastActLevel)
 									if badge > 0 {
@@ -565,10 +584,28 @@ struct AgentMasterySummaryBox: View {
 						.buttonStyle(.plain)
 					}
 				}
+			} else {
+				if let top = summaries.first {
+					NavigationLink {
+						AgentMasteryDetailView(summary: top, actEndDate: actEndDate)
+					} label: {
+						AgentMasteryHeroCard(summary: top, isEmbedded: true)
+					}
+					.buttonStyle(.plain)
+				}
+				
+				ForEach(Array(summaries.dropFirst().prefix(2))) { summary in
+					NavigationLink {
+						AgentMasteryDetailView(summary: summary, actEndDate: actEndDate)
+					} label: {
+						AgentMasteryCompactRow(summary: summary)
+					}
+					.buttonStyle(.plain)
+				}
 			}
 		}
 		.padding(14)
-		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14))
+		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 	}
 }
 

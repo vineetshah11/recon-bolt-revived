@@ -7,6 +7,7 @@ struct MatchCell: View {
 	let match: CompetitiveUpdate
 	let userID: User.ID
 	let filter: MatchListFilter
+	var inList: Bool = true
 	
 	@LocalData var matchDetails: MatchDetails?
 	
@@ -15,20 +16,36 @@ struct MatchCell: View {
 	
 	var body: some View {
 		matchInfo
-			.listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
-			.listRowSeparator(.hidden)
-			.listRowBackground(Color.clear)
-			.swipeActions(edge: .leading) {
-				if matchDetails == nil {
-					AsyncButton {
-						await load {
-							try await $0.fetchMatchDetails(for: match.id)
+			.if(inList) { view in
+				view
+					.listRowInsets(EdgeInsets(top: 6, leading: 16, bottom: 6, trailing: 16))
+					.listRowSeparator(.hidden)
+					.listRowBackground(Color.clear)
+					.swipeActions(edge: .leading) {
+						if matchDetails == nil {
+							AsyncButton {
+								await load {
+									try await $0.fetchMatchDetails(for: match.id)
+								}
+							} label: {
+								Label(String(localized: "Fetch Details", comment: "Match List: accessibility label"), systemImage: "arrow.down")
+									.labelStyle(.iconOnly)
+							}
+							.tint(.blue)
 						}
-					} label: {
-						Label(String(localized: "Fetch Details", comment: "Match List: accessibility label"), systemImage: "arrow.down")
-							.labelStyle(.iconOnly)
 					}
-					.tint(.blue)
+			}
+			.if(!inList) { view in
+				view.contextMenu {
+					if matchDetails == nil {
+						AsyncButton {
+							await load {
+								try await $0.fetchMatchDetails(for: match.id)
+							}
+						} label: {
+							Label(String(localized: "Fetch Details", comment: "Match List: accessibility label"), systemImage: "arrow.down")
+						}
+					}
 				}
 			}
 			.id(match.id)
@@ -54,18 +71,32 @@ struct MatchCell: View {
 				.padding(12)
 				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14))
 			} else if let mapID = match.mapID {
-				TransparentNavigationLink {
-					MatchDetailsContainer(matchID: match.id, userID: userID)
-				} label: {
-					VStack(spacing: 0) {
-						cardHeader
-						cardBanner(mapID: mapID)
-						cardFooter
-					}
-					.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16))
-					.clipped()
+				let card = VStack(spacing: 0) {
+					cardHeader
+					cardBanner(mapID: mapID)
+					cardFooter
 				}
-				.buttonStyle(.plain)
+				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+				.clipped()
+				
+				if inList {
+					card
+						.background {
+							TransparentNavigationLink {
+								MatchDetailsContainer(matchID: match.id, userID: userID)
+							} label: {
+								EmptyView()
+							}
+							.opacity(0)
+						}
+				} else {
+					TransparentNavigationLink {
+						MatchDetailsContainer(matchID: match.id, userID: userID)
+					} label: {
+						card
+					}
+					.buttonStyle(.plain)
+				}
 			} else {
 				VStack(spacing: 6) {
 					HStack {
@@ -324,7 +355,6 @@ struct MatchCell: View {
 			
 			ChangeRing(match: match)
 				.frame(height: 38)
-				.accentColor(changeColor)
 		}
 	}
 	
@@ -334,9 +364,10 @@ struct MatchCell: View {
 }
 
 extension MatchCell {
-	init(match: CompetitiveUpdate, userID: User.ID, filter: MatchListFilter) {
+	init(match: CompetitiveUpdate, userID: User.ID, filter: MatchListFilter, inList: Bool = true) {
 		self.init(
 			match: match, userID: userID, filter: filter,
+			inList: inList,
 			matchDetails: .init(id: match.id)
 		)
 	}
@@ -345,13 +376,17 @@ extension MatchCell {
 private struct ChangeRing: View {
 	let match: CompetitiveUpdate
 	
+	private var changeColor: Color {
+		match.ratingEarned > 0 ? .green : match.ratingEarned < 0 ? .red : .gray
+	}
+	
 	var body: some View {
 		ZStack {
 			// this is technically wrong for immortal+, but it's not a problem
 			let before = CGFloat(match.eloBeforeUpdate) / 100
 			let after = CGFloat(match.eloAfterUpdate) / 100
+			let bonus = CGFloat(max(0, match.performanceBonus)) / 100
 			let lower = min(before, after)
-			let higher = max(before, after)
 			let zeroPoint = lower.rounded(.down)
 			
 			CircularProgressView {
@@ -359,12 +394,67 @@ private struct ChangeRing: View {
 					end: after - zeroPoint,
 					color: .gray
 				)
-				CircularProgressLayer(
-					start: lower - zeroPoint,
-					end: higher - zeroPoint,
-					shouldKnockOutSurroundings: true,
-					color: .accentColor
-				)
+				if after > before {
+					if bonus > 0 {
+						let bonusStart = max(before, after - bonus)
+						if bonusStart > before {
+							CircularProgressLayer(
+								start: before - zeroPoint,
+								end: bonusStart - zeroPoint,
+								shouldKnockOutSurroundings: true,
+								color: .green
+							)
+						}
+						CircularProgressLayer(
+							start: bonusStart - zeroPoint,
+							end: after - zeroPoint,
+							shouldKnockOutSurroundings: true,
+							color: .yellow
+						)
+					} else {
+						CircularProgressLayer(
+							start: before - zeroPoint,
+							end: after - zeroPoint,
+							shouldKnockOutSurroundings: true,
+							color: .green
+						)
+					}
+				} else if after < before {
+					CircularProgressLayer(
+						start: after - zeroPoint,
+						end: before - zeroPoint,
+						shouldKnockOutSurroundings: true,
+						color: .red
+					)
+					if bonus > 0 {
+						let savedStart = max(zeroPoint, after - bonus)
+						if after > savedStart {
+							CircularProgressLayer(
+								start: savedStart - zeroPoint,
+								end: after - zeroPoint,
+								shouldKnockOutSurroundings: true,
+								color: .yellow
+							)
+						}
+					}
+				} else if bonus > 0 {
+					let bonusStart = max(zeroPoint, after - bonus)
+					if after > bonusStart {
+						CircularProgressLayer(
+							start: bonusStart - zeroPoint,
+							end: after - zeroPoint,
+							shouldKnockOutSurroundings: true,
+							color: .yellow
+						)
+					}
+				} else {
+					CircularProgressLayer(
+						start: lower - zeroPoint,
+						end: after - zeroPoint,
+						shouldKnockOutSurroundings: true,
+						color: changeColor
+					)
+				}
 			} base: { Color.gray.opacity(0.2) }
 			
 			CompetitiveTierImage(tier: match.tierAfterUpdate, time: match.startTime)

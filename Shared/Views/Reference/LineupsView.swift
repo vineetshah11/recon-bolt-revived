@@ -58,7 +58,7 @@ struct LineupsView: View {
 					favoritesOnly.toggle()
 				} label: {
 					Image(systemName: favoritesOnly ? "heart.fill" : "heart")
-						.foregroundStyle(favoritesOnly ? Color.valorantRed : .primary)
+						.foregroundStyle(favoritesOnly ? Color.accentColor : .primary)
 				}
 			}
 		}
@@ -168,7 +168,7 @@ struct LineupsView: View {
 							if lineupsManager.isFavorite(guide) {
 								Image(systemName: "heart.fill")
 									.font(.caption)
-									.foregroundStyle(Color.valorantRed)
+									.foregroundStyle(Color.accentColor)
 							}
 						}
 						.padding(.vertical, 3)
@@ -269,7 +269,7 @@ struct LineupPlayerView: View {
 					lineupsManager.toggleFavorite(guide)
 				} label: {
 					Image(systemName: lineupsManager.isFavorite(guide) ? "heart.fill" : "heart")
-						.foregroundStyle(lineupsManager.isFavorite(guide) ? Color.valorantRed : .primary)
+						.foregroundStyle(lineupsManager.isFavorite(guide) ? Color.accentColor : .primary)
 				}
 			}
 		}

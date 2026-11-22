@@ -144,7 +144,7 @@ struct ContractArchiveView: View {
 			} label: {
 				HStack {
 					Image(systemName: "star.circle.fill")
-						.foregroundStyle(Color.valorantRed)
+						.foregroundStyle(Color.accentColor)
 					Text("Agent Masteries")
 						.font(.headline)
 					Spacer()
@@ -191,7 +191,7 @@ struct ContractArchiveView: View {
 				} else {
 					Image(systemName: "archivebox")
 						.frame(width: 36, height: 36)
-						.foregroundStyle(Color.valorantRed)
+						.foregroundStyle(Color.accentColor)
 				}
 				
 				VStack(alignment: .leading, spacing: 2) {

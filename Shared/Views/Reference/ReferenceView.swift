@@ -137,7 +137,7 @@ struct ReferenceView: View {
 	) -> some View {
 		HStack(spacing: 12) {
 			Image(systemName: icon)
-				.foregroundStyle(Color.valorantRed)
+				.foregroundStyle(Color.accentColor)
 				.frame(width: 24)
 			Text(title)
 				.font(.title3.weight(.medium))

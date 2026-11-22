@@ -80,7 +80,7 @@ struct ContractPassDetailsView: View {
 					if let tierNumber {
 						Text("Tier \(tierNumber)")
 							.font(.caption.bold())
-							.foregroundStyle(isUnlocked ? Color.green : Color.valorantRed)
+							.foregroundStyle(isUnlocked ? Color.green : Color.accentColor)
 					}
 					if let badgeText {
 						Text(badgeText)

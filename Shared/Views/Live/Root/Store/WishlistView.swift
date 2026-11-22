@@ -31,7 +31,7 @@ struct WishlistView: View {
 					VStack(spacing: 10) {
 						Image(systemName: "heart.text.square")
 							.font(.largeTitle)
-							.foregroundStyle(Color.valorantRed)
+							.foregroundStyle(Color.accentColor)
 						Text("No Wishlisted Skins")
 							.font(.headline)
 						Text("Add weapon skins to your wishlist to spot them immediately when they appear in your Daily Offers.")
@@ -49,7 +49,7 @@ struct WishlistView: View {
 							SkinDetailsView(skin: item.skin)
 						} label: {
 							HStack(spacing: 12) {
-								let tierColor = item.skin.contentTierID.flatMap { assets?.contentTiers[$0]?.color } ?? .valorantRed
+								let tierColor = item.skin.contentTierID.flatMap { assets?.contentTiers[$0]?.color } ?? .accentColor
 								RoundedRectangle(cornerRadius: 3)
 									.fill(tierColor)
 									.frame(width: 4, height: 42)
@@ -171,7 +171,7 @@ struct WishlistItemPicker: View {
 								Spacer()
 								
 								Image(systemName: wishlisted ? "heart.fill" : "heart")
-									.foregroundStyle(wishlisted ? Color.valorantRed : .secondary)
+									.foregroundStyle(wishlisted ? Color.accentColor : .secondary)
 							}
 							.padding(.vertical, 2)
 						}
@@ -190,7 +190,7 @@ struct WishlistItemPicker: View {
 				.font(.caption.weight(.semibold))
 				.padding(.horizontal, 12)
 				.padding(.vertical, 6)
-				.background(isSelected ? Color.valorantRed : Color.secondaryGroupedBackground, in: Capsule())
+				.background(isSelected ? Color.accentColor : Color.secondaryGroupedBackground, in: Capsule())
 				.foregroundStyle(isSelected ? .white : .primary)
 		}
 		.buttonStyle(.plain)
