@@ -48,7 +48,7 @@
     {
       "identity" : "swift-algorithms",
       "kind" : "remoteSourceControl",
-      "location" : "git@github.com:apple/swift-algorithms.git",
+      "location" : "https://github.com/apple/swift-algorithms.git",
       "state" : {
         "revision" : "2327673b0e9c7e90e6b1826376526ec3627210e4",
         "version" : "0.2.1"
