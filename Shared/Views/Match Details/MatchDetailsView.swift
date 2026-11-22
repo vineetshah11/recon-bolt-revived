@@ -536,7 +536,15 @@ private struct MatchShareSheet: View {
 		NavigationView {
 			ScrollView {
 				VStack(spacing: 16) {
-					snapshotCard(preloaded: nil)
+					if let renderedImage {
+						Image(uiImage: renderedImage)
+							.resizable()
+							.scaledToFit()
+							.clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+							.shadow(color: .black.opacity(0.45), radius: 18, y: 8)
+					} else {
+						snapshotCard(preloaded: nil)
+					}
 					
 					if let renderedImage {
 						ShareLink(
@@ -570,14 +578,23 @@ private struct MatchShareSheet: View {
 		}
 	}
 	
+	private static let cardWidth: CGFloat = 360
+	private static let cardBackground = Color(red: 0.07, green: 0.08, blue: 0.10)
+	private static let cardPrimary = Color.white
+	private static let cardSecondary = Color.white.opacity(0.55)
+	
 	private func snapshotCard(preloaded: [AssetImage: UIImage]?) -> some View {
 		let info = data.details.matchInfo
 		let mapAsset = assets?.maps[info.mapID]?.listViewIcon
 		let agentAsset = focusedPlayer.agentID.flatMap { assets?.agents[$0]?.displayIcon }
 		let stats = analytics.byPlayer[focusedPlayer.id]
 		let mapName = assets?.maps[info.mapID]?.displayName ?? "Map"
+		let agentName = focusedPlayer.agentID.flatMap { assets?.agents[$0]?.displayName }
+		let ownTeam = data.details.teams.first { $0.id == focusedPlayer.teamID }
+		let enemyTeam = data.details.teams.first { $0.id != focusedPlayer.teamID }
+		let won = ownTeam?.won ?? false
 		
-		return VStack(alignment: .leading, spacing: 14) {
+		return VStack(spacing: 0) {
 			ZStack(alignment: .bottomLeading) {
 				Group {
 					if let mapAsset, let ui = preloaded?[mapAsset] {
@@ -586,76 +603,139 @@ private struct MatchShareSheet: View {
 						MapImage.wideImage(info.mapID).scaledToFill()
 					}
 				}
-				.frame(height: 110)
-				.frame(maxWidth: .infinity)
+				.frame(width: Self.cardWidth, height: 156)
 				.clipped()
-				.overlay(Color.black.opacity(0.45))
 				
-				HStack(spacing: 12) {
-					Group {
-						if let agentAsset, let ui = preloaded?[agentAsset] {
-							Image(uiImage: ui).resizable().scaledToFill()
-						} else if let aid = focusedPlayer.agentID {
-							AgentImage.icon(aid, teamID: focusedPlayer.teamID, isOVariant: data.isGauntletOVariant(for: focusedPlayer))
-						}
-					}
-					.frame(width: 56, height: 56)
-					.background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
-					.clipShape(RoundedRectangle(cornerRadius: 10))
+				LinearGradient(
+					colors: [.black.opacity(0.1), .black.opacity(0.55), .black.opacity(0.92)],
+					startPoint: .top,
+					endPoint: .bottom
+				)
+				
+				HStack(alignment: .bottom, spacing: 12) {
+					agentPortrait(asset: agentAsset, preloaded: preloaded)
 					
 					VStack(alignment: .leading, spacing: 3) {
 						Text(focusedPlayer.resolvedDisplayName(using: resolvedUsers))
-							.font(.headline.bold())
-							.foregroundStyle(.white)
-						Text(mapName)
-							.font(.caption.weight(.medium))
-							.foregroundStyle(.white.opacity(0.85))
+							.font(.system(size: 19, weight: .bold))
+							.foregroundStyle(Self.cardPrimary)
+							.lineLimit(1)
+							.minimumScaleFactor(0.7)
+						Text([agentName, mapName].compactMap { $0 }.joined(separator: "  •  "))
+							.font(.system(size: 11, weight: .semibold))
+							.foregroundStyle(Color.white.opacity(0.7))
+							.lineLimit(1)
 					}
 					
-					Spacer()
+					Spacer(minLength: 8)
 					
-					if data.details.teams.count == 2,
-					   let own = data.details.teams.first(where: { $0.id == focusedPlayer.teamID }),
-					   let enemy = data.details.teams.first(where: { $0.id != focusedPlayer.teamID }) {
-						Text("\(own.roundsWon) – \(enemy.roundsWon)")
-							.font(.title2.bold().monospacedDigit())
+					VStack(alignment: .trailing, spacing: 5) {
+						Text("\(ownTeam?.roundsWon ?? 0) – \(enemyTeam?.roundsWon ?? 0)")
+							.font(.system(size: 26, weight: .heavy, design: .rounded).monospacedDigit())
+							.foregroundStyle(Self.cardPrimary)
+						Text(won ? "WIN" : "LOSS")
+							.font(.system(size: 9, weight: .heavy))
+							.tracking(1)
 							.foregroundStyle(.white)
+							.padding(.horizontal, 8)
+							.padding(.vertical, 3)
+							.background(
+								won
+									? Color(red: 0.11, green: 0.72, blue: 0.47)
+									: Color(red: 0.88, green: 0.22, blue: 0.31),
+								in: Capsule()
+							)
 					}
 				}
-				.padding(14)
+				.padding(.horizontal, 16)
+				.padding(.bottom, 14)
 			}
-			.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+			.frame(width: Self.cardWidth, height: 156)
+			.clipped()
 			
 			if let stats {
 				HStack(spacing: 0) {
 					shareMetric("K / D / A", "\(stats.kills)/\(stats.deaths)/\(stats.assists)")
+					shareMetricDivider
 					shareMetric("ACS", "\(Int(stats.acs.rounded()))")
+					shareMetricDivider
 					shareMetric("ADR", "\(Int(stats.adr.rounded()))")
+					shareMetricDivider
 					shareMetric("SCORE", "\(stats.performanceScore)")
 				}
+				.frame(width: Self.cardWidth)
+				.padding(.vertical, 16)
 			}
 			
-			HStack {
+			Rectangle()
+				.fill(Color.white.opacity(0.08))
+				.frame(width: Self.cardWidth - 32, height: 1)
+			
+			HStack(spacing: 8) {
 				info.queueLabel
-					.font(.caption)
-					.foregroundStyle(.secondary)
-				Spacer()
-				Text("Vantage")
-					.font(.caption.weight(.semibold))
-					.foregroundStyle(.secondary)
+					.font(.system(size: 11, weight: .semibold))
+					.foregroundStyle(Self.cardSecondary)
+				Text("•")
+					.font(.system(size: 11, weight: .semibold))
+					.foregroundStyle(Color.white.opacity(0.25))
+				Text(info.gameStart.formatted(.dateTime.month(.abbreviated).day()))
+					.font(.system(size: 11, weight: .semibold))
+					.foregroundStyle(Self.cardSecondary)
+				Spacer(minLength: 8)
+				Text("VANTAGE")
+					.font(.system(size: 10, weight: .heavy))
+					.tracking(2)
+					.foregroundStyle(Color.white.opacity(0.4))
+			}
+			.padding(.horizontal, 16)
+			.padding(.vertical, 14)
+			.frame(width: Self.cardWidth)
+		}
+		.background(Self.cardBackground)
+		.clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+		.overlay(
+			RoundedRectangle(cornerRadius: 20, style: .continuous)
+				.strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+		)
+	}
+	
+	@ViewBuilder
+	private func agentPortrait(asset: AssetImage?, preloaded: [AssetImage: UIImage]?) -> some View {
+		Group {
+			if let asset, let ui = preloaded?[asset] {
+				Image(uiImage: ui).resizable().scaledToFill()
+			} else if let aid = focusedPlayer.agentID {
+				AgentImage.icon(aid, teamID: focusedPlayer.teamID, isOVariant: data.isGauntletOVariant(for: focusedPlayer))
+			} else {
+				Color.white.opacity(0.1)
 			}
 		}
-		.padding(16)
-		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+		.frame(width: 62, height: 62)
+		.clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+		.overlay(
+			RoundedRectangle(cornerRadius: 16, style: .continuous)
+				.strokeBorder(Color.white.opacity(0.35), lineWidth: 1.5)
+		)
+	}
+	
+	private var shareMetricDivider: some View {
+		Rectangle()
+			.fill(Color.white.opacity(0.08))
+			.frame(width: 1, height: 30)
 	}
 	
 	private func shareMetric(_ label: String, _ value: String) -> some View {
-		VStack(spacing: 3) {
+		VStack(spacing: 4) {
 			Text(value)
-				.font(.headline.bold().monospacedDigit())
+				.font(.system(size: 22, weight: .heavy, design: .rounded).monospacedDigit())
+				.foregroundStyle(Self.cardPrimary)
+				.lineLimit(1)
+				.minimumScaleFactor(0.6)
 			Text(label)
-				.font(.caption2.weight(.semibold))
-				.foregroundStyle(.secondary)
+				.font(.system(size: 9, weight: .bold))
+				.tracking(1)
+				.foregroundStyle(Self.cardSecondary)
+				.lineLimit(1)
 		}
 		.frame(maxWidth: .infinity)
 	}
