@@ -127,7 +127,7 @@ struct AppIcon: Identifiable, Equatable {
 	static let og = Self(
 		key: "AppIconOG", isFree: true,
 		name: Text("OG", comment: "App Icon Name"),
-		description: Text("The classic original look of Vantage.", comment: "App Icon Description: og")
+		description: Text("The classic original look of Recon Bolt.", comment: "App Icon Description: og")
 	)
 	static let pride = Self(
 		key: "AppIconPride", isFree: Calendar.current.date(.now, matchesComponents: .init(month: 6)), // free during pride month

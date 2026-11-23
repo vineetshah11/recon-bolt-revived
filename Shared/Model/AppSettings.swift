@@ -2,7 +2,8 @@ import SwiftUI
 import ValorantAPI
 
 final class AppSettings: ObservableObject {
-	static let defaultAccentColor = Color(.displayP3, red: 0.940, green: 0.019, blue: 0.311)
+	/// Vantage brand purple, `#842DC8` (sRGB 132, 45, 200).
+	static let defaultAccentColor = Color(.sRGB, red: 132 / 255, green: 45 / 255, blue: 200 / 255)
 	
 	@Published var accentReloadToken = UUID()
 	
