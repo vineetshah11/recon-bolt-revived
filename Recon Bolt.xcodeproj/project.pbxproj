@@ -2184,6 +2184,8 @@
 				B97C8F45293C421C002F6A07 /* CompetitiveTier.swift in Sources */,
 				B917FD1929BB7C830082187F /* InAppStore.swift in Sources */,
 				B9F794EC29DE2A51007BECEC /* DeepLink.swift in Sources */,
+				B9A11F51285296C400599719 /* UnwrappingView.swift in Sources */,
+				B9C2E913284E3B9F0007FC55 /* SearchableAssetPicker.swift in Sources */,
 				640DE79522D207A602D71908 /* LevelBorderAssets.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
