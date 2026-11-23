@@ -50,14 +50,27 @@ extension View {
 	
 	/// iOS 17+ requires widgets to expose their background through `containerBackground`;
 	/// on iOS 16 the same view is used as a plain background instead.
-	@ViewBuilder
+	///
+	/// `containerBackground` is not valid outside widget rendering, so the offscreen
+	/// ImageRenderer pass used for preloading assets gets a plain background instead.
 	func widgetContainerBackground<Background: View>(
 		@ViewBuilder _ background: () -> Background
 	) -> some View {
-		if #available(iOSApplicationExtension 17.0, *) {
-			containerBackground(for: .widget, content: background)
+		modifier(WidgetContainerBackground(background: background()))
+	}
+}
+
+private struct WidgetContainerBackground<Background: View>: ViewModifier {
+	@Environment(\.isWidgetSnapshotRender) private var isSnapshotRender
+	let background: Background
+	
+	func body(content: Content) -> some View {
+		if isSnapshotRender {
+			content.background(background)
+		} else if #available(iOSApplicationExtension 17.0, *) {
+			content.containerBackground(for: .widget) { background }
 		} else {
-			self.background(background())
+			content.background(background)
 		}
 	}
 }

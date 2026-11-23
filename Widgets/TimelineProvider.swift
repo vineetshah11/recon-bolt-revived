@@ -120,11 +120,14 @@ enum WidgetError: Error, LocalizedError {
 enum FetchError: Error, LocalizedError {
 	case noAssets
 	case noConfig(Location)
+	case noMatchList
 	
 	var errorDescription: String? {
 		switch self {
 		case .noAssets:
 			return String(localized: "Missing Assets!", table: "Errors")
+		case .noMatchList:
+			return String(localized: "No match history yet — open Vantage once to load it.", table: "Errors")
 		case .noConfig(let location):
 			return String(localized: "Missing game configuration data for \(location.name) region!", table: "Errors")
 		}

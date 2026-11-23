@@ -11,7 +11,9 @@ struct RankChangesEntryProvider: FetchingIntentTimelineProvider {
 		let userID = target ?? context.client.userID
 		
 		try await context.client.autoUpdateMatchList(for: userID)
-		let list = await LocalDataProvider.shared.matchListManager.cachedObject(for: userID)!
+		guard let list = await LocalDataProvider.shared.matchListManager.cachedObject(for: userID) else {
+			throw FetchError.noMatchList
+		}
 		
 		return .init(matches: list)
 	}

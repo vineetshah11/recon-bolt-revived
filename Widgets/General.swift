@@ -100,6 +100,17 @@ struct PreloadingIntentTimelineProvider<
 }
 
 extension EnvironmentValues {
+	/// set while rendering a view offscreen (for asset preloading), where widget-only
+	/// APIs such as `containerBackground` must not be used.
+	var isWidgetSnapshotRender: Bool {
+		get { self[SnapshotRenderKey.self] }
+		set { self[SnapshotRenderKey.self] = newValue }
+	}
+	
+	enum SnapshotRenderKey: EnvironmentKey {
+		static let defaultValue = false
+	}
+	
 	var adjustedWidgetFamily: WidgetFamily {
 		get { self[FamilyKey.self] ?? widgetFamily }
 		set { self[FamilyKey.self] = newValue }
@@ -113,7 +124,10 @@ extension EnvironmentValues {
 @MainActor
 func preloadImages<Content: View>(@ViewBuilder usedIn views: () -> Content) async {
 	AssetImage.used = []
-	ImageRenderer(content: ZStack(content: views)).render { _, _ in }
+	ImageRenderer(
+		content: ZStack(content: views)
+			.environment(\.isWidgetSnapshotRender, true)
+	).render { _, _ in }
 	let used = AssetImage.used
 	
 	_ = await used.concurrentMap { image in
