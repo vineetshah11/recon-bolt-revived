@@ -5,6 +5,14 @@ import UserDefault
 import HandyOperators
 import WidgetKit
 
+/// Sign-in failure whose message is safe to show — unlike the API layer's auth errors,
+/// which can embed a redirect URL containing live tokens.
+struct SignInError: Error, LocalizedError {
+	let message: String
+	
+	var errorDescription: String? { message }
+}
+
 @MainActor
 final class AccountManager: ObservableObject {
 	let keychain: any Keychain
@@ -110,11 +118,20 @@ final class AccountManager: ObservableObject {
 	}
 	
 	func addAccount(redirectURL: URL, cookies: [HTTPCookie]) async throws {
-		let session = try await APISession(redirectURL: redirectURL, cookies: cookies)
-		if !storedAccounts.contains(session.userID) {
-			storedAccounts.append(session.userID)
+		do {
+			let session = try await APISession(redirectURL: redirectURL, cookies: cookies)
+			if !storedAccounts.contains(session.userID) {
+				storedAccounts.append(session.userID)
+			}
+			activeAccount = try StoredAccount(session: session, context: context)
+		} catch {
+			// the API layer embeds the redirect URL in some auth errors, and that URL
+			// carries live tokens — never let one reach the UI or a log
+			if error.localizedDescription.contains("access_token=") {
+				throw SignInError(message: "Riot did not return a complete session. Please try signing in again.")
+			}
+			throw error
 		}
-		activeAccount = try StoredAccount(session: session, context: context)
 	}
 	
 	func removeAccounts(at offsets: IndexSet) {

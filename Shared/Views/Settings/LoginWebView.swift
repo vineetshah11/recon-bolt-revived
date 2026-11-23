@@ -17,6 +17,14 @@ final class RiotLoginWebViewModel: NSObject, ObservableObject, WKNavigationDeleg
 	
 	static let mobileSafariUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
 	
+	/// Riot only includes an `id_token` in the redirect when the login asks for the
+	/// `openid` scope, and ValorantAPI's session requires one (it is also used for the
+	/// chat PAS token). The pinned package's login URL no longer requests any scope, so
+	/// its redirect fails token extraction — request the scopes here instead.
+	static let scopedLoginURL = URL(
+		string: "https://authenticate.riotgames.com/login?client_id=play-valorant-web-prod&nonce=1&redirect_uri=https%3A%2F%2Fauth.riotgames.com%2Fauthorize%3Fclient_id%3Dplay-valorant-web-prod%26nonce%3D1%26redirect_uri%3Dhttps%253A%252F%252Fplayvalorant.com%252F%26response_type%3Dtoken%2520id_token%26scope%3Daccount%2520openid&response_type=token%20id_token&scope=account%20openid&method=riot_identity"
+	)!
+	
 	override init() {
 		let config = WKWebViewConfiguration()
 		// persistent store: iOS may suspend/evict the web content process while you're in Mail
@@ -62,7 +70,7 @@ final class RiotLoginWebViewModel: NSObject, ObservableObject, WKNavigationDeleg
 		didCompleteAuth = false
 		loadError = nil
 		isLoading = true
-		webView.load(URLRequest(url: APISession.riotLoginURL))
+		webView.load(URLRequest(url: Self.scopedLoginURL))
 	}
 	
 	private func handleRedirectIfTokenPresent(_ url: URL?) -> Bool {
