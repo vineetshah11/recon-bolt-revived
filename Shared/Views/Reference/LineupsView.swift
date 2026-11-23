@@ -323,47 +323,31 @@ struct LineupPlayerView: View {
 	}
 }
 
-/// YouTube line-ups can't be played by AVPlayer, so they go through the standard embed
-/// page in a web view with inline playback enabled.
-struct YouTubePlayerView: UIViewRepresentable {
-	let videoID: String
-	
-	func makeUIView(context: Context) -> WKWebView {
-		let configuration = WKWebViewConfiguration()
-		configuration.allowsInlineMediaPlayback = true
-		configuration.mediaTypesRequiringUserActionForPlayback = []
+	/// YouTube line-ups can't be played by AVPlayer, so they go through the standard embed
+	/// page in a web view with inline playback enabled.
+	private struct YouTubePlayerView: UIViewRepresentable {
+		let videoID: String
 		
-		let webView = WKWebView(frame: .zero, configuration: configuration)
-		webView.isOpaque = false
-		webView.backgroundColor = .black
-		webView.scrollView.backgroundColor = .black
-		webView.scrollView.isScrollEnabled = false
-		webView.scrollView.contentInsetAdjustmentBehavior = .never
-		webView.loadHTMLString(Self.html(for: videoID), baseURL: URL(string: "https://www.youtube.com"))
-		return webView
-	}
-	
-	func updateUIView(_ webView: WKWebView, context: Context) {
-		guard context.coordinator.videoID != videoID else { return }
-		context.coordinator.videoID = videoID
-		webView.loadHTMLString(Self.html(for: videoID), baseURL: URL(string: "https://www.youtube.com"))
-	}
-	
-	func makeCoordinator() -> Coordinator {
-		Coordinator(videoID: videoID)
-	}
-	
-	final class Coordinator {
-		var videoID: String
-		
-		init(videoID: String) {
-			self.videoID = videoID
+		func makeUIView(context: Context) -> WKWebView {
+			let configuration = WKWebViewConfiguration()
+			configuration.allowsInlineMediaPlayback = true
+			configuration.mediaTypesRequiringUserActionForPlayback = []
+			
+			let webView = WKWebView(frame: .zero, configuration: configuration)
+			webView.isOpaque = false
+			webView.backgroundColor = .black
+			webView.scrollView.backgroundColor = .black
+			webView.scrollView.isScrollEnabled = false
+			webView.scrollView.contentInsetAdjustmentBehavior = .never
+			webView.loadHTMLString(Self.html(for: videoID), baseURL: URL(string: "https://www.youtube.com"))
+			return webView
 		}
-	}
-	
-	private static func html(for videoID: String) -> String {
-		let id = videoID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? videoID
-		return """
+		
+		func updateUIView(_ webView: WKWebView, context: Context) {}
+		
+		private static func html(for videoID: String) -> String {
+			let id = videoID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? videoID
+			return """
 		<!DOCTYPE html>
 		<html>
 		<head>
@@ -379,8 +363,8 @@ struct YouTubePlayerView: UIViewRepresentable {
 		</body>
 		</html>
 		"""
+		}
 	}
-}
 
 private extension Array where Element: Hashable {
 	func uniqued() -> [Element] {

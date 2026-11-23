@@ -53,7 +53,7 @@ struct LineupGuide: Identifiable, Codable, Equatable {
 	var side: String?
 	var difficulty: String?
 	var videoURL: URL?
-		var imageURL: URL?
+	var imageURL: URL?
 	var views: Int?
 
 	var votes: Int?
@@ -65,14 +65,14 @@ struct LineupGuide: Identifiable, Codable, Equatable {
 	/// handed to the embed player instead.
 	var youtubeVideoID: String? {
 		guard let url = videoURL, let host = url.host?.lowercased() else { return nil }
-		let components = url.pathComponents.filter { $0 != "/" }
+		let path = url.pathComponents.filter { $0 != "/" }
 		
 		if host.hasSuffix("youtu.be") {
-			return components.first.flatMap(Self.validVideoID)
+			return path.first.flatMap(Self.validVideoID)
 		}
 		guard host.hasSuffix("youtube.com") || host.hasSuffix("youtube-nocookie.com") else { return nil }
-		if components.count >= 2, ["embed", "shorts", "live", "v"].contains(components[0]) {
-			return Self.validVideoID(components[1])
+		if path.count >= 2, ["embed", "shorts", "live", "v"].contains(path[0]) {
+			return Self.validVideoID(path[1])
 		}
 		return URLComponents(url: url, resolvingAgainstBaseURL: false)?
 			.queryItems?.first { $0.name == "v" }?.value
