@@ -33,11 +33,11 @@ struct FriendsView: View {
 				
 				valorantPartiesSection
 				
+				friendRequestsSection
+				
 				otherGamesSection
 				
 				offlineFriendsSection
-				
-				friendRequestsSection
 				
 				if socialManager.friends.isEmpty && socialManager.connectionState == .connected {
 					Text("No friends returned on your Riot roster yet.")
@@ -441,11 +441,6 @@ struct FriendsView: View {
 	
 	// MARK: - Friend Requests
 	
-	private func openProfile(for friend: XMPPFriend) {
-		guard let puuid = friend.puuid else { return }
-		contextProfileUserID = puuid
-	}
-	
 	@ViewBuilder
 	private var friendRequestsSection: some View {
 		let incoming = socialManager.friends.filter { $0.isIncomingRequest && matchesSearch($0) }
@@ -461,27 +456,18 @@ struct FriendsView: View {
 				VStack(spacing: 0) {
 					ForEach(Array(incoming.enumerated()), id: \.element.id) { index, friend in
 						HStack(spacing: 12) {
-							Button {
-								openProfile(for: friend)
-							} label: {
-								HStack(spacing: 12) {
-									if let cardID = friend.playerCardID {
-										PlayerCardImage.small(cardID)
-											.frame(width: 44, height: 44)
-											.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-									}
-									
-									VStack(alignment: .leading, spacing: 2) {
-										nameTitle(friend)
-										Text("Incoming Friend Request")
-											.font(.caption)
-											.foregroundStyle(.secondary)
-									}
-								}
-								.contentShape(Rectangle())
+							if let cardID = friend.playerCardID {
+								PlayerCardImage.small(cardID)
+									.frame(width: 44, height: 44)
+									.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 							}
-							.buttonStyle(.plain)
-							.disabled(friend.puuid == nil)
+							
+							VStack(alignment: .leading, spacing: 2) {
+								nameTitle(friend)
+								Text("Incoming Friend Request")
+									.font(.caption)
+									.foregroundStyle(.secondary)
+							}
 							
 							Spacer()
 							

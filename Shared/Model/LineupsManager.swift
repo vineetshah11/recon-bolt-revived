@@ -16,7 +16,6 @@ enum LineupSide: String, CaseIterable, Identifiable {
 		}
 	}
 	
-	/// the API spells its sides out with a leading capital
 	var queryValue: String? {
 		switch self {
 		case .all: return nil
@@ -42,8 +41,6 @@ enum LineupSort: String, CaseIterable, Identifiable {
 	}
 }
 
-/// A line-up from tricks.gg, which is the only line-up source we've found that serves
-/// an open JSON API instead of hiding behind Cloudflare (as Tracker.gg does).
 struct LineupGuide: Identifiable, Codable, Equatable {
 	var id: String
 	var title: String
@@ -55,42 +52,10 @@ struct LineupGuide: Identifiable, Codable, Equatable {
 	var videoURL: URL?
 	var imageURL: URL?
 	var views: Int?
-
 	var votes: Int?
 	var createdAt: Date?
 	
 	static let siteURL = URL(string: "https://tricks.gg/lineups")!
-	
-	/// Most line-ups link to YouTube, which AVPlayer can't play directly, so those are
-	/// handed to the embed player instead.
-	var youtubeVideoID: String? {
-		guard let url = videoURL, let host = url.host?.lowercased() else { return nil }
-		let path = url.pathComponents.filter { $0 != "/" }
-		
-		if host.hasSuffix("youtu.be") {
-			return path.first.flatMap(Self.validVideoID)
-		}
-		guard host.hasSuffix("youtube.com") || host.hasSuffix("youtube-nocookie.com") else { return nil }
-		if path.count >= 2, ["embed", "shorts", "live", "v"].contains(path[0]) {
-			return Self.validVideoID(path[1])
-		}
-		return URLComponents(url: url, resolvingAgainstBaseURL: false)?
-			.queryItems?.first { $0.name == "v" }?.value
-			.flatMap(Self.validVideoID)
-	}
-	
-	/// YouTube line-ups only ship a video link, so fall back to YouTube's own thumbnail.
-	var thumbnailURL: URL? {
-		if let imageURL { return imageURL }
-		guard let id = youtubeVideoID else { return nil }
-		return URL(string: "https://i.ytimg.com/vi/\(id)/hqdefault.jpg")
-	}
-	
-	private static func validVideoID(_ raw: String) -> String? {
-		let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
-		guard !raw.isEmpty, raw.unicodeScalars.allSatisfy(allowed.contains) else { return nil }
-		return raw
-	}
 	
 	private enum CodingKeys: String, CodingKey {
 		case id
@@ -109,24 +74,26 @@ struct LineupGuide: Identifiable, Codable, Equatable {
 	
 	init(from decoder: Decoder) throws {
 		let container = try decoder.container(keyedBy: CodingKeys.self)
-		id = try container.decode(String.self, forKey: .id)
+		if let str = try? container.decode(String.self, forKey: .id) {
+			id = str
+		} else if let intID = try? container.decode(Int.self, forKey: .id) {
+			id = String(intID)
+		} else {
+			id = UUID().uuidString
+		}
 		title = try container.decodeIfPresent(String.self, forKey: .title) ?? "Untitled Line-Up"
 		map = try container.decodeIfPresent(String.self, forKey: .map)
 		agent = try container.decodeIfPresent(String.self, forKey: .agent)
 		ability = try container.decodeIfPresent(String.self, forKey: .ability)
 		side = try container.decodeIfPresent(String.self, forKey: .side)
 		difficulty = try container.decodeIfPresent(String.self, forKey: .difficulty)
-		videoURL = try container.decodeIfPresent(String.self, forKey: .videoUrl)
-			.flatMap(Self.absoluteURL)
-		imageURL = try container.decodeIfPresent(String.self, forKey: .imageUrl)
-			.flatMap(Self.absoluteURL)
+		videoURL = try container.decodeIfPresent(String.self, forKey: .videoUrl).flatMap(Self.absoluteURL)
+		imageURL = try container.decodeIfPresent(String.self, forKey: .imageUrl).flatMap(Self.absoluteURL)
 		views = try container.decodeIfPresent(Int.self, forKey: .views)
 		votes = try container.decodeIfPresent(Int.self, forKey: .voteCount)
-		createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt)
-			.flatMap(Self.date(from:))
+		createdAt = try container.decodeIfPresent(String.self, forKey: .createdAt).flatMap(Self.date(from:))
 	}
 	
-	/// favorites are persisted in this same shape, so keep dates and URLs as strings
 	func encode(to encoder: Encoder) throws {
 		var container = encoder.container(keyedBy: CodingKeys.self)
 		try container.encode(id, forKey: .id)
@@ -143,10 +110,11 @@ struct LineupGuide: Identifiable, Codable, Equatable {
 		try container.encodeIfPresent(createdAt.map(Self.isoFormatter.string(from:)), forKey: .createdAt)
 	}
 	
-	/// media paths come back relative to the site
 	private static func absoluteURL(_ string: String) -> URL? {
 		guard !string.isEmpty else { return nil }
-		guard !string.hasPrefix("http") else { return URL(string: string) }
+		if string.hasPrefix("http") {
+			return URL(string: string)
+		}
 		guard let base = URL(string: "https://tricks.gg") else { return nil }
 		return URL(string: string, relativeTo: base)?.absoluteURL
 	}
@@ -175,7 +143,7 @@ final class LineupsManager: ObservableObject {
 	@Published var isLoading = false
 	@Published var errorMessage: String?
 	
-	private let favoritesFilename = "LineupFavorites.v1.json"
+	private let favoritesFilename = "LineupFavorites.v2.json"
 	private let endpoint = URL(string: "https://tricks.gg/api/lineups")!
 	
 	init() {
@@ -195,6 +163,10 @@ final class LineupsManager: ObservableObject {
 		LocalJSONStore.save(favorites, to: favoritesFilename)
 	}
 	
+	func sortGuides(by sort: LineupSort) {
+		guides = sorted(guides, by: sort)
+	}
+	
 	func fetchGuides(
 		mapKey: String?,
 		agentKey: String?,
@@ -205,7 +177,11 @@ final class LineupsManager: ObservableObject {
 		errorMessage = nil
 		defer { isLoading = false }
 		
-		var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
+		guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
+			errorMessage = "Invalid endpoint URL."
+			return
+		}
+		
 		var queryItems: [URLQueryItem] = []
 		if let mapKey, !mapKey.isEmpty {
 			queryItems.append(.init(name: "map", value: mapKey))
@@ -213,22 +189,30 @@ final class LineupsManager: ObservableObject {
 		if let agent = agentKey.flatMap(Self.queryAgentName) {
 			queryItems.append(.init(name: "agent", value: agent))
 		}
-		if let side = side.queryValue {
-			queryItems.append(.init(name: "side", value: side))
+		if let sideValue = side.queryValue {
+			queryItems.append(.init(name: "side", value: sideValue))
 		}
 		components.queryItems = queryItems.isEmpty ? nil : queryItems
 		
-		var request = URLRequest(url: components.url!)
+		guard let url = components.url else {
+			errorMessage = "Failed to build request URL."
+			return
+		}
+		
+		var request = URLRequest(url: url)
 		request.setValue("application/json", forHTTPHeaderField: "Accept")
 		
 		do {
 			let (data, response) = try await URLSession.shared.data(for: request)
-			let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-			guard (200..<300).contains(status) else {
-				errorMessage = status == 403
-					? "Tricks.gg is blocking this network right now. You can still browse line-ups in Safari."
-					: "Tricks.gg returned HTTP \(status)."
-				return
+			if let http = response as? HTTPURLResponse {
+				if http.statusCode == 403 {
+					errorMessage = "Tricks.gg is blocking this network right now. You can still browse line-ups in Safari."
+					return
+				}
+				if !(200..<300).contains(http.statusCode) {
+					errorMessage = "Tricks.gg returned HTTP \(http.statusCode)."
+					return
+				}
 			}
 			let decoded = try JSONDecoder().decode(LineupResponse.self, from: data)
 			guides = sorted(decoded.lineups, by: sort)
@@ -237,7 +221,6 @@ final class LineupsManager: ObservableObject {
 		}
 	}
 	
-	/// the API ignores sort parameters, so ordering happens here
 	private func sorted(_ lineups: [LineupGuide], by sort: LineupSort) -> [LineupGuide] {
 		switch sort {
 		case .top:
@@ -254,13 +237,12 @@ final class LineupsManager: ObservableObject {
 		}
 	}
 	
-	/// the API keys agents by bare capitalized name, so "KAY/O" has to become "KAYO"
 	private static func queryAgentName(_ name: String) -> String? {
 		let stripped = name.filter { $0.isLetter || $0.isNumber }
 		return stripped.isEmpty ? nil : stripped
 	}
-	
-	private struct LineupResponse: Decodable {
-		var lineups: [LineupGuide]
-	}
+}
+
+private struct LineupResponse: Decodable {
+	var lineups: [LineupGuide]
 }

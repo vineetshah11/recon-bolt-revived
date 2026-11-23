@@ -154,20 +154,3 @@ struct ExpressionPicker: View {
 		}
 	}
 }
-
-extension FlexInfo: SimpleSearchableAsset {
-	static let assetPath = \AssetCollection.flex
-	static let inventoryPath = \Inventory.totems
-	static let defaultItems: [Totem.ID] = [.statComFlex]
-	
-	var searchableText: String { displayName }
-}
-
-extension FlexInfo? {
-	func label() -> some View {
-		UnwrappingView(
-			value: self?.displayName,
-			placeholder: Text("Unknown Flex", comment: "placeholder")
-		)
-	}
-}
