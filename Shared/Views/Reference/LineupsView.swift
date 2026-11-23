@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import WebKit
 import ValorantAPI
 
 struct LineupsView: View {
@@ -122,7 +123,7 @@ struct LineupsView: View {
 						LineupPlayerView(guide: guide)
 					} label: {
 						HStack(spacing: 12) {
-							if let thumb = guide.imageURL {
+							if let thumb = guide.thumbnailURL {
 								AsyncImage(url: thumb) { phase in
 									switch phase {
 									case .success(let image):
@@ -217,7 +218,12 @@ struct LineupPlayerView: View {
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading, spacing: 14) {
-				if let videoURL = guide.videoURL {
+				if let videoID = guide.youtubeVideoID {
+					YouTubePlayerView(videoID: videoID)
+						.aspectRatio(16/9, contentMode: .fit)
+						.cornerRadius(12)
+						.clipped()
+				} else if let videoURL = guide.videoURL {
 					VideoPlayer(player: player)
 						.aspectRatio(16/9, contentMode: .fit)
 						.cornerRadius(12)
@@ -264,11 +270,22 @@ struct LineupPlayerView: View {
 				}
 				.padding(.horizontal, 4)
 				
-				Link(destination: LineupGuide.siteURL) {
-					Label("Open on Tricks.gg", systemImage: "safari")
-						.frame(maxWidth: .infinity)
-						.padding()
-						.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
+				VStack(spacing: 8) {
+					if guide.youtubeVideoID != nil, let videoURL = guide.videoURL {
+						Link(destination: videoURL) {
+							Label("Open on YouTube", systemImage: "play.rectangle")
+								.frame(maxWidth: .infinity)
+								.padding()
+								.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
+						}
+					}
+					
+					Link(destination: LineupGuide.siteURL) {
+						Label("Open on Tricks.gg", systemImage: "safari")
+							.frame(maxWidth: .infinity)
+							.padding()
+							.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
+					}
 				}
 			}
 			.padding()
@@ -303,6 +320,65 @@ struct LineupPlayerView: View {
 			.padding(.horizontal, 10)
 			.padding(.vertical, 4)
 			.background(Color.secondaryGroupedBackground, in: Capsule())
+	}
+}
+
+/// YouTube line-ups can't be played by AVPlayer, so they go through the standard embed
+/// page in a web view with inline playback enabled.
+struct YouTubePlayerView: UIViewRepresentable {
+	let videoID: String
+	
+	func makeUIView(context: Context) -> WKWebView {
+		let configuration = WKWebViewConfiguration()
+		configuration.allowsInlineMediaPlayback = true
+		configuration.mediaTypesRequiringUserActionForPlayback = []
+		
+		let webView = WKWebView(frame: .zero, configuration: configuration)
+		webView.isOpaque = false
+		webView.backgroundColor = .black
+		webView.scrollView.backgroundColor = .black
+		webView.scrollView.isScrollEnabled = false
+		webView.scrollView.contentInsetAdjustmentBehavior = .never
+		webView.loadHTMLString(Self.html(for: videoID), baseURL: URL(string: "https://www.youtube.com"))
+		return webView
+	}
+	
+	func updateUIView(_ webView: WKWebView, context: Context) {
+		guard context.coordinator.videoID != videoID else { return }
+		context.coordinator.videoID = videoID
+		webView.loadHTMLString(Self.html(for: videoID), baseURL: URL(string: "https://www.youtube.com"))
+	}
+	
+	func makeCoordinator() -> Coordinator {
+		Coordinator(videoID: videoID)
+	}
+	
+	final class Coordinator {
+		var videoID: String
+		
+		init(videoID: String) {
+			self.videoID = videoID
+		}
+	}
+	
+	private static func html(for videoID: String) -> String {
+		let id = videoID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? videoID
+		return """
+		<!DOCTYPE html>
+		<html>
+		<head>
+		<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+		<style>
+		html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
+		iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+		</style>
+		</head>
+		<body>
+		<iframe src="https://www.youtube.com/embed/\(id)?playsinline=1&autoplay=1&rel=0&modestbranding=1"
+				allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
+		</body>
+		</html>
+		"""
 	}
 }
 

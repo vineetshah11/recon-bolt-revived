@@ -53,12 +53,44 @@ struct LineupGuide: Identifiable, Codable, Equatable {
 	var side: String?
 	var difficulty: String?
 	var videoURL: URL?
-	var imageURL: URL?
+		var imageURL: URL?
 	var views: Int?
+
 	var votes: Int?
 	var createdAt: Date?
 	
 	static let siteURL = URL(string: "https://tricks.gg/lineups")!
+	
+	/// Most line-ups link to YouTube, which AVPlayer can't play directly, so those are
+	/// handed to the embed player instead.
+	var youtubeVideoID: String? {
+		guard let url = videoURL, let host = url.host?.lowercased() else { return nil }
+		let components = url.pathComponents.filter { $0 != "/" }
+		
+		if host.hasSuffix("youtu.be") {
+			return components.first.flatMap(Self.validVideoID)
+		}
+		guard host.hasSuffix("youtube.com") || host.hasSuffix("youtube-nocookie.com") else { return nil }
+		if components.count >= 2, ["embed", "shorts", "live", "v"].contains(components[0]) {
+			return Self.validVideoID(components[1])
+		}
+		return URLComponents(url: url, resolvingAgainstBaseURL: false)?
+			.queryItems?.first { $0.name == "v" }?.value
+			.flatMap(Self.validVideoID)
+	}
+	
+	/// YouTube line-ups only ship a video link, so fall back to YouTube's own thumbnail.
+	var thumbnailURL: URL? {
+		if let imageURL { return imageURL }
+		guard let id = youtubeVideoID else { return nil }
+		return URL(string: "https://i.ytimg.com/vi/\(id)/hqdefault.jpg")
+	}
+	
+	private static func validVideoID(_ raw: String) -> String? {
+		let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
+		guard !raw.isEmpty, raw.unicodeScalars.allSatisfy(allowed.contains) else { return nil }
+		return raw
+	}
 	
 	private enum CodingKeys: String, CodingKey {
 		case id
