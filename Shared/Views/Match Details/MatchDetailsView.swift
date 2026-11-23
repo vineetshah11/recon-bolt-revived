@@ -640,13 +640,13 @@ private struct MatchShareSheet: View {
 					.font(.caption)
 					.foregroundStyle(.secondary)
 				Spacer()
-				Text("Recon Bolt")
+				Text("Vantage")
 					.font(.caption.weight(.semibold))
 					.foregroundStyle(.secondary)
-			}
 		}
-		.padding(16)
-		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+	}
+	.padding(16)
+	.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 	}
 	
 	private func shareMetric(_ label: String, _ value: String) -> some View {
