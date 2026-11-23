@@ -41,7 +41,7 @@ struct LineupsView: View {
 							Button("Retry") {
 								Task { await reload() }
 							}
-							Link("Open on Tracker.gg", destination: URL(string: "https://tracker.gg/valorant/guides/clips")!)
+							Link("Open on Tricks.gg", destination: LineupGuide.siteURL)
 						}
 					}
 					.padding(.vertical, 4)
@@ -122,8 +122,8 @@ struct LineupsView: View {
 						LineupPlayerView(guide: guide)
 					} label: {
 						HStack(spacing: 12) {
-							if let thumb = guide.previewImageUrl, let url = URL(string: thumb) {
-								AsyncImage(url: url) { phase in
+							if let thumb = guide.imageURL {
+								AsyncImage(url: thumb) { phase in
 									switch phase {
 									case .success(let image):
 										image.resizable().scaledToFill()
@@ -142,24 +142,25 @@ struct LineupsView: View {
 									.lineLimit(2)
 								
 								HStack(spacing: 6) {
-									if let agent = guide.attributes?.agent {
-										Text(agent.capitalized)
+									if let agent = guide.agent {
+										Text(agent)
 									}
-									if let side = guide.attributes?.side {
-										Text("• \(side.capitalized)")
+									if let side = guide.side {
+										Text("• \(side)")
 									}
-									if let loc = guide.attributes?.location {
-										Text("• \(loc)")
+									if let map = guide.map {
+										Text("• \(map)")
 									}
 								}
 								.font(.caption2)
 								.foregroundStyle(.secondary)
 								.lineLimit(1)
 								
-								if let views = guide.viewsDisplay ?? guide.views.map({ "\($0.formatted()) views" }) {
-									Text(views)
+								if let details = details(for: guide) {
+									Text(details)
 										.font(.caption2)
 										.foregroundStyle(.tertiary)
+										.lineLimit(1)
 								}
 							}
 							
@@ -180,11 +181,21 @@ struct LineupsView: View {
 	
 	private func filtered(_ list: [LineupGuide]) -> [LineupGuide] {
 		guard !search.isEmpty else { return list }
-		return list.filter {
-			$0.title.localizedCaseInsensitiveContains(search)
-				|| ($0.attributes?.location?.localizedCaseInsensitiveContains(search) == true)
-				|| ($0.attributes?.agent?.localizedCaseInsensitiveContains(search) == true)
+		return list.filter { guide in
+			[guide.title, guide.map, guide.agent, guide.ability, guide.side]
+				.compactMap { $0 }
+				.contains { $0.localizedCaseInsensitiveContains(search) }
 		}
+	}
+	
+	private func details(for guide: LineupGuide) -> String? {
+		var parts: [String] = []
+		if let ability = guide.ability { parts.append(ability) }
+		if let views = guide.views { parts.append("\(views.formatted()) views") }
+		if let difficulty = guide.difficulty, difficulty != "EASY" {
+			parts.append(difficulty.capitalized)
+		}
+		return parts.isEmpty ? nil : parts.joined(separator: " · ")
 	}
 	
 	private func reload() async {
@@ -206,12 +217,12 @@ struct LineupPlayerView: View {
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading, spacing: 14) {
-				if let hlsURL = guide.hlsStreamURL {
+				if let videoURL = guide.videoURL {
 					VideoPlayer(player: player)
 						.aspectRatio(16/9, contentMode: .fit)
 						.cornerRadius(12)
 						.onAppear {
-							let avPlayer = AVPlayer(url: hlsURL)
+							let avPlayer = AVPlayer(url: videoURL)
 							self.player = avPlayer
 							avPlayer.play()
 						}
@@ -224,7 +235,7 @@ struct LineupPlayerView: View {
 						Image(systemName: "video.slash")
 							.font(.largeTitle)
 							.foregroundStyle(.secondary)
-						Text("Stream URL unavailable")
+						Text("Video unavailable")
 							.font(.subheadline)
 							.foregroundStyle(.secondary)
 					}
@@ -237,23 +248,24 @@ struct LineupPlayerView: View {
 					Text(guide.title)
 						.font(.title3.bold())
 					
-					if let creator = guide.creator?.platformUserHandle {
-						Text("By \(creator)")
+					if let metrics = metrics {
+						Text(metrics)
 							.font(.subheadline)
 							.foregroundStyle(.secondary)
 					}
 					
 					HStack(spacing: 8) {
-						if let map = guide.attributes?.map { badge(map.capitalized) }
-						if let agent = guide.attributes?.agent { badge(agent.capitalized) }
-						if let side = guide.attributes?.side { badge(side.capitalized) }
-						if let ability = guide.attributes?.ability { badge(ability.capitalized) }
+						if let map = guide.map { badge(map) }
+						if let agent = guide.agent { badge(agent) }
+						if let side = guide.side { badge(side) }
+						if let ability = guide.ability { badge(ability) }
+						if let difficulty = guide.difficulty, difficulty != "EASY" { badge(difficulty.capitalized) }
 					}
 				}
 				.padding(.horizontal, 4)
 				
-				Link(destination: guide.trackerURL) {
-					Label("Open on Tracker.gg", systemImage: "safari")
+				Link(destination: LineupGuide.siteURL) {
+					Label("Open on Tricks.gg", systemImage: "safari")
 						.frame(maxWidth: .infinity)
 						.padding()
 						.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
@@ -273,6 +285,16 @@ struct LineupPlayerView: View {
 				}
 			}
 		}
+	}
+	
+	private var metrics: String? {
+		var parts: [String] = []
+		if let views = guide.views { parts.append("\(views.formatted()) views") }
+		if let votes = guide.votes, votes > 0 { parts.append("\(votes) votes") }
+		if let createdAt = guide.createdAt {
+			parts.append("added \(createdAt.formatted(date: .abbreviated, time: .omitted))")
+		}
+		return parts.isEmpty ? nil : parts.joined(separator: " · ")
 	}
 	
 	private func badge(_ text: String) -> some View {
