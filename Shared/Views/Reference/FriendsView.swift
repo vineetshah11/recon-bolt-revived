@@ -461,29 +461,30 @@ struct FriendsView: View {
 				VStack(spacing: 0) {
 					ForEach(Array(incoming.enumerated()), id: \.element.id) { index, friend in
 						HStack(spacing: 12) {
+						if let cardID = friend.playerCardID {
+							PlayerCardImage.small(cardID)
+								.frame(width: 44, height: 44)
+								.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+							}
+							
+							VStack(alignment: .leading, spacing: 2) {
+								nameTitle(friend)
+								Text("Incoming Friend Request")
+									.font(.caption)
+									.foregroundStyle(.secondary)
+							}
+							
+							Spacer()
+							
 							Button {
 								openProfile(for: friend)
 							} label: {
-								HStack(spacing: 12) {
-									if let cardID = friend.playerCardID {
-										PlayerCardImage.small(cardID)
-											.frame(width: 44, height: 44)
-											.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-									}
-									
-									VStack(alignment: .leading, spacing: 2) {
-										nameTitle(friend)
-										Text("Incoming Friend Request")
-											.font(.caption)
-											.foregroundStyle(.secondary)
-									}
-								}
-								.contentShape(Rectangle())
+								Image(systemName: "person.crop.circle")
+									.font(.title2)
+									.foregroundStyle(Color.accentColor)
 							}
 							.buttonStyle(.plain)
 							.disabled(friend.puuid == nil)
-							
-							Spacer()
 							
 							AsyncButton {
 								do {

@@ -140,7 +140,7 @@ private struct RiotSupportWebView: UIViewRepresentable {
 struct PurchaseHistoryView: View {
 	enum Tab: String, CaseIterable, Identifiable {
 		case payments = "Payments"
-		case transactions = "Transactions"
+		case transactions = "Wallet Deltas"
 		
 		var id: String { rawValue }
 	}
@@ -308,48 +308,28 @@ struct PurchaseHistoryView: View {
 	@ViewBuilder
 	private func walletSections(_ transactions: [PurchaseHistory.WalletTransaction]) -> some View {
 		let sorted = transactions.sorted { $0.createdTime > $1.createdTime }
-		let filtered = search.isEmpty ? sorted : sorted.filter {
-			$0.createdTime.formatted(date: .abbreviated, time: .omitted)
-				.localizedCaseInsensitiveContains(search)
-				|| $0.deltas.contains { delta in
-					"\(delta.amount ?? 0)".localizedCaseInsensitiveContains(search)
-						|| currencyName(delta.type)?.localizedCaseInsensitiveContains(search) == true
-				}
-		}
-		let totals = WalletTotals(transactions: filtered)
-		let currencyIDs = totals.currencyIDs
 		
-		if !currencyIDs.isEmpty {
-			Section {
-				HStack(alignment: .top, spacing: 28) {
-					totalsColumn("Spent", sign: "-", amounts: totals.spent, currencyIDs: currencyIDs)
-					totalsColumn("Earned", sign: "+", amounts: totals.earned, currencyIDs: currencyIDs)
-				}
-				.frame(maxWidth: .infinity)
-				.padding(.vertical, 10)
-			}
-		}
-		
-		Section("Transactions (\(filtered.count))") {
-			if filtered.isEmpty {
+		Section("Wallet Transactions (\(sorted.count))") {
+			if sorted.isEmpty {
 				Text("No wallet delta entries recorded.")
 					.foregroundStyle(.secondary)
 			} else {
-				ForEach(filtered) { tx in
-					HStack(alignment: .firstTextBaseline) {
-						Text(tx.createdTime.formatted(date: .abbreviated, time: .omitted))
-							.font(.subheadline)
+				ForEach(sorted) { tx in
+					HStack(alignment: .top) {
+						Text(tx.createdTime.formatted(date: .abbreviated, time: .shortened))
+							.font(.caption)
 							.foregroundStyle(.secondary)
 						Spacer()
 						VStack(alignment: .trailing, spacing: 4) {
 							ForEach(Array(tx.deltas.enumerated()), id: \.offset) { _, delta in
-								HStack(spacing: 5) {
+								HStack(spacing: 6) {
 									if let amt = delta.amount {
 										Text(amt > 0 ? "+\(amt)" : "\(amt)")
 											.font(.subheadline.bold().monospacedDigit())
 											.foregroundStyle(amt > 0 ? Color.green : Color.red)
 									}
-									currencyIcon(delta.type)
+									(assets?.currencies[delta.type]?.displayIcon).view()
+										.frame(width: 16, height: 16)
 								}
 							}
 						}
@@ -357,80 +337,6 @@ struct PurchaseHistoryView: View {
 					.padding(.vertical, 2)
 				}
 			}
-		}
-	}
-	
-	@ViewBuilder
-	private func totalsColumn(
-		_ title: String,
-		sign: String,
-		amounts: [Currency.ID: Int],
-		currencyIDs: [Currency.ID]
-	) -> some View {
-		VStack(spacing: 6) {
-			ForEach(currencyIDs, id: \.self) { id in
-				HStack(spacing: 5) {
-					if let amount = amounts[id], amount != 0 {
-						Text(sign + "\(amount)")
-							.font(.headline.monospacedDigit())
-							.foregroundStyle(sign == "+" ? Color.green : Color.red)
-					} else {
-						Text("—")
-							.font(.headline)
-							.foregroundStyle(.tertiary)
-					}
-					currencyIcon(id, size: 18)
-				}
-			}
-			Text(title)
-				.font(.caption2.weight(.medium))
-				.foregroundStyle(.secondary)
-				.textCase(.uppercase)
-		}
-		.frame(maxWidth: .infinity)
-	}
-	
-	/// the currency icons are white glyphs, so they only show up when drawn as templates
-	@ViewBuilder
-	private func currencyIcon(_ id: Currency.ID, size: CGFloat = 16) -> some View {
-		if let icon = assets?.currencies[id]?.displayIcon {
-			icon.view(renderingMode: .template)
-				.foregroundStyle(.secondary)
-				.frame(width: size, height: size)
-		} else {
-			Color.clear
-				.frame(width: size, height: size)
-		}
-	}
-	
-	private func currencyName(_ id: Currency.ID) -> String? {
-		assets?.currencies[id]?.displayNamePlural
-	}
-	
-	private struct WalletTotals {
-		var spent: [Currency.ID: Int] = [:]
-		var earned: [Currency.ID: Int] = [:]
-		
-		init(transactions: [PurchaseHistory.WalletTransaction]) {
-			for transaction in transactions {
-				for delta in transaction.deltas {
-					guard let amount = delta.amount, amount != 0 else { continue }
-					if amount > 0 {
-						earned[delta.type, default: 0] += amount
-					} else {
-						spent[delta.type, default: 0] -= amount
-					}
-				}
-			}
-		}
-		
-		/// the currencies that show up at all, in a stable, familiar order
-		var currencyIDs: [Currency.ID] {
-			let known: [Currency.ID] = [.valorantPoints, .radianitePoints, .kingdomCredits]
-			let present = Set(spent.keys).union(earned.keys)
-			let knownPresent = known.filter(present.contains)
-			let others = present.subtracting(known).sorted { $0.description < $1.description }
-			return knownPresent + others
 		}
 	}
 	

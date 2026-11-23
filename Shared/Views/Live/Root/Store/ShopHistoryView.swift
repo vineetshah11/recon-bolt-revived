@@ -27,7 +27,7 @@ struct ShopHistoryView: View {
 							.foregroundStyle(Color.accentColor)
 						Text("No Shop History Yet")
 							.font(.headline)
-						Text("Each time you check your Daily Store in Vantage, today's 4 offers are archived here automatically.")
+						Text("Each time you check your Daily Store in Recon Bolt, today's 4 offers are archived here automatically.")
 							.font(.subheadline)
 							.foregroundStyle(.secondary)
 							.multilineTextAlignment(.center)

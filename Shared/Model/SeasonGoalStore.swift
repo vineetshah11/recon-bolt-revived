@@ -1,5 +1,4 @@
 import Foundation
-import Combine
 import ValorantAPI
 
 struct SeasonGoal: Identifiable, Codable, Equatable {

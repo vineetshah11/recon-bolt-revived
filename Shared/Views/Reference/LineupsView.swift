@@ -1,6 +1,5 @@
 import SwiftUI
 import AVKit
-import WebKit
 import ValorantAPI
 
 struct LineupsView: View {
@@ -51,7 +50,7 @@ struct LineupsView: View {
 				guidesListSection(items: filtered(lineupsManager.guides), header: "Line-Ups")
 			}
 		}
-		.searchable(text: $search, prompt: Text("Search line-ups or locations"))
+		.searchable(text: $search, prompt: Text("Search line-ups, agents, or abilities"))
 		.navigationTitle("Line-Ups")
 		.toolbar {
 			ToolbarItem(placement: .primaryAction) {
@@ -74,7 +73,9 @@ struct LineupsView: View {
 		.onChange(of: selectedMapName) { _ in Task { await reload() } }
 		.onChange(of: selectedAgentName) { _ in Task { await reload() } }
 		.onChange(of: side) { _ in Task { await reload() } }
-		.onChange(of: sort) { _ in Task { await reload() } }
+		.onChange(of: sort) { newSort in
+			lineupsManager.sortGuides(by: newSort)
+		}
 	}
 	
 	@ViewBuilder
@@ -123,8 +124,8 @@ struct LineupsView: View {
 						LineupPlayerView(guide: guide)
 					} label: {
 						HStack(spacing: 12) {
-							if let thumb = guide.thumbnailURL {
-								AsyncImage(url: thumb) { phase in
+							if let url = guide.imageURL {
+								AsyncImage(url: url) { phase in
 									switch phase {
 									case .success(let image):
 										image.resizable().scaledToFill()
@@ -144,25 +145,29 @@ struct LineupsView: View {
 								
 								HStack(spacing: 6) {
 									if let agent = guide.agent {
-										Text(agent)
+										Text(agent.capitalized)
 									}
 									if let side = guide.side {
-										Text("• \(side)")
+										Text("• \(side.capitalized)")
 									}
-									if let map = guide.map {
-										Text("• \(map)")
+									if let ability = guide.ability {
+										Text("• \(ability.capitalized)")
 									}
 								}
 								.font(.caption2)
 								.foregroundStyle(.secondary)
 								.lineLimit(1)
 								
-								if let details = details(for: guide) {
-									Text(details)
-										.font(.caption2)
-										.foregroundStyle(.tertiary)
-										.lineLimit(1)
+								HStack(spacing: 8) {
+									if let views = guide.views {
+										Text("\(views.formatted()) views")
+									}
+									if let votes = guide.votes {
+										Text("• \(votes.formatted()) votes")
+									}
 								}
+								.font(.caption2)
+								.foregroundStyle(.tertiary)
 							}
 							
 							Spacer()
@@ -182,21 +187,13 @@ struct LineupsView: View {
 	
 	private func filtered(_ list: [LineupGuide]) -> [LineupGuide] {
 		guard !search.isEmpty else { return list }
-		return list.filter { guide in
-			[guide.title, guide.map, guide.agent, guide.ability, guide.side]
-				.compactMap { $0 }
-				.contains { $0.localizedCaseInsensitiveContains(search) }
+		return list.filter {
+			$0.title.localizedCaseInsensitiveContains(search)
+				|| ($0.agent?.localizedCaseInsensitiveContains(search) == true)
+				|| ($0.map?.localizedCaseInsensitiveContains(search) == true)
+				|| ($0.ability?.localizedCaseInsensitiveContains(search) == true)
+				|| ($0.difficulty?.localizedCaseInsensitiveContains(search) == true)
 		}
-	}
-	
-	private func details(for guide: LineupGuide) -> String? {
-		var parts: [String] = []
-		if let ability = guide.ability { parts.append(ability) }
-		if let views = guide.views { parts.append("\(views.formatted()) views") }
-		if let difficulty = guide.difficulty, difficulty != "EASY" {
-			parts.append(difficulty.capitalized)
-		}
-		return parts.isEmpty ? nil : parts.joined(separator: " · ")
 	}
 	
 	private func reload() async {
@@ -218,12 +215,7 @@ struct LineupPlayerView: View {
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading, spacing: 14) {
-				if let videoID = guide.youtubeVideoID {
-					YouTubePlayerView(videoID: videoID)
-						.aspectRatio(16/9, contentMode: .fit)
-						.cornerRadius(12)
-						.clipped()
-				} else if let videoURL = guide.videoURL {
+				if let videoURL = guide.videoURL {
 					VideoPlayer(player: player)
 						.aspectRatio(16/9, contentMode: .fit)
 						.cornerRadius(12)
@@ -241,7 +233,7 @@ struct LineupPlayerView: View {
 						Image(systemName: "video.slash")
 							.font(.largeTitle)
 							.foregroundStyle(.secondary)
-						Text("Video unavailable")
+						Text("Stream URL unavailable")
 							.font(.subheadline)
 							.foregroundStyle(.secondary)
 					}
@@ -254,38 +246,36 @@ struct LineupPlayerView: View {
 					Text(guide.title)
 						.font(.title3.bold())
 					
-					if let metrics = metrics {
-						Text(metrics)
-							.font(.subheadline)
-							.foregroundStyle(.secondary)
+					if guide.views != nil || guide.votes != nil {
+						HStack(spacing: 8) {
+							if let views = guide.views {
+								Text("\(views.formatted()) views")
+							}
+							if let votes = guide.votes {
+								Text("• \(votes.formatted()) votes")
+							}
+						}
+						.font(.subheadline)
+						.foregroundStyle(.secondary)
 					}
 					
-					HStack(spacing: 8) {
-						if let map = guide.map { badge(map) }
-						if let agent = guide.agent { badge(agent) }
-						if let side = guide.side { badge(side) }
-						if let ability = guide.ability { badge(ability) }
-						if let difficulty = guide.difficulty, difficulty != "EASY" { badge(difficulty.capitalized) }
+					ScrollView(.horizontal, showsIndicators: false) {
+						HStack(spacing: 8) {
+							if let map = guide.map { badge(map.capitalized) }
+							if let agent = guide.agent { badge(agent.capitalized) }
+							if let side = guide.side { badge(side.capitalized) }
+							if let ability = guide.ability { badge(ability.capitalized) }
+							if let difficulty = guide.difficulty { badge(difficulty.capitalized) }
+						}
 					}
 				}
 				.padding(.horizontal, 4)
 				
-				VStack(spacing: 8) {
-					if guide.youtubeVideoID != nil, let videoURL = guide.videoURL {
-						Link(destination: videoURL) {
-							Label("Open on YouTube", systemImage: "play.rectangle")
-								.frame(maxWidth: .infinity)
-								.padding()
-								.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
-						}
-					}
-					
-					Link(destination: LineupGuide.siteURL) {
-						Label("Open on Tricks.gg", systemImage: "safari")
-							.frame(maxWidth: .infinity)
-							.padding()
-							.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
-					}
+				Link(destination: LineupGuide.siteURL) {
+					Label("Open on Tricks.gg", systemImage: "safari")
+						.frame(maxWidth: .infinity)
+						.padding()
+						.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12))
 				}
 			}
 			.padding()
@@ -304,16 +294,6 @@ struct LineupPlayerView: View {
 		}
 	}
 	
-	private var metrics: String? {
-		var parts: [String] = []
-		if let views = guide.views { parts.append("\(views.formatted()) views") }
-		if let votes = guide.votes, votes > 0 { parts.append("\(votes) votes") }
-		if let createdAt = guide.createdAt {
-			parts.append("added \(createdAt.formatted(date: .abbreviated, time: .omitted))")
-		}
-		return parts.isEmpty ? nil : parts.joined(separator: " · ")
-	}
-	
 	private func badge(_ text: String) -> some View {
 		Text(text)
 			.font(.caption.weight(.semibold))
@@ -322,49 +302,6 @@ struct LineupPlayerView: View {
 			.background(Color.secondaryGroupedBackground, in: Capsule())
 	}
 }
-
-	/// YouTube line-ups can't be played by AVPlayer, so they go through the standard embed
-	/// page in a web view with inline playback enabled.
-	private struct YouTubePlayerView: UIViewRepresentable {
-		let videoID: String
-		
-		func makeUIView(context: Context) -> WKWebView {
-			let configuration = WKWebViewConfiguration()
-			configuration.allowsInlineMediaPlayback = true
-			configuration.mediaTypesRequiringUserActionForPlayback = []
-			
-			let webView = WKWebView(frame: .zero, configuration: configuration)
-			webView.isOpaque = false
-			webView.backgroundColor = .black
-			webView.scrollView.backgroundColor = .black
-			webView.scrollView.isScrollEnabled = false
-			webView.scrollView.contentInsetAdjustmentBehavior = .never
-			webView.loadHTMLString(Self.html(for: videoID), baseURL: URL(string: "https://www.youtube.com"))
-			return webView
-		}
-		
-		func updateUIView(_ webView: WKWebView, context: Context) {}
-		
-		private static func html(for videoID: String) -> String {
-			let id = videoID.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? videoID
-			return """
-		<!DOCTYPE html>
-		<html>
-		<head>
-		<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-		<style>
-		html, body { margin: 0; padding: 0; height: 100%; background: #000; overflow: hidden; }
-		iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-		</style>
-		</head>
-		<body>
-		<iframe src="https://www.youtube.com/embed/\(id)?playsinline=1&autoplay=1&rel=0&modestbranding=1"
-				allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>
-		</body>
-		</html>
-		"""
-		}
-	}
 
 private extension Array where Element: Hashable {
 	func uniqued() -> [Element] {

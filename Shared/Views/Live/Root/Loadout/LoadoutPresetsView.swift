@@ -288,8 +288,8 @@ struct LoadoutShareSheet: View {
 				Text("Vantage")
 					.font(.caption.weight(.semibold))
 					.foregroundStyle(.secondary)
-			}
-			
+		}
+		
 			LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
 				ForEach(showcaseWeapons, id: \.self) { gunID in
 					if let gun = loadout.guns[gunID],
