@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import ValorantAPI
+import WebKit
 
 enum LineupSide: String, CaseIterable, Identifiable {
 	case all = ""
@@ -142,6 +143,10 @@ final class LineupsManager: ObservableObject {
 	
 	private let favoritesFilename = "LineupFavorites.v1.json"
 	
+	/// Tracker.gg only serves its site to real browsers, so a plain app request is
+	/// answered with a Cloudflare block page.
+	static let browserUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1"
+	
 	init() {
 		favorites = LocalJSONStore.load([LineupGuide].self, from: favoritesFilename) ?? []
 	}
@@ -182,27 +187,47 @@ final class LineupsManager: ObservableObject {
 		}
 		components.queryItems = items
 		
-		var request = URLRequest(url: components.url!)
+		let url = components.url!
+		
+		var request = URLRequest(url: url)
 		request.setValue("application/json", forHTTPHeaderField: "Accept")
-		request.setValue("https://tracker.gg", forHTTPHeaderField: "Referer")
+		request.setValue("en-US,en;q=0.9", forHTTPHeaderField: "Accept-Language")
+		request.setValue(Self.browserUserAgent, forHTTPHeaderField: "User-Agent")
+		request.setValue("https://tracker.gg", forHTTPHeaderField: "Origin")
+		request.setValue("https://tracker.gg/valorant/guides/clips", forHTTPHeaderField: "Referer")
 		
 		do {
 			let (data, response) = try await URLSession.shared.data(for: request)
-			if let http = response as? HTTPURLResponse {
-				if http.statusCode == 403 {
-					errorMessage = "Tracker.gg temporarily blocked the automated request (Cloudflare 403). You can still browse line-ups in Safari."
-					return
-				}
-				if !(200..<300).contains(http.statusCode) {
-					errorMessage = "Tracker.gg returned HTTP \(http.statusCode)."
-					return
-				}
+			let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+			
+			if (200..<300).contains(status) {
+				try applyGuides(from: data)
+				return
 			}
-			let decoded = try JSONDecoder().decode(TrackerGuidesResponse.self, from: data)
-			guides = decoded.resolvedGuides
+			
+			if status == 403 {
+				// retry through a real browser context, which is allowed past the block
+				if let data = try? await TrackerWebFetcher.shared.fetchJSON(from: url) {
+					do {
+						try applyGuides(from: data)
+						return
+					} catch {
+						// fall through to the message below
+					}
+				}
+				errorMessage = "Tracker.gg is blocking this network right now (Cloudflare 403). You can still browse line-ups in Safari."
+				return
+			}
+			
+			errorMessage = "Tracker.gg returned HTTP \(status)."
 		} catch {
 			errorMessage = error.localizedDescription
 		}
+	}
+	
+	private func applyGuides(from data: Data) throws {
+		let decoded = try JSONDecoder().decode(TrackerGuidesResponse.self, from: data)
+		guides = decoded.resolvedGuides
 	}
 }
 
@@ -232,5 +257,102 @@ private struct TrackerGuidesResponse: Decodable {
 			case guides
 			case items
 		}
+	}
+}
+
+/// Tracker.gg sits behind Cloudflare, which answers app requests with a block page no
+/// matter how the headers look. Loading the site in a `WKWebView` gets a real browser
+/// through the check (solving any interstitial itself), so the JSON request is then run
+/// from inside that page, sharing its cookies and origin, instead of from the app.
+@MainActor
+final class TrackerWebFetcher {
+	static let shared = TrackerWebFetcher()
+	
+	enum Failure: LocalizedError {
+		case unreachable
+		case blocked(Int)
+		
+		var errorDescription: String? {
+			switch self {
+			case .unreachable:
+				return "Couldn't reach Tracker.gg in the browser."
+			case .blocked(let status):
+				return "Tracker.gg blocked the browser request (HTTP \(status))."
+			}
+		}
+	}
+	
+	private var webView: WKWebView?
+	
+	private init() {}
+	
+	func fetchJSON(from url: URL) async throws -> Data {
+		let webView = await loadedPage()
+		var lastStatus = 0
+		
+		for attempt in 0..<3 {
+			if attempt > 0 {
+				// Cloudflare's interstitial needs a moment before its cookie is usable
+				try? await Task.sleep(nanoseconds: 1_500_000_000)
+			}
+			
+			let script = """
+			const response = await fetch(url, {
+				credentials: 'include',
+				headers: { 'Accept': 'application/json' },
+			});
+			const body = await response.text();
+			return JSON.stringify({ status: response.status, body: body });
+			"""
+			let raw = (try? await webView.callAsyncJavaScript(
+				script,
+				arguments: ["url": url.absoluteString],
+				contentWorld: .page
+			)) as? String
+			guard
+				let raw,
+				let envelope = try? JSONDecoder().decode(Envelope.self, from: Data(raw.utf8))
+			else {
+				lastStatus = 0
+				continue
+			}
+			
+			lastStatus = envelope.status
+			if (200..<300).contains(envelope.status), !envelope.body.isEmpty {
+				return Data(envelope.body.utf8)
+			}
+		}
+		
+		throw Failure.blocked(lastStatus)
+	}
+	
+	private func loadedPage() async -> WKWebView {
+		if let webView {
+			return webView
+		}
+		
+		let configuration = WKWebViewConfiguration()
+		// a persistent store keeps any clearance cookie for the next refresh
+		configuration.websiteDataStore = .default()
+		let webView = WKWebView(frame: .zero, configuration: configuration)
+		webView.customUserAgent = LineupsManager.browserUserAgent
+		self.webView = webView
+		
+		webView.load(URLRequest(url: URL(string: "https://tracker.gg/valorant/guides/clips")!))
+		
+		// bounded wait: the interstitial normally resolves itself in a few seconds
+		for _ in 0..<40 {
+			if !webView.isLoading, webView.url != nil {
+				break
+			}
+			try? await Task.sleep(nanoseconds: 500_000_000)
+		}
+		
+		return webView
+	}
+	
+	private struct Envelope: Decodable {
+		var status: Int
+		var body: String
 	}
 }
