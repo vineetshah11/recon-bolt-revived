@@ -391,6 +391,9 @@ private struct SpikePlantTimer: View {
 	}
 	
 	private static func timeLabel(_ remaining: TimeInterval) -> String {
+		if remaining < 1 {
+			return String(format: "%.1fs", max(0, remaining))
+		}
 		let total = Int(remaining.rounded(.up))
 		return String(format: "%d:%02d", total / 60, total % 60)
 	}
