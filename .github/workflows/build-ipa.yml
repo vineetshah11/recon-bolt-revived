@@ -33,7 +33,7 @@ jobs:
             -project "Recon Bolt.xcodeproj" \
             -scheme "Recon Bolt (iOS)" \
             -destination "generic/platform=iOS" \
-            -archivePath "build/ReconBolt.xcarchive" \
+            -archivePath "build/Vantage.xcarchive" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
@@ -42,15 +42,15 @@ jobs:
       - name: Package into IPA
         run: |
           mkdir -p build/Payload
-          cp -R "build/ReconBolt.xcarchive/Products/Applications/Vantage.app" build/Payload/
+          cp -R "build/Vantage.xcarchive/Products/Applications/Vantage.app" build/Payload/
           cd build
-          zip -r -q "ReconBolt.ipa" Payload
-          ls -lh ReconBolt.ipa
+          zip -r -q "Vantage.ipa" Payload
+          ls -lh Vantage.ipa
 
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ReconBolt-ipa
-          path: build/ReconBolt.ipa
+          name: Vantage-ipa
+          path: build/Vantage.ipa
           retention-days: 90
 
