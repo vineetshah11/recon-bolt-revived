@@ -11,6 +11,7 @@ struct MatchListView: View {
 	@LocalData var summary: CareerSummary?
 	@LocalData var identity: Player.Identity?
 	@State var isEditingFilter = false
+	@State private var isShowingShareSheet = false
 	@State private var agentMastery: AgentMastery? = nil
 	@UserDefault.State("MatchListView.filter") var filter = MatchListFilter()
 	
@@ -223,11 +224,25 @@ struct MatchListView: View {
 					)
 					.symbolVariant(filter.isActive ? .fill : .none)
 				}
+				
+				if !shouldAnonymize(userID) {
+					Button {
+						isShowingShareSheet = true
+					} label: {
+						Label(
+							String(localized: "Share Profile", comment: "Match List: accessibility label"),
+							systemImage: "square.and.arrow.up"
+						)
+					}
+				}
 			}
 		}
 		.refreshable { await refresh() }
 		.sheet(isPresented: $isEditingFilter) {
 			MatchListFilterEditor(filter: $filter)
+		}
+		.sheet(isPresented: $isShowingShareSheet) {
+			ProfileShareSheet(user: user, identity: identity, summary: summary)
 		}
 		.withLocalData($user, id: userID, shouldAutoUpdate: true)
 		.withLocalData($matchList, id: userID, shouldAutoUpdate: true)
@@ -532,6 +547,327 @@ private struct CareerSummaryCollapsibleCard: View {
 			return "\(epShort.uppercased()) // \(act.name.uppercased())"
 		}
 		return act.name.uppercased()
+	}
+}
+
+// MARK: - Share Profile Sheet
+
+private struct ProfileShareSheet: View {
+	let user: User?
+	let identity: Player.Identity?
+	let summary: CareerSummary?
+	
+	@Environment(\.assets) private var assets
+	@Environment(\.seasons) private var seasons
+	@Environment(\.dismiss) private var dismiss
+	
+	@State private var renderedImage: UIImage?
+	@State private var showsRiotID = true
+	@State private var didCopy = false
+	
+	private static let cardWidth: CGFloat = 360
+	private let accent = Color(red: 0.518, green: 0.176, blue: 0.784)
+	
+	var body: some View {
+		NavigationView {
+			ScrollView {
+				VStack(spacing: 16) {
+					cardPreview
+					
+					showRiotIDToggle
+					
+					if let renderedImage {
+						ShareLink(
+							item: Image(uiImage: renderedImage),
+							preview: SharePreview("Player Profile", image: Image(uiImage: renderedImage))
+						) {
+							shareButtonLabel("Share Profile Card")
+						}
+						
+						Button {
+							UIPasteboard.general.image = renderedImage
+							didCopy = true
+							DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+								didCopy = false
+							}
+						} label: {
+							copyButtonLabel(didCopy ? "Copied" : "Copy Image", systemImage: didCopy ? "checkmark" : "doc.on.doc")
+						}
+					}
+				}
+				.padding(16)
+			}
+			.background(Color.groupedBackground)
+			.navigationTitle("Share Profile")
+			.navigationBarTitleDisplayMode(.inline)
+			.toolbar {
+				ToolbarItem(placement: .cancellationAction) {
+					Button("Done") { dismiss() }
+				}
+			}
+		}
+		.task(id: showsRiotID) {
+			await renderCard()
+		}
+	}
+	
+	@ViewBuilder
+	private var cardPreview: some View {
+		if let renderedImage {
+			Image(uiImage: renderedImage)
+				.resizable()
+				.scaledToFit()
+				.frame(maxWidth: .infinity)
+				.clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+				.shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+		} else {
+			RoundedRectangle(cornerRadius: 20, style: .continuous)
+				.fill(Color.secondaryGroupedBackground)
+				.aspectRatio(0.82, contentMode: .fit)
+				.overlay { ProgressView("Rendering profile…") }
+		}
+	}
+	
+	private var showRiotIDToggle: some View {
+		Toggle(isOn: $showsRiotID) {
+			VStack(alignment: .leading, spacing: 2) {
+				Text("Show Riot ID")
+					.font(.subheadline.weight(.medium))
+				Text("Include your #tag in the shared image")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+		}
+		.tint(accent)
+		.padding(14)
+		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+	}
+	
+	private func shareButtonLabel(_ title: String) -> some View {
+		Label(title, systemImage: "square.and.arrow.up")
+			.font(.headline)
+			.foregroundStyle(.white)
+			.frame(maxWidth: .infinity)
+			.padding(.vertical, 15)
+			.background(accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+	}
+	
+	private func copyButtonLabel(_ title: String, systemImage: String) -> some View {
+		Label(title, systemImage: systemImage)
+			.font(.subheadline.weight(.semibold))
+			.foregroundStyle(accent)
+			.frame(maxWidth: .infinity)
+			.padding(.vertical, 13)
+			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+	}
+	
+	// MARK: Renderable Card
+	
+	private var profileName: String {
+		user?.gameName ?? "Player"
+	}
+	
+	private var profileTag: String {
+		user?.tagLine ?? ""
+	}
+	
+	@MainActor
+	private func renderCard() async {
+		let renderer = ImageRenderer(
+			content: card(showsRiotID: showsRiotID)
+				.environment(\.assets, assets)
+				.environment(\.colorScheme, .dark)
+		)
+		renderer.scale = 3.0
+		if let image = renderer.uiImage {
+			renderedImage = image
+		}
+	}
+	
+	private func card(showsRiotID: Bool) -> some View {
+		let act = seasons?.currentAct()
+		let currentInfo = summary?.competitiveInfo?.inSeason(act?.id)
+		let currentTier = currentInfo?.competitiveTier ?? 0
+		let currentTierInfo = seasons?.tierInfo(number: currentTier, in: act)
+		let currentIcon = currentTierInfo?.icon?.load()
+		
+		let peakRank = summary?.peakRank(seasons: seasons)
+		let peakTierInfo = peakRank.flatMap { seasons?.tierInfo($0) }
+		let peakIcon = peakTierInfo?.rankTriangleUpwards?.load()
+		
+		let totals = (summary?.competitiveInfo?.bySeason ?? [:]).values
+			.reduce((wins: 0, games: 0)) { ($0.wins + $1.winCountIncludingPlacements, $0.games + $1.gameCount) }
+		let games = currentInfo.map(\.gameCount) ?? totals.games
+		let wins = currentInfo.map(\.winCountIncludingPlacements) ?? totals.wins
+		let winRate = games > 0 ? Int((Double(wins) / Double(games) * 100).rounded()) : 0
+		
+		let cardID = identity?.cardID
+		let cardArt = cardID.flatMap { assets?.playerCards[$0]?.smallArt }?.load()
+		let title = identity.flatMap { assets?.playerTitles[$0.titleID]?.titleText }
+		
+		return VStack(alignment: .leading, spacing: 16) {
+			HStack(alignment: .top, spacing: 12) {
+				VStack(alignment: .leading, spacing: 4) {
+					Text("PLAYER PROFILE")
+						.font(.system(size: 9, weight: .heavy))
+						.tracking(1.4)
+						.foregroundStyle(.white.opacity(0.45))
+					
+					HStack(spacing: 2) {
+						Text(profileName)
+							.font(.title3.bold())
+							.foregroundStyle(.white)
+							.lineLimit(1)
+						if showsRiotID, !profileTag.isEmpty {
+							Text("#\(profileTag)")
+								.font(.subheadline)
+								.foregroundStyle(.white.opacity(0.5))
+								.lineLimit(1)
+						}
+					}
+					
+					if let title {
+						Text(title)
+							.font(.caption)
+							.foregroundStyle(.white.opacity(0.55))
+							.lineLimit(1)
+					}
+				}
+				
+				Spacer(minLength: 0)
+				
+				VStack(spacing: 1) {
+					Text("\(identity?.accountLevel ?? 0)")
+						.font(.title2.bold().monospacedDigit())
+						.foregroundStyle(.white)
+					Text("LEVEL")
+						.font(.system(size: 9, weight: .heavy))
+						.tracking(1)
+						.foregroundStyle(.white.opacity(0.45))
+				}
+			}
+			
+			HStack(alignment: .top, spacing: 12) {
+				Group {
+					if let cardArt {
+						Image(uiImage: cardArt)
+							.resizable()
+							.scaledToFill()
+					} else {
+						Color.white.opacity(0.08)
+					}
+				}
+				.frame(width: 100, height: 100)
+				.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+				
+				VStack(spacing: 8) {
+					rankBlock(
+						title: "CURRENT RANK",
+						icon: currentIcon,
+						name: currentTierInfo?.name ?? "Unranked",
+						detail: currentInfo.map { "\($0.adjustedRankedRating) RR" },
+						season: act?.id
+					)
+					
+					rankBlock(
+						title: "LIFETIME PEAK",
+						icon: peakIcon,
+						name: peakTierInfo?.name ?? "Unranked",
+						detail: nil,
+						season: peakRank?.season
+					)
+				}
+			}
+			
+			HStack(spacing: 0) {
+				profileStat("\(games)", label: "GAMES")
+				profileStat("\(wins)", label: "WINS")
+				profileStat("\(winRate) %", label: "WIN RATE")
+			}
+			.padding(.vertical, 12)
+			.background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+			
+			HStack {
+				Text("Vantage")
+					.font(.caption2.weight(.bold))
+					.foregroundStyle(.white.opacity(0.4))
+				Spacer()
+			}
+		}
+		.padding(18)
+		.frame(width: Self.cardWidth)
+		.background(
+			LinearGradient(
+				colors: [
+					Color(red: 0.17, green: 0.06, blue: 0.27),
+					Color(red: 0.07, green: 0.07, blue: 0.09)
+				],
+				startPoint: .topLeading,
+				endPoint: .bottomTrailing
+			),
+			in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+		)
+	}
+	
+	private func rankBlock(
+		title: String,
+		icon: UIImage?,
+		name: String,
+		detail: String?,
+		season: Act.ID?
+	) -> some View {
+		HStack(spacing: 9) {
+			Group {
+				if let icon {
+					Image(uiImage: icon)
+						.resizable()
+						.scaledToFit()
+				} else {
+					Circle().fill(Color.white.opacity(0.1))
+				}
+			}
+			.frame(width: 34, height: 34)
+			
+			VStack(alignment: .leading, spacing: 1) {
+				Text(title)
+					.font(.system(size: 8, weight: .heavy))
+					.tracking(0.8)
+					.foregroundStyle(.white.opacity(0.45))
+				Text(name)
+					.font(.subheadline.bold())
+					.foregroundStyle(.white)
+					.lineLimit(1)
+				.minimumScaleFactor(0.8)
+				HStack(spacing: 4) {
+					if let detail {
+						Text(detail)
+							.font(.caption2)
+							.foregroundStyle(.white.opacity(0.55))
+					}
+					SeasonLabel(season: season)
+						.font(.caption2)
+				}
+			}
+			
+			Spacer(minLength: 0)
+		}
+		.padding(8)
+		.background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+	}
+	
+	private func profileStat(_ value: String, label: String) -> some View {
+		VStack(spacing: 3) {
+			Text(value)
+				.font(.title3.bold().monospacedDigit())
+				.foregroundStyle(.white)
+				.lineLimit(1)
+				.minimumScaleFactor(0.7)
+			Text(label)
+				.font(.system(size: 9, weight: .semibold))
+				.foregroundStyle(.white.opacity(0.5))
+				.lineLimit(1)
+		}
+		.frame(maxWidth: .infinity)
 	}
 }
 
