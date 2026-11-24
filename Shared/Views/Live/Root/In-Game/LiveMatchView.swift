@@ -350,16 +350,17 @@ private struct SpikePlantTimer: View {
 			.foregroundStyle(color)
 	}
 
-	private var blastLayer: some View {
-		let flash = Angle.degrees(Double.random(in: 0...360))
-		return ZStack {
-			for i in 0..<12 {
-				let angle = flash.radians + (2 * .pi / Double(12)) * Double(i)
-				let length: CGFloat = 28
+		@State private var blastRotation: Double = 0
 	
+	private var blastLayer: some View {
+		ZStack {
+			for i in 0..<12 {
+				let baseAngle = (2 * .pi / Double(12)) * Double(i)
+				let length: CGFloat = 28
+
 				Path { path in
 					path.move(to: .zero)
-					path.addLine(to: CGPoint(x: cos(angle) * length, y: sin(angle) * length))
+					path.addLine(to: CGPoint(x: cos(baseAngle) * length, y: sin(baseAngle) * length))
 				}
 					.stroke(
 						AngularGradient(
@@ -368,16 +369,17 @@ private struct SpikePlantTimer: View {
 							.opacity(0.9),
 							lineWidth: 3
 					)
-					.rotationEffect(.radians(angle))
+					.rotationEffect(.radians(baseAngle))
 					.frame(width: 60, height: 60)
 				}
 		}
 		.scaleEffect(0.4)
 		.opacity(0.9)
+		.rotationEffect(.radians(blastRotation))
 		.animation(
 			.interactiveSpring(response: 0.4, dampingFraction: 0.5)
 			.repeatForever(autoreverses: false),
-			value: UUID()
+			value: blastRotation
 	)
 	}
 
@@ -451,7 +453,16 @@ private struct SpikePlantTimer: View {
 		withAnimation(.default) {
 			isPulsing = false
 			stage = .idle
+			blastRotation = 0
 		}
+	}
+	
+	private func fireDetonation() {
+		blastRotation = 360
+		guard canUseHaptics else { return }
+		let generator = UIImpactFeedbackGenerator(style: .heavy)
+		generator.prepare()
+		generator.impactOccurred()
 	}
 	
 	/// fires the two alerts and then the detonation, all derived from the plant date so nothing drifts
@@ -478,6 +489,7 @@ private struct SpikePlantTimer: View {
 		guard !Task.isCancelled, self.plantedAt == plantedAt else { return }
 		
 		withAnimation(.default) { stage = .detonated }
+		fireDetonation()
 	}
 	
 	private func dismissDetonationAfterAWhile() async {
