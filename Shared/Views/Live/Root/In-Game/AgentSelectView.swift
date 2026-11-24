@@ -113,14 +113,21 @@ struct AgentSelectView: View {
 		}
 		guard !isTaken else { return }
 
-		// if the request keeps failing, don't retry on every one-second refresh
-		if let lastInstalockAttempt, Date.now.timeIntervalSince(lastInstalockAttempt) < 3 { return }
-		lastInstalockAttempt = .now
+		// wait a random 0.2–1.0s before locking in so the first attempt does not always fire at the same instant
+		let delay = Double.random(in: 0.2...1.0)
+		try? await Task.sleep(for: .seconds(delay))
 
+		// first attempt
 		do {
 			pregameInfo = try await client.lockInAgent(agentID, in: pregameInfo.id)
 		} catch {
-			print("⚠️ Instalock failed:", error)
+			// rare Riot hiccup or contested agent: retry once after 3s, then stop entirely
+			try? await Task.sleep(for: .seconds(3))
+			do {
+				pregameInfo = try await client.lockInAgent(agentID, in: pregameInfo.id)
+			} catch {
+				print("⚠️ Instalock failed:", error)
+			}
 		}
 	}
 	

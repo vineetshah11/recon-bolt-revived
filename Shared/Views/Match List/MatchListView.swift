@@ -799,8 +799,9 @@ private struct ProfileShareSheet: View {
 		.background(
 			LinearGradient(
 				stops: [
-					.init(color: Color(red: 0.42, green: 0.14, blue: 0.68), location: 0),
-					.init(color: Color(red: 0.21, green: 0.07, blue: 0.35), location: 0.45),
+					.init(color: Color(red: 0.62, green: 0.19, blue: 0.86), location: 0),
+					.init(color: Color(red: 0.42, green: 0.14, blue: 0.68), location: 0.4),
+					.init(color: Color(red: 0.19, green: 0.07, blue: 0.35), location: 0.75),
 					.init(color: Color(red: 0.06, green: 0.06, blue: 0.09), location: 1)
 				],
 				startPoint: .topLeading,

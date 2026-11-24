@@ -83,7 +83,7 @@ Konkurrerande matchningar efter dina placeringar kan dock identifieras utan dera
 "About" = "Om";
 
 /* No comment provided by engineer. */
-"About Recon Bolt" = "Om Recon Bolt";
+"About Vantage" = "Om Vantage";
 
 /* Settings: section */
 "Accounts" = "Konton";
@@ -468,7 +468,7 @@ DIN FELRAPPORT HÄR
 "Gather statistics from anyone's games to gain insights on things like time played by mode/premade, headshot rate over time/by weapon, win rate over time/by map & side, and more!" = "Samla in statistik från någons spel för att få insikter om saker som speltid per läge/förhandstillverkning, skottfrekvens över tid/per vapen, vinstfrekvens över tid/per karta och sida och mycket mer!";
 
 /* Pro Features List */
-"Getting money from Recon Bolt gives me the flexibility and motivation to keep improving the app!" = "Att få pengar från Recon Bolt ger mig flexibilitet och motivation att fortsätta förbättra appen!";
+"Getting money from Vantage gives me the flexibility and motivation to keep improving the app!" = "Att få pengar från Vantage ger mig flexibilitet och motivation att fortsätta förbättra appen!";
 
 /* Pro Store */
 "I hope you enjoy the pro features :)" = "Jag hoppas att du gillar de nya pro-funktionerna :)";
@@ -736,13 +736,13 @@ Playtime Stats: section */
 "Ready" = "Redo";
 
 /* No comment provided by engineer. */
-"Recon Bolt Pro" = "Recon Bolt Pro";
+"Vantage Pro" = "Vantage Pro";
 
 /* Pro Features List */
-"Recon Bolt Pro supports Family Sharing, meaning if just one member of your iCloud family buys it, everyone can use it!" = "Recon Bolt Pro stöder Familjedelning, vilket innebär att om bara en medlem av din iCloud-familj köper den kan alla använda den!";
+"Vantage Pro supports Family Sharing, meaning if just one member of your iCloud family buys it, everyone can use it!" = "Vantage Pro stöder Familjedelning, vilket innebär att om bara en medlem av din iCloud-familj köper den kan alla använda den!";
 
 /* Pro Features List */
-"Recon Bolt does not have and will never have ads. The only way it can make money is through in-app purchases." = "Recon Bolt har inte och kommer aldrig att ha annonser. Det enda sättet att tjäna pengar är genom köp i appen.";
+"Vantage does not have and will never have ads. The only way it can make money is through in-app purchases." = "Vantage har inte och kommer aldrig att ha annonser. Det enda sättet att tjäna pengar är genom köp i appen.";
 
 /* Top-Level Tab Title */
 "Reference" = "Referens";
@@ -845,13 +845,13 @@ Login Form: button */
 "Tag" = "Tag";
 
 /* Pro Store */
-"Thank you for supporting Recon Bolt!" = "Tack för ditt stöd till Recon Bolt!";
+"Thank you for supporting Vantage!" = "Tack för ditt stöd till Vantage!";
 
 /* Login Form: is this safe? */
 "The code is open-source and visible on GitHub; you can build it yourself if you want to be sure of what's running." = "Koden är öppen källkod och finns på GitHub; du kan kolla koden själv om du vill vara säker på vad som körs.";
 
 /* App Icon Description: default */
-"The default look of Recon Bolt." = "Standardutseende för Recon Bolt.";
+"The default look of Vantage." = "Standardutseende för Vantage.";
 
 /* App Icon Picker: section footer */
 "The pro version lets you change the app icon! More icons might be coming in future updates." = "I pro-versionen kan du ändra app-ikonen! Fler ikoner kan komma i framtida uppdateringar.";

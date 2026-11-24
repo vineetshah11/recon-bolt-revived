@@ -133,7 +133,7 @@ struct ClientLogView: View {
 				$0.scheme = "mailto"
 				$0.queryItems = [
 					.init(name: "to", value: "julian.3kreator@gmail.com"),
-					.init(name: "subject", value: "Recon Bolt Exchange"),
+					.init(name: "subject", value: "Vantage Exchange"),
 					.init(name: "body", value: body),
 				]
 			})

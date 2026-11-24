@@ -114,7 +114,7 @@ Competitive matches after your placements can be identified without their detail
 "About" = "關於";
 
 /* No comment provided by engineer. */
-"About Recon Bolt" = "關於Recon Bolt";
+"About Vantage" = "關於Vantage";
 
 /* Store: accessory section */
 "Accessories" = "配件";
@@ -529,7 +529,7 @@ Stats: error details */
 "Gather statistics from anyone's games to gain insights on things like time played by mode/premade, headshot rate over time/by weapon, win rate over time/by map & side, and more!" = "從任何人的遊戲中收集統計資料，以深入瞭解模式/預製時間、時間/武器的爆頭率、時間/地圖和對面的獲勝率等！";
 
 /* Pro Features List */
-"Getting money from Recon Bolt gives me the flexibility and motivation to keep improving the app!" = "從Recon Bolt那裡獲得資金給了我靈活性和動力，讓我不斷改進應用程式！";
+"Getting money from Vantage gives me the flexibility and motivation to keep improving the app!" = "從Vantage那裡獲得資金給了我靈活性和動力，讓我不斷改進應用程式！";
 
 /* No comment provided by engineer. */
 "GitHub Repo" = "GitHub Repo";
@@ -550,13 +550,13 @@ Weapon Reference: stats */
 /* About Screen */
 "Hi! I'm Julian Dunskus, and I made this app.
 
-Recon Bolt started development in early 2021, back when it wasn't yet possible to see your RR gains and losses in the game, but the API offered those numbers. I made an app to see the numbers and better understand my rank changes.
+Vantage started development in early 2021, back when it wasn't yet possible to see your RR gains and losses in the game, but the API offered those numbers. I made an app to see the numbers and better understand my rank changes.
 
 As you can guess, the scope expanded massively over time to what you're using now. I hope you're enjoying it!
 
 If you've encountered a bug or have some feedback, I'm always happy to hear it on the Discord Server or GitHub :)" = "嗨！ 我是Julian Dunskus，我做了這個應用程式。
 
-Recon Bolt於2021年當初開始開發，當時還無法在遊戲中看到您的RR上升和下跌，但API提供了這些數字。 我製作了一個應用程式來檢視數字並更好地瞭解我的排名變化。
+Vantage於2021年當初開始開發，當時還無法在遊戲中看到您的RR上升和下跌，但API提供了這些數字。 我製作了一個應用程式來檢視數字並更好地瞭解我的排名變化。
 
 正如您可以猜測的那樣，隨著時間的推移，範圍會大大擴充套件到您現在使用的內容。 我希望你喜歡它！
 
@@ -903,13 +903,13 @@ Playtime Stats: section */
 "Ready" = "準備";
 
 /* No comment provided by engineer. */
-"Recon Bolt Pro" = "Recon Bolt 專業版";
+"Vantage Pro" = "Vantage 專業版";
 
 /* Pro Features List */
-"Recon Bolt Pro supports Family Sharing, meaning if just one member of your iCloud family buys it, everyone can use it!" = "Recon Bolt 專業版支援“家人共享”，如果您的iCloud家庭中只有一個成員購買專業版，每個人都可以使用它！";
+"Vantage Pro supports Family Sharing, meaning if just one member of your iCloud family buys it, everyone can use it!" = "Vantage 專業版支援“家人共享”，如果您的iCloud家庭中只有一個成員購買專業版，每個人都可以使用它！";
 
 /* Pro Features List */
-"Recon Bolt does not have and will never have ads. The only way it can make money is through in-app purchases." = "Recon Bolt 不會有廣告。唯一賺錢方法是透過應用程式內購買。";
+"Vantage does not have and will never have ads. The only way it can make money is through in-app purchases." = "Vantage 不會有廣告。唯一賺錢方法是透過應用程式內購買。";
 
 /* Top-Level Tab Title */
 "Reference" = "查獲";
@@ -1069,7 +1069,7 @@ Login Form: button */
 /* Statistics Pro purchase prompt */
 "Statistics not available!" = "統計資料不可用！";
 
-/* Statistics Pro purchase prompt: 'Recon Bolt Pro' is inserted in the placeholder with a bolder font. */
+/* Statistics Pro purchase prompt: 'Vantage Pro' is inserted in the placeholder with a bolder font. */
 "Statistics require %@, a one-time purchase including a variety of features. Want to give them a look?" = "統計資料需要 %@，一次性購買，包括各種功能。 想給他們看看嗎？";
 
 /* Store Widget: title */
@@ -1094,13 +1094,13 @@ Login Form: button */
 "Tag" = "標籤";
 
 /* Pro Store */
-"Thank you for supporting Recon Bolt!" = "謝謝你的支持 Recon Bolt!";
+"Thank you for supporting Vantage!" = "謝謝你的支持 Vantage!";
 
 /* Login Form: is this safe? */
 "The code is open-source and visible on GitHub; you can build it yourself if you want to be sure of what's running." = "這個應用程式是開源的，在GitHub上可見；如果您想確定正在執行的內容，您可以自己構建它。";
 
 /* App Icon Description: default */
-"The default look of Recon Bolt." = "預設外觀 Recon Bolt";
+"The default look of Vantage." = "預設外觀 Vantage";
 
 /* App Icon Picker: section footer */
 "The pro version lets you change the app icon! More icons might be coming in future updates." = "專業版允許您更改應用程式圖示！ 未來更新中可能會出現更多圖示。";
@@ -1118,7 +1118,7 @@ Login Form: button */
 "This feature requires iOS 16 or newer." = "這功能需要iOS 16或以上版本。";
 
 /* Settings: toggle description */
-"This makes Recon Bolt automatically use your username & password to sign in again if you get signed out. If you have 2-factor authentication enabled, this may fail if it requires a new code, but it still works sometimes." = "這可以令Recon Bolt在您退出登入時自動使用您的使用者名稱和密碼再次登入。 如果您啟用了雙重驗證，如果它需要新代碼，這可能有時失敗，但有時時有效。";
+"This makes Vantage automatically use your username & password to sign in again if you get signed out. If you have 2-factor authentication enabled, this may fail if it requires a new code, but it still works sometimes." = "這可以令Vantage在您退出登入時自動使用您的使用者名稱和密碼再次登入。 如果您啟用了雙重驗證，如果它需要新代碼，這可能有時失敗，但有時時有效。";
 
 /* Stats: match loading */
 "To gather statistics, we first need to load matches to process. Note that large amounts can take a long time, especially when downloading for the first time!" = "為了收集統計資料，我們首先需要載入對戰記錄來處理。 請注意：大量數量可能需要很長時間，特別是第一次下載時！";
@@ -1148,24 +1148,24 @@ Hit Distribution Stats: region */
 /* Pro Store: warning text */
 "Unfortunately, Riot is now using their intellectual property rights to take down this app. I'm trying to discuss with them to find a way forward, but I currently cannot guarantee that the app will stay available. I believe it will remain installed if you currently have it, but I'm not sure if I'll still be able to verify Pro purchases.
 
-If you or someone you know works at Riot, get in touch with me—there's a few ways linked in the About Recon Bolt section below.
+If you or someone you know works at Riot, get in touch with me—there's a few ways linked in the About Vantage section below.
 
 I would still be grateful for your support if you do purchase it! But it's at your own risk because I cannot guarantee that you'll enjoy the promised features going forward :(" = "不幸的是，Riot 現在正在使用他們的知識產權來關閉這個應用程序。 我正在嘗試與他們討論以找到前進的方向，但我目前無法保證該應用程序將保持可用狀態。 我相信如果您目前擁有它，它會保持安裝狀態，但我不確定我是否仍然能夠驗證 Pro 購買。
 
-如果您或您認識的人在 Riot 工作，請與我聯繫——下面的關於 Recon Bolt 部分提供了幾種鏈接方式。
+如果您或您認識的人在 Riot 工作，請與我聯繫——下面的關於 Vantage 部分提供了幾種鏈接方式。
 
 如果您購買它，我仍然會感謝您的支持！ 但這需要您自擔風險，因為我不能保證您會享受未來承諾的功能:(
 :)";
 
 /* Hit Distribution Stats: footnote */
-"Unfortunately, Valorant doesn't store information about which weapon was used for each hit. All we get is the weapon you started the round with and what weapon you used for each kill. Recon Bolt guesses the weapon involved in each damage based on this information, but it cannot be perfect (and neither can any other tracker)." = "不幸的是，Valorant沒有儲存關於每次命中使用哪種武器的資訊。 我們得到的只是你開始回合的武器，以及你每次殺戮都用什麼武器。 Recon Bolt根據這些資訊猜測每種傷害所涉及的武器，但它不可能是完美的(任何其他Tracker也不行)";
+"Unfortunately, Valorant doesn't store information about which weapon was used for each hit. All we get is the weapon you started the round with and what weapon you used for each kill. Vantage guesses the weapon involved in each damage based on this information, but it cannot be perfect (and neither can any other tracker)." = "不幸的是，Valorant沒有儲存關於每次命中使用哪種武器的資訊。 我們得到的只是你開始回合的武器，以及你每次殺戮都用什麼武器。 Vantage根據這些資訊猜測每種傷害所涉及的武器，但它不可能是完美的(任何其他Tracker也不行)";
 
 /* Login Form: sign in with google/apple/etc. */
-"Unfortunately, due to technical limitations, you cannot sign into Recon Bolt via your Google account, Apple ID, or anything but a Riot account.
+"Unfortunately, due to technical limitations, you cannot sign into Vantage via your Google account, Apple ID, or anything but a Riot account.
 
 Assuming you signed up for Valorant using Google/Apple/etc., you can set up your account to add a username & password on Riot's site at [account.riotgames.com](https://account.riotgames.com). Note that your Riot ID is **not** the same as your username! If you've forgotten your username, you can reset it at [recovery.riotgames.com](https://recovery.riotgames.com).
 
-On that site, navigate to **Riot Account Sign-in** and set yourself a username and password. When you're done, you can use those same credentials to sign in above! Your social account will stay linked and you'll remain able to sign in with that on PC :)" = "不幸的是，由於技術限制，您無法透過Google帳號, Apple ID或Riot帳戶以外的方式登入Recon Bolt。
+On that site, navigate to **Riot Account Sign-in** and set yourself a username and password. When you're done, you can use those same credentials to sign in above! Your social account will stay linked and you'll remain able to sign in with that on PC :)" = "不幸的是，由於技術限制，您無法透過Google帳號, Apple ID或Riot帳戶以外的方式登入Vantage。
 
 假設您使用Google/蘋果等註冊特戰英豪，您可以設定您的帳戶，在Riot的網站上[account.riotgames.com](https://account.riotgames.com)上新增使用者名稱和密碼。 請注意，您的Riot ID與您的使用者名稱**不**相同！ 如果您忘記了使用者名稱，您可以在[recovery.riotgames.com](https://recovery.riotgames.com)上重置它。
 
@@ -1311,7 +1311,7 @@ Round Details: killed by unknown/unspecified weapon */
 "Your credentials only ever leave your device in the form of a login request directly to Riot. They are never stored or sent anywhere else." = "您的密碼只會以登入請求的形式直接在您的裝置到Riot。 它們從未被儲存或傳送到其他地方。";
 
 /* No comment provided by engineer. */
-"Your session has expired! Recon Bolt has tried to refresh it for you, but needs 2FA confirmation." = "您的會話已過期！ Recon Bolt已嘗試為您重新整理，但需要驗證碼確認。";
+"Your session has expired! Vantage has tried to refresh it for you, but needs 2FA confirmation." = "您的會話已過期！ Vantage已嘗試為您重新整理，但需要驗證碼確認。";
 
 /* No comment provided by engineer. */
 "iOS is a bit finnicky about this, so widgets may not refresh right away—feel free to reboot your device if this doesn't help!" = "iOS有點挑剔，因此小工具可能不會立即重新整理——如果這沒有幫助，請隨時重新啟動！";

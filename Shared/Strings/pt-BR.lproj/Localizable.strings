@@ -112,7 +112,7 @@ Competitive matches after your placements can be identified without their detail
 "About" = "Sobre";
 
 /* No comment provided by engineer. */
-"About Recon Bolt" = "Sobre o Recon Bolt";
+"About Vantage" = "Sobre o Vantage";
 
 /* Store: accessory section */
 "Accessories" = "Acessórios";
@@ -527,7 +527,7 @@ SEU RELATÓRIO DE BUG AQUI
 "Gather statistics from anyone's games to gain insights on things like time played by mode/premade, headshot rate over time/by weapon, win rate over time/by map & side, and more!" = "Reúna estatísticas dos jogos de qualquer pessoa para obter detalhes sobre coisas como o tempo jogado por modo/grupo, taxa de disparos na cabeça ao longo do tempo/por arma, taxa de vitória ao longo do tempo/por mapa & lado, e muito mais!";
 
 /* Pro Features List */
-"Getting money from Recon Bolt gives me the flexibility and motivation to keep improving the app!" = "Receber dinheiro do Recon Bolt me dá a flexibilidade e motivação para continuar melhorando o app!";
+"Getting money from Vantage gives me the flexibility and motivation to keep improving the app!" = "Receber dinheiro do Vantage me dá a flexibilidade e motivação para continuar melhorando o app!";
 
 /* No comment provided by engineer. */
 "GitHub Repo" = "Repositório do GitHub";
@@ -548,13 +548,13 @@ Weapon Reference: stats */
 /* About Screen */
 "Hi! I'm Julian Dunskus, and I made this app.
 
-Recon Bolt started development in early 2021, back when it wasn't yet possible to see your RR gains and losses in the game, but the API offered those numbers. I made an app to see the numbers and better understand my rank changes.
+Vantage started development in early 2021, back when it wasn't yet possible to see your RR gains and losses in the game, but the API offered those numbers. I made an app to see the numbers and better understand my rank changes.
 
 As you can guess, the scope expanded massively over time to what you're using now. I hope you're enjoying it!
 
 If you've encountered a bug or have some feedback, I'm always happy to hear it on the Discord Server or GitHub :)" = "Olá! Eu sou Julian Dunskus e criei este aplicativo.
 
-O desenvolvimento do Recon Bolt começou no início de 2021, quando ainda não era possível ver os ganhos e perdas de pontos no jogo, mas a API oferecia esses números. Eu criei um aplicativo para ver os números e entender melhor as mudanças no meu rank.
+O desenvolvimento do Vantage começou no início de 2021, quando ainda não era possível ver os ganhos e perdas de pontos no jogo, mas a API oferecia esses números. Eu criei um aplicativo para ver os números e entender melhor as mudanças no meu rank.
 
 Como você pode imaginar, o escopo do aplicativo se expandiu enormemente ao longo do tempo para o que você está usando agora. Espero que esteja gostando!
 
@@ -901,13 +901,13 @@ Playtime Stats: section */
 "Ready" = "Pronto";
 
 /* No comment provided by engineer. */
-"Recon Bolt Pro" = "Recon Bolt Pro";
+"Vantage Pro" = "Vantage Pro";
 
 /* Pro Features List */
-"Recon Bolt Pro supports Family Sharing, meaning if just one member of your iCloud family buys it, everyone can use it!" = "Recon Bolt Pro permite o Compartilhamento Familiar, sendo assim, se apenas um membro da sua família do iCloud comprar, todos podem usar!";
+"Vantage Pro supports Family Sharing, meaning if just one member of your iCloud family buys it, everyone can use it!" = "Vantage Pro permite o Compartilhamento Familiar, sendo assim, se apenas um membro da sua família do iCloud comprar, todos podem usar!";
 
 /* Pro Features List */
-"Recon Bolt does not have and will never have ads. The only way it can make money is through in-app purchases." = "O Recon Bolt não possui e nunca terá anúncios. A única maneira pela qual ela pode gerar receita é através de compras dentro do aplicativo.";
+"Vantage does not have and will never have ads. The only way it can make money is through in-app purchases." = "O Vantage não possui e nunca terá anúncios. A única maneira pela qual ela pode gerar receita é através de compras dentro do aplicativo.";
 
 /* Top-Level Tab Title */
 "Reference" = "Referência";
@@ -1067,7 +1067,7 @@ Login Form: button */
 /* Statistics Pro purchase prompt */
 "Statistics not available!" = "As estatísticas não estão disponíveis!";
 
-/* Statistics Pro purchase prompt: 'Recon Bolt Pro' is inserted in the placeholder with a bolder font. */
+/* Statistics Pro purchase prompt: 'Vantage Pro' is inserted in the placeholder with a bolder font. */
 "Statistics require %@, a one-time purchase including a variety of features. Want to give them a look?" = "Estatísticas requerem %@, uma compra única que inclui uma variedade de funcionalidades. Quer dar uma olhada?";
 
 /* Store Widget: title */
@@ -1092,13 +1092,13 @@ Login Form: button */
 "Tag" = "Tag";
 
 /* Pro Store */
-"Thank you for supporting Recon Bolt!" = "Obrigado por apoiar o Recon Bolt!";
+"Thank you for supporting Vantage!" = "Obrigado por apoiar o Vantage!";
 
 /* Login Form: is this safe? */
 "The code is open-source and visible on GitHub; you can build it yourself if you want to be sure of what's running." = "O código é aberto e é visível no GitHub; você mesmo pode construí-lo se quiser ter certeza do que está sendo executado.";
 
 /* App Icon Description: default */
-"The default look of Recon Bolt." = "O visual padrão do Recon Bolt.";
+"The default look of Vantage." = "O visual padrão do Vantage.";
 
 /* App Icon Picker: section footer */
 "The pro version lets you change the app icon! More icons might be coming in future updates." = "A versão Pro permite alterar o ícone do aplicativo! Mais ícones podem vir em futuras atualizações.";
@@ -1116,7 +1116,7 @@ Login Form: button */
 "This feature requires iOS 16 or newer." = "Este recurso requer iOS 16 ou posterior.";
 
 /* Settings: toggle description */
-"This makes Recon Bolt automatically use your username & password to sign in again if you get signed out. If you have 2-factor authentication enabled, this may fail if it requires a new code, but it still works sometimes." = "Isto faz com que o Recon Bolt utilize automaticamente o seu nome de usuário e a sua senha para iniciar sessão novamente, caso seja desconectado. Se tiver a autenticação de 2 fatores ativada, isto pode falhar se for necessário um novo código, mas pode funcionar em alguns casos.";
+"This makes Vantage automatically use your username & password to sign in again if you get signed out. If you have 2-factor authentication enabled, this may fail if it requires a new code, but it still works sometimes." = "Isto faz com que o Vantage utilize automaticamente o seu nome de usuário e a sua senha para iniciar sessão novamente, caso seja desconectado. Se tiver a autenticação de 2 fatores ativada, isto pode falhar se for necessário um novo código, mas pode funcionar em alguns casos.";
 
 /* Stats: match loading */
 "To gather statistics, we first need to load matches to process. Note that large amounts can take a long time, especially when downloading for the first time!" = "Para verificar as estatísticas, primeiro é necessário carregar as partidas para obter as informações. Observe que em grandes quantias podem levar mais tempo que o esperado, especialmente ao fazer o download delas pela primeira vez!";
@@ -1147,27 +1147,27 @@ Tempo total de jogo";
 /* Pro Store: warning text */
 "Unfortunately, Riot is now using their intellectual property rights to take down this app. I'm trying to discuss with them to find a way forward, but I currently cannot guarantee that the app will stay available. I believe it will remain installed if you currently have it, but I'm not sure if I'll still be able to verify Pro purchases.
 
-If you or someone you know works at Riot, get in touch with me—there's a few ways linked in the About Recon Bolt section below.
+If you or someone you know works at Riot, get in touch with me—there's a few ways linked in the About Vantage section below.
 
 I would still be grateful for your support if you do purchase it! But it's at your own risk because I cannot guarantee that you'll enjoy the promised features going forward :(" = "Infelizmente, a Riot está utilizando seus direitos de propriedade intelectual para remover este aplicativo. Estou tentando discutir com eles para encontrar um caminho a seguir, mas atualmente não posso garantir que o aplicativo continuará disponível. Acredito que ele permanecerá instalado se você já o tiver, mas não tenho certeza se poderei verificar compras do Pro.
 
-Se você ou alguém que você conhece trabalha na Riot, entre em contato comigo - há algumas formas de contato disponíveis na seção \"Sobre Recon Bolt\" abaixo.
+Se você ou alguém que você conhece trabalha na Riot, entre em contato comigo - há algumas formas de contato disponíveis na seção \"Sobre Vantage\" abaixo.
 
 Ainda ficaria grato pelo seu apoio se você decidir adquiri-lo! Porém, é por sua conta e risco, pois não posso garantir que as funcionalidades prometidas serão mantidas no futuro :(";
 
 /* Hit Distribution Stats: footnote */
-"Unfortunately, Valorant doesn't store information about which weapon was used for each hit. All we get is the weapon you started the round with and what weapon you used for each kill. Recon Bolt guesses the weapon involved in each damage based on this information, but it cannot be perfect (and neither can any other tracker)." = "Infelizmente, o Valorant não armazena as informações sobre qual arma foi usada para cada tiro. Tudo o que obtemos é a arma com a qual você começou na rodada e qual arma você usou para cada morte. O Recon Bolt adivinha a arma utilizada em cada dano com base nessas informações, mas não pode ser perfeito (nem qualquer outro tracker).";
+"Unfortunately, Valorant doesn't store information about which weapon was used for each hit. All we get is the weapon you started the round with and what weapon you used for each kill. Vantage guesses the weapon involved in each damage based on this information, but it cannot be perfect (and neither can any other tracker)." = "Infelizmente, o Valorant não armazena as informações sobre qual arma foi usada para cada tiro. Tudo o que obtemos é a arma com a qual você começou na rodada e qual arma você usou para cada morte. O Vantage adivinha a arma utilizada em cada dano com base nessas informações, mas não pode ser perfeito (nem qualquer outro tracker).";
 
 /* Login Form: sign in with google/apple/etc. */
-"Unfortunately, due to technical limitations, you cannot sign into Recon Bolt via your Google account, Apple ID, or anything but a Riot account.
+"Unfortunately, due to technical limitations, you cannot sign into Vantage via your Google account, Apple ID, or anything but a Riot account.
 
 Assuming you signed up for Valorant using Google/Apple/etc., you can set up your account to add a username & password on Riot's site at [account.riotgames.com](https://account.riotgames.com). Note that your Riot ID is **not** the same as your username! If you've forgotten your username, you can reset it at [recovery.riotgames.com](https://recovery.riotgames.com).
 
-On that site, navigate to **Riot Account Sign-in** and set yourself a username and password. When you're done, you can use those same credentials to sign in above! Your social account will stay linked and you'll remain able to sign in with that on PC :)" = "Infelizmente, devido a limitações técnicas, você não pode acessar o Recon Bolt usando a sua conta do Google, ID Apple ou qualquer outra que não seja uma conta da Riot.
+On that site, navigate to **Riot Account Sign-in** and set yourself a username and password. When you're done, you can use those same credentials to sign in above! Your social account will stay linked and you'll remain able to sign in with that on PC :)" = "Infelizmente, devido a limitações técnicas, você não pode acessar o Vantage usando a sua conta do Google, ID Apple ou qualquer outra que não seja uma conta da Riot.
 
 Assumindo que você se cadastrou no Valorant usando uma conta do Google/Apple/etc., você pode configurar a sua conta adicionando um nome de usuário e uma senha no site da Riot em [account.riotgames.com](https://account.riotgames.com). Note que o seu Riot ID não é o mesmo que o seu nome de usuário! Se você esqueceu o seu nome de usuário, pode redefini-lo em [recovery.riotgames.com](https://recovery.riotgames.com).
 
-No site da Riot, vá para Login da Conta Riot e defina um nome de usuário e senha para a sua conta. Quando terminar, poderá usar essas mesmas credenciais para fazer login no Recon Bolt acima! A sua conta social continuará vinculada e você poderá continuar usando-a para fazer login no PC :)";
+No site da Riot, vá para Login da Conta Riot e defina um nome de usuário e senha para a sua conta. Quando terminar, poderá usar essas mesmas credenciais para fazer login no Vantage acima! A sua conta social continuará vinculada e você poderá continuar usando-a para fazer login no PC :)";
 
 /* Round Details: killed by unknown ability */
 "Unknown Ability" = "Habilidade Desconhecida";
@@ -1309,7 +1309,7 @@ Round Details: killed by unknown/unspecified weapon */
 "Your credentials only ever leave your device in the form of a login request directly to Riot. They are never stored or sent anywhere else." = "Suas credenciais são enviadas do seu dispositivo na forma de uma solicitação de login diretamente para os servidores da Riot. Eles nunca são armazenados ou enviados para qualquer outro lugar.";
 
 /* No comment provided by engineer. */
-"Your session has expired! Recon Bolt has tried to refresh it for you, but needs 2FA confirmation." = "Sua sessão expirou! O Recon Bolt tentou atualizar, porém precisa da confirmação de autenticação em 2 fatores.";
+"Your session has expired! Vantage has tried to refresh it for you, but needs 2FA confirmation." = "Sua sessão expirou! O Vantage tentou atualizar, porém precisa da confirmação de autenticação em 2 fatores.";
 
 /* No comment provided by engineer. */
 "iOS is a bit finnicky about this, so widgets may not refresh right away—feel free to reboot your device if this doesn't help!" = "O iOS é um pouco exigente quanto a isso, então os Widgets podem não ser atualizados imediatamente - sinta-se à vontade para reiniciar se isso não ajudar!";
