@@ -202,6 +202,7 @@ private struct SpikePlantTimer: View {
 	
 	private static let duration: TimeInterval = 45
 	private static let detonationLinger: TimeInterval = 3
+	private static let alertLead: TimeInterval = 0.05
 	
 	@State private var plantedAt: Date?
 	@State private var stage = Stage.idle
@@ -271,7 +272,7 @@ private struct SpikePlantTimer: View {
 	}
 	
 	private var runningRow: some View {
-		TimelineView(.animation(minimumInterval: 1 / 4)) { context in
+		TimelineView(.animation(minimumInterval: 1 / 30)) { context in
 			let remaining = remainingTime(at: context.date)
 			
 			HStack(spacing: 10) {
@@ -350,46 +351,80 @@ private struct SpikePlantTimer: View {
 			.foregroundStyle(color)
 	}
 
-	@State private var blastRotation: Double = 0
-	
-	private static let blastAngles: [Double] = (0..<12).map { index in
-		(2 * .pi / 12) * Double(index)
-	}
+		@State private var blastStartTime: Date?
 	
 	private var blastLayer: some View {
 		ZStack {
-			ForEach(Array(Self.blastAngles.enumerated()), id: \.offset) { _, angle in
-				blastSegment(angle: angle)
-			}
+			// short white flash behind the ring, fades as the wave expands
+			RoundedRectangle(cornerRadius: 6, style: .continuous)
+				.fill(.white.opacity(blastFlashAlpha))
+				.frame(width: 72, height: 72)
+				.scaleEffect(blastFlashScale)
+			
+			blastWave(delay: 0.0)
+				.opacity(blastWaveAlpha(0.0))
+			blastWave(delay: 0.06)
+				.opacity(blastWaveAlpha(0.06))
+			blastWave(delay: 0.12)
+				.opacity(blastWaveAlpha(0.12))
+			blastWave(delay: 0.20)
+				.opacity(blastWaveAlpha(0.20))
 		}
-		.scaleEffect(0.4)
-		.opacity(0.9)
-		.rotationEffect(.radians(blastRotation))
-		.animation(
-			.interactiveSpring(response: 0.4, dampingFraction: 0.5)
-			.repeatForever(autoreverses: false),
-			value: blastRotation
-		)
 	}
 	
-	/// not a ViewBuilder: keeps the local geometry math out of the builder closure
-	private func blastSegment(angle: Double) -> some View {
-		let length: CGFloat = 28
-		
-		return Path { path in
-			path.move(to: .zero)
-			path.addLine(to: CGPoint(x: cos(angle) * length, y: sin(angle) * length))
+		/// how long the flash has been alive (clamped). Stays 0 before detonation and after it dies.
+	private func blastElapsed() -> TimeInterval {
+		guard let start = blastStartTime else { return -1 }
+		let t = Date().timeIntervalSince(start)
+		if t < 0 {
+			return 0
 		}
-		.stroke(
-			AngularGradient(
-				gradient: Gradient(colors: [.white, .valorantRed.opacity(0)]),
-				center: .center)
-				.opacity(0.9),
-			lineWidth: 3
-		)
-		.rotationEffect(.radians(angle))
-		.frame(width: 60, height: 60)
+		return min(t, 0.18)
 	}
+
+	private var blastFlashAlpha: Double {
+		let t = blastElapsed()
+		return t < 0 ? 0 : max(0, 1 - (t / 0.12))
+	}
+
+	private var blastFlashScale: CGFloat {
+		let t = blastElapsed()
+		return t < 0 ? 0.3 : 0.3 + CGFloat(t / 0.08) * 0.7
+	}
+
+	/// how long the wave with this delay has been expanding (clamped). Negative until its delay elapses.
+	private func blastWaveElapsed(_ delay: Double) -> TimeInterval {
+		guard let start = blastStartTime else { return -1 }
+		let t = Date().timeIntervalSince(start) - delay
+		if t < 0 {
+			return -1
+		}
+		return min(t, 0.65)
+	}
+	
+	private func blastWaveAlpha(_ delay: Double) -> Double {
+		let t = blastWaveElapsed(delay)
+		return t < 0 ? 0 : 0.85 * (1 - (t / 0.65))
+	}
+	
+	private func blastWaveScale(_ delay: Double) -> CGFloat {
+		let t = blastWaveElapsed(delay)
+		return t < 0 ? 0.3 : 0.3 + CGFloat(t / 0.65) * 1.5
+	}
+	
+	private func blastWave(delay: Double) -> some View {
+		let ring = RoundedRectangle(cornerRadius: 3, style: .continuous)
+			.strokeBorder(
+				AngularGradient(
+					gradient: Gradient(colors: [.white, .valorantRed, .valorantRed.opacity(0)]),
+					center: .center),
+				lineWidth: 3)
+			.frame(width: 56, height: 56)
+			.shadow(color: .valorantRed.opacity(0.9), radius: blastWaveElapsed(delay) < 0 ? 0 : 8)
+		return ring
+			.scaleEffect(blastWaveScale(delay))
+	}
+
 
 	@ViewBuilder
 	private var badge: some View {
@@ -433,12 +468,15 @@ private struct SpikePlantTimer: View {
 		return max(0, endsAt.timeIntervalSince(date))
 	}
 	
+	/// always tenths while under 10s, otherwise M:SS. Rounded to the nearest displayed tick so the label
+	/// is monotone and does not appear to stutter when the timeline recomputes.
 	private static func timeLabel(_ remaining: TimeInterval) -> String {
 		let clipped = max(0, remaining)
 		if clipped < 10 {
-			return String(format: "%.1fs", clipped)
+			// round to one decimal so 9.95+ -> 10.0 already counts as the next tick.
+			return String(format: "%.1fs", max(0, (clipped * 10.0).rounded(.toNearestOrAwayFromZero) / 10.0))
 		}
-		let total = Int(clipped.rounded(.up))
+		let total = Int(clipped.rounded(.awayFromZero))
 		return String(format: "%d:%02d", total / 60, total % 60)
 	}
 	
@@ -461,43 +499,52 @@ private struct SpikePlantTimer: View {
 		withAnimation(.default) {
 			isPulsing = false
 			stage = .idle
-			blastRotation = 0
 		}
+		blastStartTime = nil
 	}
 	
 	private func fireDetonation() {
-		blastRotation = 360
+		blastStartTime = Date()
 		guard canUseHaptics else { return }
 		let generator = UIImpactFeedbackGenerator(style: .heavy)
 		generator.prepare()
 		generator.impactOccurred()
+		
+		try? await Task.sleep(for: .milliseconds(140))
+		blastStartTime = nil
 	}
 	
-	/// fires the two alerts and then the detonation, all derived from the plant date so nothing drifts
+	/// scheduled alerts: fire the haptics on/just before the real thresholds so they are not late,
+	/// and report the remaining time that matches when the haptic lands.
 	private func runAlerts() async {
 		guard let plantedAt else { return }
 		let end = plantedAt.addingTimeInterval(Self.duration)
 		
 		for alert in Stage.alerts {
-			let delay = end.addingTimeInterval(-alert.threshold).timeIntervalSinceNow
-			if delay > 0 {
-				try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+			let trigger = end.addingTimeInterval(-alert.threshold - Self.alertLead)
+			let ready = trigger.timeIntervalSinceNow
+			if ready > 0 {
+				try? await Task.sleep(nanoseconds: UInt64(ready * 1_000_000_000))
 			}
-			guard !Task.isCancelled, self.plantedAt == plantedAt else { return }
+			guard !Task.isCancelled else { return }
+	
+			let remaining = end.timeIntervalSinceNow
+			let clamped = max(0, remaining)
+			let labelAtHaptic = Self.timeLabel(clamped)
 			
-			withAnimation(.easeInOut(duration: 0.2)) { stage = alert }
+			withAnimation(.easeInOut(duration: 0.12)) {
+				stage = alert
+			}
 			startPulsing()
-			fireHaptic(alert)
+			fireHaptic(alert, label: labelAtHaptic)
 		}
 		
-		let delay = end.timeIntervalSinceNow
-		if delay > 0 {
-			try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
-		}
+		// detonation: fire as close to hard-zero as the schedule allows, then the row flips.
+		try? await Task.sleep(nanoseconds: UInt64(Self.alertLead * 1_000_000_000))
 		guard !Task.isCancelled, self.plantedAt == plantedAt else { return }
 		
-		withAnimation(.default) { stage = .detonated }
 		fireDetonation()
+		withAnimation(.default) { stage = .detonated }
 	}
 	
 	private func dismissDetonationAfterAWhile() async {
@@ -514,14 +561,21 @@ private struct SpikePlantTimer: View {
 		}
 	}
 	
-	private func fireHaptic(_ stage: Stage) {
+	/// the caller passes the exact remaining time so any logged/readout state lines up with the haptic.
+	private func fireHaptic(_ stage: Stage, label: String = "") {
 		guard canUseHaptics else { return }
 		let generator = UINotificationFeedbackGenerator()
 		generator.prepare()
 		switch stage {
 		case .sevenSeconds:
+			let impacted = UIImpactFeedbackGenerator(style: .light)
+			impacted.prepare()
+			impacted.impactOccurred()
 			generator.notificationOccurred(.warning)
 		case .threeSeconds:
+			let impacted = UIImpactFeedbackGenerator(style: .medium)
+			impacted.prepare()
+			impacted.impactOccurred()
 			generator.notificationOccurred(.error)
 		default:
 			break
