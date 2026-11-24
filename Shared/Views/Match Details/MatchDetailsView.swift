@@ -526,32 +526,41 @@ private struct MatchShareSheet: View {
 	var resolvedUsers: [Player.ID: User] = [:]
 	
 	@Environment(\.assets) private var assets
+	@Environment(\.seasons) private var seasons
 	@Environment(\.dismiss) private var dismiss
 	@EnvironmentObject private var imageManager: ImageManager
 	
 	@State private var renderedImage: UIImage?
-	@State private var isRendering = false
+	@State private var showsRiotID = true
+	@State private var didCopy = false
+	
+	private static let cardWidth: CGFloat = 360
 	
 	var body: some View {
 		NavigationView {
 			ScrollView {
 				VStack(spacing: 16) {
-					snapshotCard(preloaded: nil)
+					cardPreview
+					
+					showRiotIDToggle
 					
 					if let renderedImage {
 						ShareLink(
 							item: Image(uiImage: renderedImage),
 							preview: SharePreview("Match Summary", image: Image(uiImage: renderedImage))
 						) {
-							Label("Share Image", systemImage: "square.and.arrow.up")
-								.font(.headline)
-								.foregroundStyle(.white)
-								.frame(maxWidth: .infinity)
-								.padding(.vertical, 14)
-								.background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+							shareButtonLabel("Share Match Card")
 						}
-					} else if isRendering {
-						ProgressView("Rendering summary...")
+						
+						Button {
+							UIPasteboard.general.image = renderedImage
+							didCopy = true
+							DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+								didCopy = false
+							}
+						} label: {
+							copyButtonLabel(didCopy ? "Copied" : "Copy Image", systemImage: didCopy ? "checkmark" : "doc.on.doc")
+						}
 					}
 				}
 				.padding(16)
@@ -564,111 +573,277 @@ private struct MatchShareSheet: View {
 					Button("Done") { dismiss() }
 				}
 			}
-			.task {
-				await renderSnapshot()
-			}
+		}
+		.task(id: showsRiotID) {
+			await renderSnapshot()
 		}
 	}
 	
-	private func snapshotCard(preloaded: [AssetImage: UIImage]?) -> some View {
+	// MARK: - Sheet Controls
+	
+	@ViewBuilder
+	private var cardPreview: some View {
+		if let renderedImage {
+			Image(uiImage: renderedImage)
+				.resizable()
+				.scaledToFit()
+				.frame(maxWidth: .infinity)
+				.clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+				.shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+		} else {
+			RoundedRectangle(cornerRadius: 20, style: .continuous)
+				.fill(Color.secondaryGroupedBackground)
+				.aspectRatio(0.82, contentMode: .fit)
+				.overlay { ProgressView("Rendering summary…") }
+		}
+	}
+	
+	private var showRiotIDToggle: some View {
+		Toggle(isOn: $showsRiotID) {
+			VStack(alignment: .leading, spacing: 2) {
+				Text("Show Riot ID")
+					.font(.subheadline.weight(.medium))
+				Text("Include your #tag in the shared image")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+		}
+		.tint(Color.accentColor)
+		.padding(14)
+		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+	}
+	
+	private func shareButtonLabel(_ title: String) -> some View {
+		Label(title, systemImage: "square.and.arrow.up")
+			.font(.headline)
+			.foregroundStyle(.white)
+			.frame(maxWidth: .infinity)
+			.padding(.vertical, 15)
+			.background(Color.accentColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+	}
+	
+	private func copyButtonLabel(_ title: String, systemImage: String) -> some View {
+		Label(title, systemImage: systemImage)
+			.font(.subheadline.weight(.semibold))
+			.foregroundStyle(Color.accentColor)
+			.frame(maxWidth: .infinity)
+			.padding(.vertical, 13)
+			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+	}
+	
+	// MARK: - Renderable Card
+	
+	private var cardName: String {
+		focusedPlayer.resolvedDisplayName(using: resolvedUsers)
+	}
+	
+	private var cardTag: String {
+		focusedPlayer.resolvedTagLine(using: resolvedUsers)
+	}
+	
+	private func resultInfo() -> (title: String, color: Color, score: String?)? {
+		guard data.details.teams.count == 2 else { return nil }
+		guard let own = data.details.teams.first(where: { $0.id == focusedPlayer.teamID }),
+			  let enemy = data.details.teams.first(where: { $0.id != focusedPlayer.teamID })
+		else { return nil }
+		
+		let hasWinner = data.details.teams.contains(where: \.won)
+		if !hasWinner {
+			return ("DRAW", .secondary, "\(own.roundsWon) – \(enemy.roundsWon)")
+		}
+		return own.won
+			? ("VICTORY", .green, "\(own.roundsWon) – \(enemy.roundsWon)")
+			: ("DEFEAT", Color.valorantRed, "\(own.roundsWon) – \(enemy.roundsWon)")
+	}
+	
+	private func badges(for stats: MatchAnalytics.PlayerMatchAnalytics?) -> [String] {
+		guard let stats else { return [] }
+		var result: [String] = []
+		for count in stats.multiKills.keys.sorted(by: >) where count >= 2 {
+			let occurrences = stats.multiKills[count, default: 0]
+			guard occurrences > 0 else { continue }
+			result.append(occurrences > 1 ? "\(count)K ×\(occurrences)" : "\(count)K")
+		}
+		if let biggestClutch = stats.clutchWonSizes.filter({ $0.value > 0 }).keys.max() {
+			result.append("1V\(biggestClutch) CLUTCH")
+		}
+		if stats.kastPercent >= 80 {
+			result.append("HIGH KAST")
+		}
+		return Array(result.prefix(4))
+	}
+	
+	private func snapshotCard(showsRiotID: Bool, preloaded: [AssetImage: UIImage]) -> some View {
 		let info = data.details.matchInfo
 		let mapAsset = assets?.maps[info.mapID]?.listViewIcon
-		let agentAsset = focusedPlayer.agentID.flatMap { assets?.agents[$0]?.displayIcon }
-		let stats = analytics.byPlayer[focusedPlayer.id]
+		let mapImage = mapAsset.flatMap { preloaded[$0] }
 		let mapName = assets?.maps[info.mapID]?.displayName ?? "Map"
+		let agentImage = focusedPlayer.agentID
+			.flatMap { assets?.agents[$0]?.displayIcon }
+			.flatMap { preloaded[$0] }
+		let stats = analytics.byPlayer[focusedPlayer.id]
+		let result = resultInfo()
+		let tierInfo = seasons?.currentTierInfo(number: focusedPlayer.competitiveTier)
+		let tierIcon = tierInfo?.icon.flatMap { preloaded[$0] }
+		let matchBadges = badges(for: stats)
 		
 		return VStack(alignment: .leading, spacing: 14) {
 			ZStack(alignment: .bottomLeading) {
 				Group {
-					if let mapAsset, let ui = preloaded?[mapAsset] {
-						Image(uiImage: ui).resizable().scaledToFill()
+					if let mapImage {
+						Image(uiImage: mapImage)
+							.resizable()
+							.scaledToFill()
 					} else {
-						MapImage.wideImage(info.mapID).scaledToFill()
+						Color(white: 0.16)
 					}
 				}
-				.frame(height: 110)
-				.frame(maxWidth: .infinity)
+				.frame(width: Self.cardWidth, height: 128)
 				.clipped()
-				.overlay(Color.black.opacity(0.45))
+				.overlay(
+					LinearGradient(
+						colors: [.black.opacity(0.25), .black.opacity(0.85)],
+						startPoint: .top,
+						endPoint: .bottom
+					)
+				)
 				
-				HStack(spacing: 12) {
-					Group {
-						if let agentAsset, let ui = preloaded?[agentAsset] {
-							Image(uiImage: ui).resizable().scaledToFill()
-						} else if let aid = focusedPlayer.agentID {
-							AgentImage.icon(aid, teamID: focusedPlayer.teamID, isOVariant: data.isGauntletOVariant(for: focusedPlayer))
+				VStack(alignment: .leading, spacing: 4) {
+					Text(mapName)
+						.font(.title2.bold())
+						.foregroundStyle(.white)
+					
+					if let result {
+						HStack(alignment: .firstTextBaseline, spacing: 8) {
+							Text(result.title)
+								.font(.caption.weight(.heavy))
+								.foregroundStyle(result.color)
+							if let score = result.score {
+								Text(score)
+									.font(.subheadline.weight(.bold).monospacedDigit())
+									.foregroundStyle(.white.opacity(0.9))
+							}
 						}
-					}
-					.frame(width: 56, height: 56)
-					.background(Color.black.opacity(0.35), in: RoundedRectangle(cornerRadius: 10))
-					.clipShape(RoundedRectangle(cornerRadius: 10))
-					
-					VStack(alignment: .leading, spacing: 3) {
-						Text(focusedPlayer.resolvedDisplayName(using: resolvedUsers))
-							.font(.headline.bold())
-							.foregroundStyle(.white)
-						Text(mapName)
-							.font(.caption.weight(.medium))
-							.foregroundStyle(.white.opacity(0.85))
-					}
-					
-					Spacer()
-					
-					if data.details.teams.count == 2,
-					   let own = data.details.teams.first(where: { $0.id == focusedPlayer.teamID }),
-					   let enemy = data.details.teams.first(where: { $0.id != focusedPlayer.teamID }) {
-						Text("\(own.roundsWon) – \(enemy.roundsWon)")
-							.font(.title2.bold().monospacedDigit())
-							.foregroundStyle(.white)
 					}
 				}
 				.padding(14)
 			}
 			.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 			
+			HStack(spacing: 12) {
+				Group {
+					if let agentImage {
+						Image(uiImage: agentImage)
+							.resizable()
+							.scaledToFill()
+					} else {
+						Color.white.opacity(0.1)
+					}
+				}
+				.frame(width: 54, height: 54)
+				.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+				
+				VStack(alignment: .leading, spacing: 3) {
+					HStack(spacing: 0) {
+						Text(cardName)
+							.font(.headline.bold())
+							.lineLimit(1)
+						if showsRiotID, !cardTag.isEmpty {
+							Text("#\(cardTag)")
+								.font(.subheadline)
+								.foregroundStyle(.white.opacity(0.5))
+								.lineLimit(1)
+						}
+					}
+					info.queueLabel
+						.font(.caption)
+						.foregroundStyle(.white.opacity(0.55))
+				}
+				
+				Spacer(minLength: 0)
+				
+				if let tierIcon {
+					Image(uiImage: tierIcon)
+						.resizable()
+						.scaledToFit()
+						.frame(width: 44, height: 44)
+				}
+			}
+			
 			if let stats {
 				HStack(spacing: 0) {
-					shareMetric("K / D / A", "\(stats.kills)/\(stats.deaths)/\(stats.assists)")
-					shareMetric("ACS", "\(Int(stats.acs.rounded()))")
-					shareMetric("ADR", "\(Int(stats.adr.rounded()))")
-					shareMetric("SCORE", "\(stats.performanceScore)")
+					shareMetric("\(stats.kills)/\(stats.deaths)/\(stats.assists)", "K / D / A")
+					shareMetric("\(Int(stats.acs.rounded()))", "ACS")
+					shareMetric("\(Int(stats.adr.rounded()))", "ADR")
+					shareMetric(String(format: "%.0f%%", stats.hsPercent), "HS %")
+					shareMetric(String(format: "%.0f%%", stats.kastPercent), "KAST")
+				}
+				.padding(.vertical, 10)
+				.background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+				
+				if !matchBadges.isEmpty {
+					HStack(spacing: 6) {
+						ForEach(matchBadges, id: \.self) { badge in
+							Text(badge)
+								.font(.system(size: 9, weight: .bold))
+								.foregroundStyle(.white.opacity(0.8))
+								.lineLimit(1)
+								.padding(.horizontal, 8)
+								.padding(.vertical, 4)
+								.background(Color.white.opacity(0.08), in: Capsule())
+						}
+					}
 				}
 			}
 			
 			HStack {
-				info.queueLabel
-					.font(.caption)
-					.foregroundStyle(.secondary)
+				Text(info.gameStart.formatted(.dateTime.day().month(.abbreviated).year()))
+					.font(.caption2)
+					.foregroundStyle(.white.opacity(0.45))
 				Spacer()
 				Text("Vantage")
-					.font(.caption.weight(.semibold))
-					.foregroundStyle(.secondary)
+					.font(.caption2.weight(.bold))
+					.foregroundStyle(.white.opacity(0.45))
+			}
 		}
-	}
-	.padding(16)
-	.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+		.padding(16)
+		.frame(width: Self.cardWidth)
+		.background(
+			LinearGradient(
+				colors: [Color(red: 0.11, green: 0.11, blue: 0.14), Color(red: 0.07, green: 0.07, blue: 0.09)],
+				startPoint: .top,
+				endPoint: .bottom
+			),
+			in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+		)
 	}
 	
-	private func shareMetric(_ label: String, _ value: String) -> some View {
+	private func shareMetric(_ value: String, _ label: String) -> some View {
 		VStack(spacing: 3) {
 			Text(value)
 				.font(.headline.bold().monospacedDigit())
+				.foregroundStyle(.white)
+				.lineLimit(1)
+				.minimumScaleFactor(0.7)
 			Text(label)
-				.font(.caption2.weight(.semibold))
-				.foregroundStyle(.secondary)
+				.font(.system(size: 9, weight: .semibold))
+				.foregroundStyle(.white.opacity(0.5))
+				.lineLimit(1)
 		}
 		.frame(maxWidth: .infinity)
 	}
 	
 	@MainActor
 	private func renderSnapshot() async {
-		isRendering = true
 		var targets: [AssetImage] = []
 		if let mapImg = assets?.maps[data.details.matchInfo.mapID]?.listViewIcon {
 			targets.append(mapImg)
 		}
 		if let aid = focusedPlayer.agentID, let agentImg = assets?.agents[aid]?.displayIcon {
 			targets.append(agentImg)
+		}
+		if let tierImg = seasons?.currentTierInfo(number: focusedPlayer.competitiveTier)?.icon {
+			targets.append(tierImg)
 		}
 		
 		var loaded: [AssetImage: UIImage] = [:]
@@ -677,22 +852,23 @@ private struct MatchShareSheet: View {
 				loaded[asset] = cached
 			} else {
 				_ = try? await asset.ensureDownloaded()
-				if let dl = asset.load() {
-					loaded[asset] = dl
+				if let downloaded = asset.load() {
+					loaded[asset] = downloaded
 				}
 			}
 		}
 		
 		let renderer = ImageRenderer(
-			content: snapshotCard(preloaded: loaded)
+			content: snapshotCard(showsRiotID: showsRiotID, preloaded: loaded)
 				.environment(\.assets, assets)
+				.environment(\.seasons, seasons)
+				.environment(\.colorScheme, .dark)
 				.environmentObject(imageManager)
-				.frame(width: 360)
-				.preferredColorScheme(.dark)
 		)
 		renderer.scale = 3.0
-		renderedImage = renderer.uiImage
-		isRendering = false
+		if let image = renderer.uiImage {
+			renderedImage = image
+		}
 	}
 }
 
