@@ -1,5 +1,6 @@
 import SwiftUI
 import ValorantAPI
+import UIKit
 
 @MainActor
 struct LiveMatchView: View {
@@ -10,6 +11,8 @@ struct LiveMatchView: View {
 		ScrollView {
 			VStack(spacing: 0) {
 				hero
+				
+				SpikePlantTimer()
 				
 				playerList
 			}
@@ -159,6 +162,312 @@ struct LiveMatchView: View {
 			.accentColor(relativeColor)
 			.withLocalData($playerUser, id: player.id)
 			.withLocalData($summary, id: player.id, shouldAutoUpdate: true)
+		}
+	}
+}
+
+private struct SpikePlantTimer: View {
+	private enum Stage: Equatable {
+		case idle
+		case normal
+		case sevenSeconds
+		case threeSeconds
+		case detonated
+		
+		static let alerts: [Stage] = [.sevenSeconds, .threeSeconds]
+		
+		var threshold: TimeInterval {
+			switch self {
+			case .sevenSeconds: return 7.0
+			case .threeSeconds: return 3.5
+			default: return 0
+			}
+		}
+		
+		var isAlerting: Bool {
+			switch self {
+			case .sevenSeconds, .threeSeconds: return true
+			default: return false
+			}
+		}
+		
+		var badgeText: LocalizedStringKey? {
+			switch self {
+			case .sevenSeconds: return "7s left"
+			case .threeSeconds: return "3s left"
+			default: return nil
+			}
+		}
+	}
+	
+	private static let duration: TimeInterval = 45
+	private static let detonationLinger: TimeInterval = 3
+	
+	@State private var plantedAt: Date?
+	@State private var stage = Stage.idle
+	@State private var isPulsing = false
+	
+	/// reuses the Live tab's existing haptic switch instead of adding a new setting
+	@AppStorage("vibrateOnMatchFound") private var canUseHaptics = true
+	
+	private var endsAt: Date? {
+		plantedAt?.addingTimeInterval(Self.duration)
+	}
+	
+	private var tint: Color {
+		switch stage {
+		case .sevenSeconds: return .orange
+		case .threeSeconds, .detonated: return .valorantRed
+		default: return AppSettings.defaultAccentColor
+		}
+	}
+	
+	var body: some View {
+		VStack(spacing: 8) {
+			if plantedAt == nil {
+				idleRow
+			} else if stage == .detonated {
+				detonatedRow
+			} else {
+				runningRow
+			}
+			
+			if plantedAt == nil {
+				Text("Tap the moment you plant — local 45-second countdown, not live game data.")
+					.font(.caption2)
+					.foregroundStyle(.secondary)
+					.frame(maxWidth: .infinity, alignment: .leading)
+			}
+		}
+		.padding(.horizontal, 16)
+		.padding(.vertical, 12)
+		.task(id: plantedAt) { await runAlerts() }
+		.task(id: stage) { await dismissDetonationAfterAWhile() }
+	}
+	
+	private var idleRow: some View {
+		Button(action: plant) {
+			HStack(spacing: 12) {
+				spikeGlyph
+				
+				Text("Spike Planted")
+					.font(.headline)
+				
+				Spacer(minLength: 0)
+				
+				Text("45s")
+					.font(.subheadline.weight(.semibold))
+					.monospacedDigit()
+					.padding(.horizontal, 10)
+					.padding(.vertical, 4)
+					.background(Capsule().fill(AppSettings.defaultAccentColor.opacity(0.15)))
+			}
+			.padding(14)
+			.background { rowBackground(tint: tint) }
+			.contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+		}
+		.buttonStyle(.plain)
+		.accessibilityLabel("Start 45 second spike timer")
+	}
+	
+	private var runningRow: some View {
+		TimelineView(.animation(minimumInterval: 1 / 4)) { context in
+			let remaining = remainingTime(at: context.date)
+			
+			HStack(spacing: 10) {
+				Button(action: plant) {
+					HStack(spacing: 12) {
+						spikeGlyph
+						
+						VStack(alignment: .leading, spacing: 6) {
+							HStack(spacing: 8) {
+								Text(Self.timeLabel(remaining))
+									.font(.title3.weight(.semibold))
+									.monospacedDigit()
+								
+								badge
+							}
+							
+							progressBar(fraction: remaining / Self.duration)
+						}
+						.frame(maxWidth: .infinity, alignment: .leading)
+					}
+					.contentShape(Rectangle())
+				}
+				.buttonStyle(.plain)
+				.accessibilityLabel("Restart spike timer")
+				
+				Button(action: cancel) {
+					Image(systemName: "xmark.circle.fill")
+						.font(.title3)
+						.foregroundStyle(.secondary)
+						.padding(4)
+				}
+				.buttonStyle(.plain)
+				.accessibilityLabel("Cancel spike timer")
+			}
+			.padding(14)
+			.background { rowBackground(tint: tint) }
+		}
+	}
+	
+	private var detonatedRow: some View {
+		Button(action: dismissDetonation) {
+			HStack(spacing: 12) {
+				spikeGlyph(color: .white)
+				
+				Text("Detonated")
+					.font(.headline)
+					.foregroundStyle(.white)
+				
+				Spacer(minLength: 0)
+				
+				Image(systemName: "xmark")
+					.foregroundStyle(.white.opacity(0.8))
+			}
+			.padding(14)
+			.background {
+				RoundedRectangle(cornerRadius: 14, style: .continuous)
+					.fill(Color.valorantRed)
+			}
+			.contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+		}
+		.buttonStyle(.plain)
+		.accessibilityLabel("Spike detonated, tap to dismiss")
+	}
+	
+	private var spikeGlyph: some View {
+		spikeGlyph(color: tint)
+	}
+	
+	private func spikeGlyph(color: Color) -> some View {
+		Image.bundledAsset("Spike Icon", renderingMode: .template)
+			.resizable()
+			.scaledToFit()
+			.frame(width: 22, height: 22)
+			.foregroundStyle(color)
+	}
+	
+	@ViewBuilder
+	private var badge: some View {
+		if let badgeText = stage.badgeText {
+			Text(badgeText)
+				.font(.caption.weight(.bold))
+				.foregroundStyle(.white)
+				.padding(.horizontal, 7)
+				.padding(.vertical, 2)
+				.background(Capsule().fill(tint))
+				.transition(.scale.combined(with: .opacity))
+		}
+	}
+	
+	private func progressBar(fraction: Double) -> some View {
+		GeometryReader { geometry in
+			ZStack(alignment: .leading) {
+				Capsule()
+					.fill(Color.secondary.opacity(0.2))
+				
+				Capsule()
+					.fill(tint)
+					.frame(width: max(0, geometry.size.width * min(1, fraction)))
+			}
+		}
+		.frame(height: 4)
+	}
+	
+	private func rowBackground(tint: Color) -> some View {
+		RoundedRectangle(cornerRadius: 14, style: .continuous)
+			.fill(tint.opacity(0.1))
+			.overlay {
+				RoundedRectangle(cornerRadius: 14, style: .continuous)
+					.strokeBorder(tint, lineWidth: 1.5)
+					.opacity(stage.isAlerting ? (isPulsing ? 1 : 0.25) : 0.4)
+			}
+	}
+	
+	private func remainingTime(at date: Date) -> TimeInterval {
+		guard let endsAt else { return 0 }
+		return max(0, endsAt.timeIntervalSince(date))
+	}
+	
+	private static func timeLabel(_ remaining: TimeInterval) -> String {
+		let total = Int(remaining.rounded(.up))
+		return String(format: "%d:%02d", total / 60, total % 60)
+	}
+	
+	private func plant() {
+		withAnimation(.default) { isPulsing = false }
+		stage = .normal
+		plantedAt = .now
+	}
+	
+	private func cancel() {
+		plantedAt = nil
+		withAnimation(.default) {
+			isPulsing = false
+			stage = .idle
+		}
+	}
+	
+	private func dismissDetonation() {
+		plantedAt = nil
+		withAnimation(.default) {
+			isPulsing = false
+			stage = .idle
+		}
+	}
+	
+	/// fires the two alerts and then the detonation, all derived from the plant date so nothing drifts
+	private func runAlerts() async {
+		guard let plantedAt else { return }
+		let end = plantedAt.addingTimeInterval(Self.duration)
+		
+		for alert in Stage.alerts {
+			let delay = end.addingTimeInterval(-alert.threshold).timeIntervalSinceNow
+			if delay > 0 {
+				try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+			}
+			guard !Task.isCancelled, self.plantedAt == plantedAt else { return }
+			
+			withAnimation(.easeInOut(duration: 0.2)) { stage = alert }
+			startPulsing()
+			fireHaptic(alert)
+		}
+		
+		let delay = end.timeIntervalSinceNow
+		if delay > 0 {
+			try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+		}
+		guard !Task.isCancelled, self.plantedAt == plantedAt else { return }
+		
+		withAnimation(.default) { stage = .detonated }
+	}
+	
+	private func dismissDetonationAfterAWhile() async {
+		guard stage == .detonated else { return }
+		try? await Task.sleep(nanoseconds: UInt64(Self.detonationLinger * 1_000_000_000))
+		guard !Task.isCancelled, stage == .detonated else { return }
+		dismissDetonation()
+	}
+	
+	private func startPulsing() {
+		isPulsing = false
+		withAnimation(.easeInOut(duration: 0.4).repeatForever(autoreverses: true)) {
+			isPulsing = true
+		}
+	}
+	
+	private func fireHaptic(_ stage: Stage) {
+		guard canUseHaptics else { return }
+		let generator = UINotificationFeedbackGenerator()
+		generator.prepare()
+		switch stage {
+		case .sevenSeconds:
+			generator.notificationOccurred(.warning)
+		case .threeSeconds:
+			generator.notificationOccurred(.error)
+		default:
+			break
 		}
 	}
 }
