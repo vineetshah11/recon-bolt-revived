@@ -383,7 +383,7 @@ private struct SpikePlantTimer: View {
 		.stroke(
 			AngularGradient(
 				gradient: Gradient(colors: [.white, .valorantRed.opacity(0)]),
-				center: .start)
+				center: .center)
 				.opacity(0.9),
 			lineWidth: 3
 		)
