@@ -216,7 +216,7 @@ struct LiveMatchView: View {
 		private static let detonationLinger: TimeInterval = 3
 		/// fire the haptics a touch early so they land on the mark instead of a few frames after it
 		private static let alertLead: TimeInterval = 0.2
-		private static let glyphSize: CGFloat = 52
+		private static let bannerHeight: CGFloat = 80
 		
 		@State private var plantedAt: Date?
 		@State private var isDetonated = false
@@ -328,8 +328,6 @@ struct LiveMatchView: View {
 		private var detonatedRow: some View {
 			Button(action: dismissDetonation) {
 				HStack(spacing: 12) {
-					detonationLayer
-					
 					spikeGlyph(color: .white)
 					
 					Text("Detonated")
@@ -341,22 +339,29 @@ struct LiveMatchView: View {
 					Image(systemName: "xmark")
 						.foregroundStyle(.white.opacity(0.8))
 				}
-				.padding(14)
+				.padding(.horizontal, 16)
+				.frame(maxWidth: .infinity)
+				.frame(height: Self.bannerHeight)
 				.background {
-					RoundedRectangle(cornerRadius: 14, style: .continuous)
-						.fill(Color.valorantRed)
+					ZStack {
+						Color.valorantRed
+						
+						DetonationGIFView()
+							.frame(maxWidth: .infinity, maxHeight: .infinity)
+						
+						// darken the blast behind the label so the white text keeps its contrast
+						LinearGradient(
+							colors: [.black.opacity(0.6), .black.opacity(0.15)],
+							startPoint: .leading,
+							endPoint: .trailing
+						)
+					}
 				}
 				.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 				.contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 			}
 			.buttonStyle(.plain)
 			.accessibilityLabel("Spike detonated, tap to dismiss")
-		}
-		
-		private var detonationLayer: some View {
-			DetonationGIFView()
-				.frame(width: Self.glyphSize, height: Self.glyphSize)
-				.clipped()
 		}
 		
 		private func spikeGlyph(color: Color) -> some View {
@@ -553,11 +558,11 @@ struct LiveMatchView_Previews: PreviewProvider {
 }
 #endif
 
-/// plays the bundled blast GIF once, sized to the detonated row's slot.
+/// plays the bundled blast GIF once as the detonated banner's backdrop.
 private struct DetonationGIFView: UIViewRepresentable {
 	func makeUIView(context: Context) -> UIImageView {
 		let view = FittedGIFView()
-		view.contentMode = .scaleAspectFit
+		view.contentMode = .scaleAspectFill
 		view.clipsToBounds = true
 		view.backgroundColor = .clear
 		
@@ -596,10 +601,8 @@ private struct DetonationGIFView: UIViewRepresentable {
 }
 
 /// SwiftUI sizes a representable from its intrinsic size, and the GIF's frames are much bigger
-/// than the row slot — pin the intrinsic size so the blast fits inside the row instead of
-/// stretching it.
+/// than the banner — report no intrinsic size so the view takes the proposed banner size and
+/// crops the blast instead of stretching the row around it.
 private final class FittedGIFView: UIImageView {
-	override var intrinsicContentSize: CGSize {
-		CGSize(width: 52, height: 52)
-	}
+	override var intrinsicContentSize: CGSize { .zero }
 }
