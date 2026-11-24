@@ -509,9 +509,14 @@ private struct SpikePlantTimer: View {
 		let generator = UIImpactFeedbackGenerator(style: .heavy)
 		generator.prepare()
 		generator.impactOccurred()
-		
-		try? await Task.sleep(for: .milliseconds(140))
-		blastStartTime = nil
+	}
+	
+	/// nudge the flash/ring wipe alive a little after the heavy impact, then stop.
+	private func teardownBlastSoon() {
+		Task {
+			try? await Task.sleep(for: .milliseconds(160))
+			blastStartTime = nil
+		}
 	}
 	
 	/// scheduled alerts: fire the haptics on/just before the real thresholds so they are not late,
@@ -545,6 +550,7 @@ private struct SpikePlantTimer: View {
 		
 		fireDetonation()
 		withAnimation(.default) { stage = .detonated }
+		teardownBlastSoon()
 	}
 	
 	private func dismissDetonationAfterAWhile() async {
