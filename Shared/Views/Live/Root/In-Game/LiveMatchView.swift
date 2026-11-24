@@ -350,28 +350,17 @@ private struct SpikePlantTimer: View {
 			.foregroundStyle(color)
 	}
 
-		@State private var blastRotation: Double = 0
+	@State private var blastRotation: Double = 0
+	
+	private static let blastAngles: [Double] = (0..<12).map { index in
+		(2 * .pi / 12) * Double(index)
+	}
 	
 	private var blastLayer: some View {
 		ZStack {
-			for i in 0..<12 {
-				let baseAngle = (2 * .pi / Double(12)) * Double(i)
-				let length: CGFloat = 28
-
-				Path { path in
-					path.move(to: .zero)
-					path.addLine(to: CGPoint(x: cos(baseAngle) * length, y: sin(baseAngle) * length))
-				}
-					.stroke(
-						AngularGradient(
-							gradient: Gradient(colors: [.white, .valorantRed.opacity(0)]),
-							center: .start)
-							.opacity(0.9),
-							lineWidth: 3
-					)
-					.rotationEffect(.radians(baseAngle))
-					.frame(width: 60, height: 60)
-				}
+			ForEach(Array(Self.blastAngles.enumerated()), id: \.offset) { _, angle in
+				blastSegment(angle: angle)
+			}
 		}
 		.scaleEffect(0.4)
 		.opacity(0.9)
@@ -380,7 +369,26 @@ private struct SpikePlantTimer: View {
 			.interactiveSpring(response: 0.4, dampingFraction: 0.5)
 			.repeatForever(autoreverses: false),
 			value: blastRotation
-	)
+		)
+	}
+	
+	/// not a ViewBuilder: keeps the local geometry math out of the builder closure
+	private func blastSegment(angle: Double) -> some View {
+		let length: CGFloat = 28
+		
+		return Path { path in
+			path.move(to: .zero)
+			path.addLine(to: CGPoint(x: cos(angle) * length, y: sin(angle) * length))
+		}
+		.stroke(
+			AngularGradient(
+				gradient: Gradient(colors: [.white, .valorantRed.opacity(0)]),
+				center: .start)
+				.opacity(0.9),
+			lineWidth: 3
+		)
+		.rotationEffect(.radians(angle))
+		.frame(width: 60, height: 60)
 	}
 
 	@ViewBuilder
