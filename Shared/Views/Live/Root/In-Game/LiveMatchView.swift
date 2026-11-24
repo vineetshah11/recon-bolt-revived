@@ -341,8 +341,8 @@ private struct SpikePlantTimer: View {
 	private var spikeGlyph: some View {
 		spikeGlyph(color: tint)
 	}
-	
-		private func spikeGlyph(color: Color) -> some View {
+
+	private func spikeGlyph(color: Color) -> some View {
 		Image.bundledAsset("Spike Icon", renderingMode: .template)
 			.resizable()
 			.scaledToFit()
@@ -380,6 +380,9 @@ private struct SpikePlantTimer: View {
 			value: UUID()
 	)
 	}
+
+	@ViewBuilder
+	private var badge: some View {
 		if let badgeText = stage.badgeText {
 			Text(badgeText)
 				.font(.caption.weight(.bold))
