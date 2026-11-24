@@ -314,6 +314,8 @@ private struct SpikePlantTimer: View {
 	private var detonatedRow: some View {
 		Button(action: dismissDetonation) {
 			HStack(spacing: 12) {
+				blastLayer
+				
 				spikeGlyph(color: .white)
 				
 				Text("Detonated")
@@ -340,16 +342,44 @@ private struct SpikePlantTimer: View {
 		spikeGlyph(color: tint)
 	}
 	
-	private func spikeGlyph(color: Color) -> some View {
+		private func spikeGlyph(color: Color) -> some View {
 		Image.bundledAsset("Spike Icon", renderingMode: .template)
 			.resizable()
 			.scaledToFit()
 			.frame(width: 22, height: 22)
 			.foregroundStyle(color)
 	}
+
+	private var blastLayer: some View {
+		let flash = Angle.degrees(Double.random(in: 0...360))
+		return ZStack {
+			for i in 0..<12 {
+				let angle = flash.radians + (2 * .pi / Double(12)) * Double(i)
+				let length: CGFloat = 28
 	
-	@ViewBuilder
-	private var badge: some View {
+				Path { path in
+					path.move(to: .zero)
+					path.addLine(to: CGPoint(x: cos(angle) * length, y: sin(angle) * length))
+				}
+					.stroke(
+						AngularGradient(
+							gradient: Gradient(colors: [.white, .valorantRed.opacity(0)]),
+							center: .start)
+							.opacity(0.9),
+							lineWidth: 3
+					)
+					.rotationEffect(.radians(angle))
+					.frame(width: 60, height: 60)
+				}
+		}
+		.scaleEffect(0.4)
+		.opacity(0.9)
+		.animation(
+			.interactiveSpring(response: 0.4, dampingFraction: 0.5)
+			.repeatForever(autoreverses: false),
+			value: UUID()
+	)
+	}
 		if let badgeText = stage.badgeText {
 			Text(badgeText)
 				.font(.caption.weight(.bold))
@@ -391,10 +421,11 @@ private struct SpikePlantTimer: View {
 	}
 	
 	private static func timeLabel(_ remaining: TimeInterval) -> String {
-		if remaining < 1 {
-			return String(format: "%.1fs", max(0, remaining))
+		let clipped = max(0, remaining)
+		if clipped < 10 {
+			return String(format: "%.1fs", clipped)
 		}
-		let total = Int(remaining.rounded(.up))
+		let total = Int(clipped.rounded(.up))
 		return String(format: "%d:%02d", total / 60, total % 60)
 	}
 	
