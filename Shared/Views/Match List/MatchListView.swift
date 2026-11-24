@@ -676,7 +676,6 @@ private struct ProfileShareSheet: View {
 		let renderer = ImageRenderer(
 			content: card(showsRiotID: showsRiotID)
 				.environment(\.assets, assets)
-				.environment(\.seasons, seasons)
 				.environment(\.colorScheme, .dark)
 		)
 		renderer.scale = 3.0

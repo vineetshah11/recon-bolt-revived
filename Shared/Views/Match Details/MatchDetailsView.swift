@@ -861,7 +861,6 @@ private struct MatchShareSheet: View {
 		let renderer = ImageRenderer(
 			content: snapshotCard(showsRiotID: showsRiotID, preloaded: loaded)
 				.environment(\.assets, assets)
-				.environment(\.seasons, seasons)
 				.environment(\.colorScheme, .dark)
 				.environmentObject(imageManager)
 		)
