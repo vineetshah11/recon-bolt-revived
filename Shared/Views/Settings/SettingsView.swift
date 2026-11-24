@@ -98,47 +98,34 @@ struct SettingsView: View {
 						}
 					}
 					
-					NavigationLink {
-						ReleaseNotesView()
-					} label: {
-						Label {
-							HStack {
-								Text("Patch Notes", comment: "Settings: opens the patch notes for every release")
-								Spacer()
-								Text(AppVersion.short)
-									.foregroundStyle(.secondary)
-							}
-						} icon: {
-							Image(systemName: "list.bullet.rectangle")
-								.foregroundStyle(.tint)
-						}
-					}
-						} footer: {
-		Text(AppVersion.display)
-	}
-	.id(storefrontID)
-	}
-	.deepLinkHandler { deepLink in
+				} header: {
+					Text("About", comment: "Settings: section")
+				} footer: {
+					Text(AppVersion.display)
+				}
+				.id(storefrontID)
+			}
+			.deepLinkHandler { deepLink in
 				guard case .inApp(.storefront) = deepLink else { return }
 				withAnimation {
 					scrollView.scrollTo(storefrontID, anchor: .center)
 				}
 			}
 		}
-			.sheet(item: $loginTarget) { _ in
-		LoginForm(accountManager: accountManager, webViewModel: loginWebViewModel)
-			.withLoadErrorAlerts()
+		.sheet(item: $loginTarget) { _ in
+			LoginForm(accountManager: accountManager, webViewModel: loginWebViewModel)
+				.withLoadErrorAlerts()
 		}
-	.onChange(of: loginTarget) { target in
+		.onChange(of: loginTarget) { target in
 			// fresh Riot login page only when a new sign-in starts, never on app/scene re-activation
 			if target != nil {
 				loginWebViewModel.startNewSession(clearWebData: settings.clearWebSignInDataOnOpen)
 			}
 		}
-			.onChange(of: accountManager.activeAccount?.id) { _ in
-		settings.instalockAgent = nil
-	}
-	.navigationTitle("Settings")
+		.onChange(of: accountManager.activeAccount?.id) { _ in
+			settings.instalockAgent = nil
+		}
+		.navigationTitle("Settings")
 }
 
 
