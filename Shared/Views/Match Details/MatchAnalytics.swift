@@ -361,7 +361,9 @@ struct MatchAnalytics {
 						if let victimAgent = agentByPlayer[k.victim] {
 							killedAgents.append(victimAgent)
 						}
-						if k.finishingDamage.type == .weapon, let wid = Weapon.ID(k.finishingDamage.source) {
+						if k.finishingDamage.type == .weapon,
+						let uuid = UUID(uuidString: k.finishingDamage.source),
+						let wid = Weapon.ID(uuid.uuidString.lowercased()) {
 							weaponKillsInRound[wid, default: 0] += 1
 							killsByWeapon[wid, default: 0] += 1
 						} else if k.finishingDamage.type == .melee {
@@ -779,7 +781,9 @@ struct MatchAnalytics {
 			for kill in killsInRound {
 				guard let killer = kill.killer else { continue }
 				let isFirst = (kill.roundTimeMillis == firstKill?.roundTimeMillis && kill.killer == firstKill?.killer && kill.victim == firstKill?.victim)
-				let weaponID = kill.finishingDamage.type == .weapon ? Weapon.ID(kill.finishingDamage.source) : nil
+				let weaponID = kill.finishingDamage.type == .weapon
+				? UUID(uuidString: kill.finishingDamage.source).flatMap { Weapon.ID($0.uuidString.lowercased()) }
+				: nil
 				
 				if allySet.contains(killer), enemySet.contains(kill.victim),
 				   allyMap[killer] != nil, enemyMap[kill.victim] != nil {
