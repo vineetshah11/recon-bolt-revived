@@ -7,7 +7,6 @@ struct AccountSettingsView: View {
 	@Binding var loginTarget: LoginTarget?
 	var showSignOutButton: Bool = true
 	@State var isConfirmingSignOut = false
-	@Environment(\.ownsProVersion) private var ownsProVersion
 	
 	var body: some View {
 		Group {
@@ -16,7 +15,14 @@ struct AccountSettingsView: View {
 			} header: {
 				Text("Accounts", comment: "Settings: section")
 			} footer: {
-				legalBoilerplate
+				VStack(alignment: .leading, spacing: 10) {
+					if !accountManager.storedAccounts.isEmpty {
+						Text("Swipe left on an account to log out and remove it.")
+							.font(.footnote)
+							.foregroundStyle(.secondary)
+					}
+					legalBoilerplate
+				}
 			}
 			
 			let isExpired = accountManager.activeAccount?.session.hasExpired == true
@@ -77,28 +83,30 @@ struct AccountSettingsView: View {
 			}
 			.onDelete { accountManager.removeAccounts(at: $0) }
 			.onMove { accountManager.storedAccounts.move(fromOffsets: $0, toOffset: $1) }
-			.moveDisabled(!ownsProVersion)
 			
 			Button {
 				loginTarget = .extraAccount
 			} label: {
-				HStack {
-					Label {
-						Text("Add another Account", comment: "Account Settings")
-					} icon: {
-						// the icon doesn't get tinted correctly if i don't do this…
-						Image(systemName: "plus")
-							.foregroundColor(ownsProVersion ? nil : .primary.opacity(0.25))
-					}
-					
-					Spacer()
-					
-					if !ownsProVersion {
-						ProExclusiveBadge()
-					}
+				Label {
+					Text("Add Account", comment: "Account Settings")
+						.foregroundStyle(.primary)
+				} icon: {
+					Image(systemName: "plus")
+						.foregroundStyle(.tint)
 				}
 			}
-			.disabled(!ownsProVersion)
+			
+			NavigationLink {
+				AccountOverviewView(accountManager: accountManager)
+			} label: {
+				Label {
+					Text("Account Overview")
+						.foregroundStyle(.primary)
+				} icon: {
+					Image(systemName: "person.text.rectangle")
+						.foregroundStyle(.tint)
+				}
+			}
 		}
 	}
 	
@@ -136,36 +144,107 @@ struct AccountSettingsView: View {
 		@ObservedObject var accountManager: AccountManager
 		@State var loadError: Error?
 		
-		@Environment(\.ownsProVersion) private var ownsProVersion
+		@LocalData var identity: Player.Identity?
+		@LocalData var summary: CareerSummary?
+		
+		@Environment(\.assets) private var assets
+		@Environment(\.seasons) private var seasons
+		
+		init(accountID: User.ID, accountManager: AccountManager) {
+			self.accountID = accountID
+			self.accountManager = accountManager
+			self._identity = .init(id: accountID)
+			self._summary = .init(id: accountID)
+		}
+		
+		private var resolvedTierInfo: CompetitiveTier? {
+			guard let assets, let seasons else { return nil }
+			if let currentAct = seasons.currentAct(),
+			   let currentInfo = summary?.competitiveInfo?.inSeason(currentAct.id) {
+				return assets.seasons.tierInfo(number: currentInfo.competitiveTier, in: currentAct.id)
+			}
+			if let latestRanked = assets.seasons.actsInOrder.reversed().first(where: {
+				(summary?.competitiveInfo?.inSeason($0.id)?.competitiveTier ?? 0) >= 3
+			}),
+			   let info = summary?.competitiveInfo?.inSeason(latestRanked.id) {
+				return assets.seasons.tierInfo(number: info.competitiveTier, in: latestRanked.id)
+			}
+			if let currentAct = seasons.currentAct() {
+				return assets.seasons.tierInfo(number: 0, in: currentAct.id)
+			}
+			return nil
+		}
 		
 		var body: some View {
 			let isActive = accountManager.activeAccount?.id == accountID
-			let index = accountManager.storedAccounts.firstIndex(of: accountID)
-			HStack {
-				Button {
-					withAnimation {
-						do {
-							try accountManager.toggleActive(accountID)
-						} catch {
-							print(error)
-							loadError = error
-						}
-					}
-				} label: {
-					Label {
-						UserLabel(userID: accountID)
-							.tint(.primary)
-					} icon: {
-						Image(systemName: "checkmark")
-							.opacity(isActive ? 1 : 0)
+			let showActiveMarker = isActive && accountManager.storedAccounts.count > 1
+			
+			Button {
+				withAnimation {
+					do {
+						try accountManager.setActive(accountID)
+					} catch {
+						print(error)
+						loadError = error
 					}
 				}
-				.disabled(!ownsProVersion && !isActive && (index ?? 0) > 0)
-				
-				Spacer()
+			} label: {
+				HStack(spacing: 12) {
+					PlayerCardImage.small(identity?.cardID)
+						.frame(width: 44, height: 44)
+						.cornerRadius(8)
+						.overlay {
+							if showActiveMarker {
+								RoundedRectangle(cornerRadius: 8, style: .continuous)
+									.stroke(Color.accentColor, lineWidth: 1.5)
+							}
+						}
+						.overlay(alignment: .bottomTrailing) {
+							if showActiveMarker {
+								Image(systemName: "checkmark.circle.fill")
+									.font(.caption.bold())
+									.foregroundStyle(Color.accentColor)
+									.background(Circle().fill(Color.secondaryGroupedBackground).padding(1))
+									.offset(x: 4, y: 4)
+							}
+						}
+					
+					VStack(alignment: .leading, spacing: 2) {
+						UserLabel(userID: accountID, shouldAutoUpdate: false, allowTapToCopy: false)
+							.foregroundStyle(.primary)
+							.lineLimit(1)
+						
+						if let level = identity?.accountLevel, level > 0 {
+							Text("Level \(level)")
+								.font(.subheadline)
+								.foregroundStyle(.secondary)
+						}
+					}
+					
+					Spacer(minLength: 8)
+					
+					if let tierInfo = resolvedTierInfo {
+						CompetitiveTierImage(tierInfo: tierInfo)
+							.frame(width: 36, height: 36)
+					}
+				}
+				.contentShape(Rectangle())
 			}
+			.buttonStyle(.plain)
+			.padding(.vertical, 2)
 			.alert(Text("Could Not Load Account!"), for: $loadError)
-			.deleteDisabled(isActive)
+			.withLocalData($identity, id: accountID, shouldAutoUpdate: false)
+			.withLocalData($summary, id: accountID, shouldAutoUpdate: false)
+			.task(id: accountID) {
+				let client: ValorantClient? = isActive
+					? accountManager.activeAccount?.client
+					: accountManager.makeReadOnlyClient(for: accountID)
+				guard let client else { return }
+				async let userTask: ()? = try? client.fetchUsers(for: [accountID])
+				async let identityTask: ()? = try? client.fetchIdentity(for: accountID, forceFetch: false)
+				async let summaryTask: ()? = try? client.fetchCareerSummary(for: accountID, forceFetch: false)
+				_ = await (userTask, identityTask, summaryTask)
+			}
 		}
 	}
 }

@@ -22,12 +22,21 @@ struct MatchListView: View {
 	@Environment(\.seasons) private var seasons
 	@EnvironmentObject private var bookmarkList: BookmarkList
 	@EnvironmentObject private var goalStore: SeasonGoalStore
+	@EnvironmentObject private var progressTimelineStore: ProgressTimelineStore
 	@EnvironmentObject private var accountManager: AccountManager
 	@EnvironmentObject private var settings: AppSettings
 	@EnvironmentObject private var socialManager: SocialManager
 	
 	private var shownMatches: [CompetitiveUpdate] {
 		matchList?.matches ?? []
+	}
+	
+	private var currentSeasonProgressKey: String {
+		guard let currentAct = seasons?.currentAct(),
+			  let info = summary?.competitiveInfo?.inSeason(currentAct.id) else {
+			return ""
+		}
+		return "\(info.competitiveTier)-\(info.adjustedRankedRating)-\(info.leaderboardRank)"
 	}
 	
 	private var cachedMatchDetails: [MatchDetails] {
@@ -253,6 +262,7 @@ struct MatchListView: View {
 		}
 		.onAppear {
 			cacheLoadedIdentityToSocial()
+			recordProgressIfOwnAccount()
 		}
 		.onChange(of: identity?.cardID) { _ in
 			cacheLoadedIdentityToSocial()
@@ -260,8 +270,15 @@ struct MatchListView: View {
 		.onChange(of: cachedMatchDetails.count) { _ in
 			cacheLoadedIdentityToSocial()
 		}
+		.onChange(of: identity?.accountLevel) { _ in
+			recordProgressIfOwnAccount()
+		}
 		.onChange(of: summary?.competitiveInfo?.bySeason?.count ?? 0) { _ in
 			cacheLoadedIdentityToSocial()
+			recordProgressIfOwnAccount()
+		}
+		.onChange(of: currentSeasonProgressKey) { _ in
+			recordProgressIfOwnAccount()
 		}
 		.anonymizing(additionally: shouldAnonymize(userID) ? .all : .none)
 		.navigationTitle(title)
@@ -340,8 +357,11 @@ private struct CareerSummaryCollapsibleCard: View {
 			}
 			.reversed()
 		let previewActs = Array(pastOrCurrentActs.prefix(3))
-		let expandedActs = Array(pastOrCurrentActs.prefix(10))
+		let chartActs = Array(pastOrCurrentActs.prefix(8).reversed())
 		let playedActsCount = bySeason.values.filter { $0.gameCount > 0 || $0.competitiveTier > 0 }.count
+		let lifetimePeak = summary?.peakRank(seasons: seasons)
+		let maxPlottedTier = chartActs.compactMap { bySeason[$0.id]?.competitiveTier }.filter { $0 >= 3 }.max() ?? 0
+		let peakTier = max(lifetimePeak?.rank ?? 0, maxPlottedTier)
 		
 		let thisActInfo = currentAct.flatMap { bySeason[$0.id] }
 		let thisActWins = thisActInfo?.winCountIncludingPlacements ?? 0
@@ -419,21 +439,11 @@ private struct CareerSummaryCollapsibleCard: View {
 					}
 				}
 			} else {
-				if !expandedActs.isEmpty {
-					ScrollView(.horizontal, showsIndicators: false) {
-						HStack(spacing: 16) {
-							ForEach(expandedActs) { act in
-								actBadgeColumn(act: act, info: bySeason[act.id])
-									.frame(minWidth: 74)
-							}
-						}
-						.padding(.vertical, 2)
-					}
-				}
+				Divider()
+					.opacity(0.35)
 				
-				if thisActGames > 0 || allTotals.games > 0 {
-					Divider()
-						.opacity(0.4)
+				if !chartActs.isEmpty {
+					rankTimelineChart(acts: chartActs, bySeason: bySeason, peakTier: peakTier)
 				}
 				
 				if thisActGames > 0 {
@@ -441,7 +451,9 @@ private struct CareerSummaryCollapsibleCard: View {
 						title: "This Act",
 						wins: thisActWins,
 						games: thisActGames,
-						highlightColor: Color.valorantBlue
+						highlightColor: (Double(thisActWins) / Double(thisActGames)) >= Double(0.5)
+							? Self.winTealColor
+							: .primary
 					)
 				}
 				
@@ -500,6 +512,121 @@ private struct CareerSummaryCollapsibleCard: View {
 		}
 	}
 	
+	private static let winTealColor = Color(red: 0.37, green: 0.85, blue: 0.73)
+	
+	private func rankTimelineChart(
+		acts: [Act],
+		bySeason: [Season.ID: CareerSummary.SeasonInfo],
+		peakTier: Int
+	) -> some View {
+		let plottedTiers = acts.compactMap { bySeason[$0.id]?.competitiveTier }.filter { $0 >= 3 }
+		let minTier = max(3, min(plottedTiers.min() ?? peakTier, peakTier - 3))
+		let span = max(1, peakTier - minTier)
+		
+		return VStack(alignment: .leading, spacing: 6) {
+			if peakTier >= 3 {
+				Text("Lifetime Peak")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+			
+			GeometryReader { geo in
+				let count = max(1, acts.count)
+				let columnWidth = geo.size.width / CGFloat(count)
+				let peakLineY: CGFloat = 6
+				let rankedTopY: CGFloat = 20
+				let rankedBottomY: CGFloat = 74
+				let unrankedY: CGFloat = 96
+				
+				let positions: [CGPoint] = acts.enumerated().map { index, act in
+					let x = columnWidth * (CGFloat(index) + 0.5)
+					if let info = bySeason[act.id], info.competitiveTier >= 3 {
+						let normalized = CGFloat(info.competitiveTier - minTier) / CGFloat(span)
+						let y = rankedBottomY - normalized * (rankedBottomY - rankedTopY)
+						return CGPoint(x: x, y: y)
+					} else {
+						return CGPoint(x: x, y: unrankedY)
+					}
+				}
+				
+				ZStack(alignment: .topLeading) {
+					if peakTier >= 3 {
+						Path { path in
+							path.move(to: CGPoint(x: 0, y: peakLineY))
+							path.addLine(to: CGPoint(x: geo.size.width, y: peakLineY))
+						}
+						.stroke(
+							Color.valorantRed.opacity(0.5),
+							style: StrokeStyle(lineWidth: 1, dash: [3, 3])
+						)
+					}
+					
+					Path { path in
+						for index in 0..<max(0, acts.count - 1) {
+							let currentTier = bySeason[acts[index].id]?.competitiveTier ?? 0
+							let nextTier = bySeason[acts[index + 1].id]?.competitiveTier ?? 0
+							guard currentTier >= 3, nextTier >= 3 else { continue }
+							path.move(to: positions[index])
+							path.addLine(to: positions[index + 1])
+						}
+					}
+					.stroke(
+						Color.secondary.opacity(0.55),
+						style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+					)
+					
+					ForEach(Array(acts.enumerated()), id: \.element.id) { index, act in
+						let point = positions[index]
+						let info = bySeason[act.id]
+						let tier = info?.competitiveTier ?? 0
+						
+						if tier >= 3 {
+							let tierInfo = assets?.seasons.tierInfo(number: tier, in: act.id)
+							CompetitiveTierImage(tierInfo: tierInfo)
+								.frame(width: 28, height: 28)
+								.background(
+									Circle()
+										.fill(Color.secondaryGroupedBackground)
+										.frame(width: 24, height: 24)
+								)
+								.position(point)
+						} else {
+							Circle()
+								.strokeBorder(
+									Color.secondary.opacity(0.45),
+									style: StrokeStyle(lineWidth: 1.5, dash: [3, 3])
+								)
+								.frame(width: 16, height: 16)
+								.position(point)
+						}
+					}
+				}
+			}
+			.frame(height: 112)
+			
+			HStack(spacing: 0) {
+				ForEach(acts) { act in
+					VStack(spacing: 2) {
+						Text(actNumeralLabel(for: act))
+							.font(.caption2.weight(.semibold))
+							.foregroundStyle(.secondary)
+							.lineLimit(1)
+						
+						let ep = episodeCodeLabel(for: act)
+						if !ep.isEmpty {
+							Text(ep)
+								.font(.caption2)
+								.foregroundStyle(Color.secondary.opacity(0.55))
+								.lineLimit(1)
+						}
+					}
+					.frame(maxWidth: .infinity)
+				}
+			}
+		}
+		.padding(.vertical, 2)
+	}
+	
 	private func winRateProgressBlock(
 		title: LocalizedStringKey,
 		wins: Int,
@@ -508,34 +635,55 @@ private struct CareerSummaryCollapsibleCard: View {
 	) -> some View {
 		let ratio = games > 0 ? min(1, max(0, Double(wins) / Double(games))) : Double(0)
 		let pct = ratio * Double(100)
+		let formattedPct = pct.formatted(.number.precision(.fractionLength(1)))
 		return VStack(alignment: .leading, spacing: 6) {
 			HStack {
 				Text(title)
 					.font(.subheadline)
 					.foregroundStyle(.secondary)
 				Spacer()
-				Text(String(format: "%.1f %%", pct))
+				Text("\(formattedPct) %")
 					.font(.headline.weight(.bold).monospacedDigit())
 					.foregroundStyle(highlightColor)
 			}
 			
 			GeometryReader { geo in
-				ZStack(alignment: .leading) {
-					Capsule()
-						.fill(Color.valorantRed.opacity(0.9))
+				HStack(spacing: 0) {
 					if wins > 0 {
-						Capsule()
-							.fill(Color.valorantBlue)
-							.frame(width: max(8, geo.size.width * CGFloat(ratio)))
+						Rectangle()
+							.fill(Self.winTealColor)
+							.frame(width: wins == games ? geo.size.width : max(6, geo.size.width * CGFloat(ratio)))
+					}
+					if wins < games {
+						Rectangle()
+							.fill(Color.valorantRed.opacity(0.9))
 					}
 				}
+				.clipShape(Capsule())
 			}
-			.frame(height: 7)
+			.frame(height: 8)
 			
 			Text("\(wins) / \(games)")
 				.font(.caption.monospacedDigit())
 				.foregroundStyle(.secondary)
 		}
+	}
+	
+	private func actNumeralLabel(for act: Act) -> String {
+		act.name
+			.replacingOccurrences(of: "Act ", with: "", options: .caseInsensitive)
+			.trimmingCharacters(in: .whitespacesAndNewlines)
+			.uppercased()
+	}
+	
+	private func episodeCodeLabel(for act: Act) -> String {
+		guard let episode = act.episode else { return "" }
+		return episode.name
+			.replacingOccurrences(of: "Season 20", with: "V", options: .caseInsensitive)
+			.replacingOccurrences(of: "Season ", with: "V", options: .caseInsensitive)
+			.replacingOccurrences(of: "Episode ", with: "E", options: .caseInsensitive)
+			.trimmingCharacters(in: .whitespacesAndNewlines)
+			.uppercased()
 	}
 	
 	private func shortActLabel(for act: Act) -> String {
@@ -886,6 +1034,7 @@ struct MatchListView_Previews: PreviewProvider {
 		.withToolbar()
 		.environmentObject(BookmarkList())
 		.environmentObject(SeasonGoalStore())
+		.environmentObject(ProgressTimelineStore())
 		.environmentObject(AccountManager.mocked)
 		.environmentObject(AppSettings())
 		.environmentObject(SocialManager())

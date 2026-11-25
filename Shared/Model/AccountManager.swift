@@ -104,6 +104,28 @@ final class AccountManager: ObservableObject {
 		try .init(loadingFor: id, using: context)
 	}
 	
+	func makeReadOnlyClient(for id: User.ID) -> ValorantClient? {
+		if id == activeAccount?.id, let client = activeAccount?.client {
+			return client
+		}
+		guard let stored = try? keychain.loadData(forKey: id.rawID.description),
+			  let session = try? JSONDecoder().decode(APISession.self, from: stored) else {
+			return nil
+		}
+		var client = ValorantClient(
+			session: session,
+			urlSessionOverride: .init(configuration: .ephemeral <- {
+				$0.httpAdditionalHeaders = ["User-Agent": ""]
+				$0.timeoutIntervalForRequest = 20
+				$0.timeoutIntervalForResource = 30
+			})
+		)
+		if let clientVersion {
+			client.clientVersion = clientVersion
+		}
+		return client
+	}
+	
 	func addAccount(using credentials: Credentials) async throws {
 		let activeSession = activeAccount?.session
 		let session = try await APISession(

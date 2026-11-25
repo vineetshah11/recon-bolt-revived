@@ -27,6 +27,8 @@ struct LiveView: View {
 	@Environment(\.valorantLoad) private var load
 	@Environment(\.assets) private var assets
 	@Environment(\.seasons) private var seasons
+	@EnvironmentObject private var favoritesManager: FavoritesManager
+	@EnvironmentObject private var progressTimelineStore: ProgressTimelineStore
 	
 	@Namespace private var missionsBoxID
 	@Namespace private var storeBoxID
@@ -75,6 +77,9 @@ struct LiveView: View {
 			let (progress, xp, recruitment, mastery) = try await (progressTask, xpTask, recruitmentTask, masteryTask)
 			contractsProgress = progress
 			accountXP = xp
+			if let xp {
+				progressTimelineStore.record(accountXP: xp, for: userID)
+			}
 			activeRecruitment = recruitment
 			agentMastery = mastery
 		}
@@ -86,9 +91,10 @@ struct LiveView: View {
 			infoOrPlaceholder(placeholder: "Loadout not loaded!", loadoutInfo) { info in
 				LoadoutDetailsView(loadout: info.loadout, inventory: info.inventory)
 			}
-		} refresh: {
+		} refresh: { client in
 			do {
-				loadoutInfo = try await .init(using: $0)
+				loadoutInfo = try await .init(using: client)
+				await favoritesManager.refresh(using: client)
 			} catch Loadout.FetchError.uninitialized {
 				throw WrongAccountError(user: user)
 			}
@@ -104,7 +110,9 @@ struct LiveView: View {
 				)
 			}
 		} refresh: {
-			storeInfo = try await .init(using: $0)
+			let fetched = try await StoreInfo(using: $0)
+			storeInfo = fetched
+			progressTimelineStore.record(wallet: fetched.wallet, for: userID)
 		}
 		.id(storeBoxID)
 	}
@@ -240,6 +248,8 @@ struct LiveView_Previews: PreviewProvider {
 			userID: PreviewData.userID,
 			contractsProgress: PreviewData.contractsProgress
 		)
+		.environmentObject(FavoritesManager())
+		.environmentObject(ProgressTimelineStore())
 		.withToolbar()
 	}
 }

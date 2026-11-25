@@ -40,6 +40,7 @@ final class SocialManager: ObservableObject {
 		var changeEvents: [FriendListChangeEvent] = []
 		var messagesByJID: [String: [XMPPChatMessage]] = [:]
 		var cachedCardByPUUID: [String: PlayerCard.ID] = [:]
+		var pinnedFriendJIDs: Set<String> = []
 		var lastSyncedAt: Date?
 		var lastPresenceAt: Date?
 		
@@ -49,6 +50,7 @@ final class SocialManager: ObservableObject {
 			changeEvents: [FriendListChangeEvent] = [],
 			messagesByJID: [String: [XMPPChatMessage]] = [:],
 			cachedCardByPUUID: [String: PlayerCard.ID] = [:],
+			pinnedFriendJIDs: Set<String> = [],
 			lastSyncedAt: Date? = nil,
 			lastPresenceAt: Date? = nil
 		) {
@@ -57,6 +59,7 @@ final class SocialManager: ObservableObject {
 			self.changeEvents = changeEvents
 			self.messagesByJID = messagesByJID
 			self.cachedCardByPUUID = cachedCardByPUUID
+			self.pinnedFriendJIDs = pinnedFriendJIDs
 			self.lastSyncedAt = lastSyncedAt
 			self.lastPresenceAt = lastPresenceAt
 		}
@@ -68,6 +71,7 @@ final class SocialManager: ObservableObject {
 			changeEvents = try container.decodeIfPresent([FriendListChangeEvent].self, forKey: .changeEvents) ?? []
 			messagesByJID = try container.decodeIfPresent([String: [XMPPChatMessage]].self, forKey: .messagesByJID) ?? [:]
 			cachedCardByPUUID = try container.decodeIfPresent([String: PlayerCard.ID].self, forKey: .cachedCardByPUUID) ?? [:]
+			pinnedFriendJIDs = try container.decodeIfPresent(Set<String>.self, forKey: .pinnedFriendJIDs) ?? []
 			lastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .lastSyncedAt)
 			lastPresenceAt = try container.decodeIfPresent(Date.self, forKey: .lastPresenceAt)
 		}
@@ -84,6 +88,7 @@ final class SocialManager: ObservableObject {
 	@Published var unreadByJID: [String: Int] = [:]
 	@Published var loadingHistoryJIDs: Set<String> = []
 	@Published var changeEvents: [FriendListChangeEvent] = []
+	@Published var pinnedFriendJIDs: Set<String> = []
 	@Published var activeChatJID: String?
 	@Published var myJID: String = ""
 	@Published var myPresence: XMPPPresenceUpdate?
@@ -377,7 +382,40 @@ final class SocialManager: ObservableObject {
 		try await client.removeFriend(jid: friend.jid)
 		friendsByJID.removeValue(forKey: friend.jid)
 		snapshotSubscriptions.removeValue(forKey: friend.jid)
+		let canonical = canonicalJID(for: friend.jid)
+		pinnedFriendJIDs.remove(friend.jid)
+		pinnedFriendJIDs.remove(canonical)
 		scheduleCacheSave()
+	}
+	
+	func isPinned(_ friend: XMPPFriend) -> Bool {
+		isPinned(jid: friend.jid)
+	}
+	
+	func isPinned(jid: String) -> Bool {
+		let canonical = canonicalJID(for: jid)
+		if pinnedFriendJIDs.contains(canonical) || pinnedFriendJIDs.contains(jid) {
+			return true
+		}
+		let bare = jid.components(separatedBy: "/").first ?? jid
+		return pinnedFriendJIDs.contains(bare)
+			|| pinnedFriendJIDs.contains { $0.caseInsensitiveCompare(canonical) == .orderedSame }
+	}
+	
+	func togglePinned(jid: String) {
+		let canonical = canonicalJID(for: jid)
+		let bare = jid.components(separatedBy: "/").first ?? jid
+		if isPinned(jid: jid) {
+			pinnedFriendJIDs = pinnedFriendJIDs.filter { existing in
+				existing != canonical
+					&& existing != jid
+					&& existing != bare
+					&& existing.caseInsensitiveCompare(canonical) != .orderedSame
+			}
+		} else {
+			pinnedFriendJIDs.insert(canonical)
+		}
+		saveCacheNow()
 	}
 	
 	func markRead(jid: String) {
@@ -718,6 +756,7 @@ final class SocialManager: ObservableObject {
 			changeEvents = []
 			messagesByJID = [:]
 			cachedCardByPUUID = [:]
+			pinnedFriendJIDs = []
 			lastSyncedAt = nil
 			lastPresenceAt = nil
 			return
@@ -753,6 +792,7 @@ final class SocialManager: ObservableObject {
 		snapshotSubscriptions = cached.snapshotSubscriptions
 		changeEvents = cached.changeEvents
 		messagesByJID = cached.messagesByJID
+		pinnedFriendJIDs = cached.pinnedFriendJIDs
 		lastSyncedAt = cached.lastSyncedAt
 		lastPresenceAt = cached.lastPresenceAt
 		Task { await self.hydrateFriendCardsFromLocalData() }
@@ -779,6 +819,7 @@ final class SocialManager: ObservableObject {
 			changeEvents: changeEvents,
 			messagesByJID: trimmedMessages,
 			cachedCardByPUUID: cachedCardByPUUID,
+			pinnedFriendJIDs: pinnedFriendJIDs,
 			lastSyncedAt: lastSyncedAt,
 			lastPresenceAt: lastPresenceAt
 		)

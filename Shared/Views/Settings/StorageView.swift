@@ -145,7 +145,7 @@ struct StorageView: View {
 						destructiveCountRow(
 							icon: "square.3.layers.3d.slash",
 							title: "Delete Loadout Presets",
-							count: presetManager.presets.count
+							count: presetManager.presets.count + presetManager.favoritesPresets.count
 						) {
 							confirmDeletePresets = true
 						}

@@ -49,7 +49,7 @@ struct GunCustomizer: View {
 				
 				if !resolved.skin.themeID.isFree {
 					NavigationLink {
-						SkinDetailsView(skin: resolved.skin)
+						SkinDetailsView(skin: resolved.skin, inventory: inventory)
 					} label: {
 						Text("View Skin Details", comment: "Gun Customizer: button")
 					}
@@ -202,6 +202,9 @@ struct GunCustomizer_Previews: PreviewProvider, PreviewProviderWithAssets {
 			resolved: assets.resolveSkin(gun.skin.level)!,
 			inventory: PreviewData.inventory
 		)
+		.environmentObject(AccountManager.mocked)
+		.environmentObject(FavoritesManager())
+		.environmentObject(WishlistManager())
 		.withToolbar()
 		.previewDisplayName("Gun Customizer")
 	}

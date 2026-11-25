@@ -10,12 +10,20 @@ struct LoadoutDetailsView: View {
 	@LocalData private var user: User?
 	@LocalData private var identity: Player.Identity?
 	@EnvironmentObject private var presetManager: LoadoutPresetManager
+	@EnvironmentObject private var favoritesManager: FavoritesManager
 	@Environment(\.valorantLoad) private var load
 	@Environment(\.assets) private var assets
 	
 	@State private var privacyExpanded = false
 	@State private var showingRandomizeDialog = false
 	@State private var activeShareCard: LoadoutShareCardKind?
+	@State private var activePresetSheet: PresetSheetKind?
+	
+	private enum PresetSheetKind: Identifiable {
+		case loadout
+		case favorites
+		var id: Self { self }
+	}
 	@State private var isRandomizing = false
 	@State private var actRankHiddenOverride: Bool?
 	@State private var fetchedAccountLevel: Int?
@@ -68,8 +76,8 @@ struct LoadoutDetailsView: View {
 			
 			// Block 2: Presets & Randomize
 			LoadoutBlockCard {
-				NavigationLink {
-					LoadoutPresetsView(loadout: loadoutBinding, inventory: inventory, favoritesOnly: false)
+				Button {
+					activePresetSheet = .loadout
 				} label: {
 					LoadoutActionRow(icon: "square.stack.3d.up.fill", title: "Loadout Presets")
 				}
@@ -78,8 +86,8 @@ struct LoadoutDetailsView: View {
 				Divider()
 					.padding(.leading, 50)
 				
-				NavigationLink {
-					LoadoutPresetsView(loadout: loadoutBinding, inventory: inventory, favoritesOnly: true)
+				Button {
+					activePresetSheet = .favorites
 				} label: {
 					LoadoutActionRow(icon: "star.square.on.square.fill", title: "Favorites Presets")
 				}
@@ -133,9 +141,9 @@ struct LoadoutDetailsView: View {
 		.withLocalData($user, id: loadout.subject)
 		.withLocalData($identity, id: loadout.subject)
 		.task(id: loadout.subject) {
-			guard resolvedAccountLevel == 0 else { return }
 			await load { client in
-				if client.userID == loadout.subject {
+				await favoritesManager.refreshIfNeeded(using: client)
+				if resolvedAccountLevel == 0, client.userID == loadout.subject {
 					fetchedAccountLevel = try? await client.getAccountLevel()
 				}
 			}
@@ -154,6 +162,20 @@ struct LoadoutDetailsView: View {
 			Button("Cancel", role: .cancel) {}
 		} message: {
 			Text("Replaces your equipped card, title, weapon skins, and expressions.")
+		}
+		.sheet(item: $activePresetSheet) { kind in
+			NavigationStack {
+				switch kind {
+				case .loadout:
+					LoadoutPresetsView(loadout: loadoutBinding, inventory: inventory)
+				case .favorites:
+					FavoritesPresetsView(
+						accountID: loadout.subject,
+						equippedCardID: loadout.identity.card,
+						inventory: inventory
+					)
+				}
+			}
 		}
 		.sheet(item: $activeShareCard) { kind in
 			switch kind {
@@ -399,6 +421,7 @@ struct LoadoutDetailsView_Previews: PreviewProvider {
 				.forPreviews()
 		}
 		.environmentObject(LoadoutPresetManager())
+		.environmentObject(FavoritesManager())
 		.navigationTitle("Loadout")
 		.withToolbar()
 	}

@@ -14,6 +14,7 @@
 		1F6B77EA55D9F651BBDB0352 /* ExpressionImageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9919CF4FA504131E3C300816 /* ExpressionImageView.swift */; };
 		1FF3108654E942D35C67873C /* SessionRecapModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09E03E9C3A28932439F7914C /* SessionRecapModel.swift */; };
 		20E249941A71802741CBC736 /* LocalJSONStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F710D535247ED98A68A45AB /* LocalJSONStore.swift */; };
+		848BB1D051F7338865C53465 /* ProgressTimelineStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0D29CEAEFF2890CD77B3E4D8 /* ProgressTimelineStore.swift */; };
 		26532C763AECE11CCAB6F85E /* SeasonGoalStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 78C42208E18092A2F85B3D6D /* SeasonGoalStore.swift */; };
 		2A8AE6B04A8C9F51E29E1005 /* AgentMasterySectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B204D78353B8BB50425DFBA3 /* AgentMasterySectionView.swift */; };
 		2B3BE29EBDAB79C8B4BA19AF /* MatchEconomyTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20FE03A5A13E636ACDF457B5 /* MatchEconomyTabView.swift */; };
@@ -35,6 +36,7 @@
 		651579746E2AA5D906F089A8 /* ContractPassDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89096187D7B55D13CD600E07 /* ContractPassDetailsView.swift */; };
 		6E794B80BC502503133A295D /* SystemSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 041445719EF68E8D96502946 /* SystemSettingsView.swift */; };
 		6F8612B31CE385A221DAE961 /* MatchAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33FAC10A2EB2269275DF3DBF /* MatchAnalytics.swift */; };
+		D78CC16B900D33E609998813 /* ProgressTimelinesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3377776ADA3B5F0F71E2FA49 /* ProgressTimelinesView.swift */; };
 		7E9B0F237C166BD20D09823D /* FriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BCABFA7DE17DB3C82458717F /* FriendsView.swift */; };
 		7F9797E4FF1102B67E954D14 /* UsernameHistoryStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F456C2BC8A26878741088709 /* UsernameHistoryStore.swift */; };
 		8387F60ED7F480A50AFA879B /* AccoladesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2E28C6318F29409F4119395 /* AccoladesModel.swift */; };
@@ -51,6 +53,7 @@
 		A7E56A890F96D5AA527FA8C6 /* MatchPerformanceTabView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 399899C3650441F72E5C0612 /* MatchPerformanceTabView.swift */; };
 		AB9D4E1D8FF1269A40E321FB /* StorageBreakdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 51974644BE95D196EF30546F /* StorageBreakdown.swift */; };
 		AFF2AE8D0568E8AC9481BB93 /* AccountXPView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B797CF6EA4F1F59B486E14D9 /* AccountXPView.swift */; };
+		C3F5E7B54C843FB76C73D2A7 /* FavoritesManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 022861B3A403372CCB293954 /* FavoritesManager.swift */; };
 		B21612E86EDCB8F0205CC0A5 /* LoadoutPresetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD2F25628E171786AC35E756 /* LoadoutPresetManager.swift */; };
 		B304EBD7861D2A860F8210BD /* LocalJSONStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4F710D535247ED98A68A45AB /* LocalJSONStore.swift */; };
 		B62E615AF2A380421195E59F /* SocialManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = FDB8047FE631C0093FD37FA1 /* SocialManager.swift */; };
@@ -110,6 +113,7 @@
 		B932A11227912882009FAEE5 /* HandyOperators in Frameworks */ = {isa = PBXBuildFile; productRef = B932A11127912882009FAEE5 /* HandyOperators */; };
 		B933591F28A589F100C1A0FB /* PlayerCardPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B933591E28A589F100C1A0FB /* PlayerCardPicker.swift */; };
 		B933592128A58A0000C1A0FB /* PlayerTitlePicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B933592028A58A0000C1A0FB /* PlayerTitlePicker.swift */; };
+		22BA447627F2CB780D18B0FD /* LoadoutPickerComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 64F5D1C262C12105E62F3F0B /* LoadoutPickerComponents.swift */; };
 		B933592528A58A1800C1A0FB /* SkinPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B933592428A58A1800C1A0FB /* SkinPicker.swift */; };
 		B933592728A58A2A00C1A0FB /* BuddyPicker.swift in Sources */ = {isa = PBXBuildFile; fileRef = B933592628A58A2A00C1A0FB /* BuddyPicker.swift */; };
 		B9342C3E27A6D10300F232CB /* strange_summary.json in Resources */ = {isa = PBXBuildFile; fileRef = B9342C3D27A6D10300F232CB /* strange_summary.json */; };
@@ -148,6 +152,7 @@
 		B941B6E525A7C48300F675C1 /* LoginForm.swift in Sources */ = {isa = PBXBuildFile; fileRef = B941B6E425A7C48300F675C1 /* LoginForm.swift */; };
 		B941B6EC25A7C83700F675C1 /* example_updates.json in Resources */ = {isa = PBXBuildFile; fileRef = B941B6EB25A7C83700F675C1 /* example_updates.json */; };
 		B94288A129F7A97700F9415B /* MediaSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B94288A029F7A97700F9415B /* MediaSheets.swift */; };
+		2DB23FB00A607FFEF2C70B20 /* ExpressionDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82D50705A2302B66981BE09D /* ExpressionDetailsView.swift */; };
 		B94288A329F7A99900F9415B /* SkinDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B94288A229F7A99900F9415B /* SkinDetailsView.swift */; };
 		B9485F84264B1DD300AC3456 /* AgentAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9485F83264B1DD300AC3456 /* AgentAssets.swift */; };
 		B9485F87264B5BD700AC3456 /* AssetImage.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9485F86264B5BD700AC3456 /* AssetImage.swift */; };
@@ -372,6 +377,7 @@
 		B9F7A53F27DD091F00636DAF /* CurrencyAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F7A53E27DD091F00636DAF /* CurrencyAssets.swift */; };
 		B9F7A54127DD1E7D00636DAF /* BundleAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F7A54027DD1E7D00636DAF /* BundleAssets.swift */; };
 		B9F7A54327DD30C600636DAF /* BundleDetailsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F7A54227DD30C600636DAF /* BundleDetailsView.swift */; };
+		E783DDE3FF602A661D1D8132 /* AccountOverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B69FADC37E38290D207CC493 /* AccountOverviewView.swift */; };
 		B9F7FBC32935B6AB0022F5CE /* AccountSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F7FBC22935B6AB0022F5CE /* AccountSettingsView.swift */; };
 		B9F7FBC52935C7A30022F5CE /* InAppStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9F7FBC42935C7A30022F5CE /* InAppStore.swift */; };
 		B9F7FBC72935C8890022F5CE /* Products.storekit in Resources */ = {isa = PBXBuildFile; fileRef = B9F7FBC62935C8890022F5CE /* Products.storekit */; };
@@ -388,6 +394,7 @@
 		B9FB9372269B359900927E03 /* SeasonCollection.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FB9371269B359900927E03 /* SeasonCollection.swift */; };
 		B9FF792D2995FED300DFE90E /* ContentTierAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FF792C2995FED300DFE90E /* ContentTierAssets.swift */; };
 		B9FF792E2995FED300DFE90E /* ContentTierAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = B9FF792C2995FED300DFE90E /* ContentTierAssets.swift */; };
+		1FE8D21DD6514C407B12CD64 /* PresetBannerComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA5161700A16C61D97F0CDC /* PresetBannerComponents.swift */; };
 		BA9817319A684A6F766163E9 /* LoadoutPresetsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 927DA79BBB716142FBE98293 /* LoadoutPresetsView.swift */; };
 		BC24D89103D9557AA7AAFC8C /* XMPPClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 82A400C08778CFE035D0A99E /* XMPPClient.swift */; };
 		C52C4A6D95AEB2CF73F2836F /* StorageView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3596489FA9C9D082E1084A50 /* StorageView.swift */; };
@@ -490,16 +497,19 @@
 		5F65161DA3C53C32BAA7456B /* StatisticsOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StatisticsOverviewView.swift; sourceTree = "<group>"; };
 		6763DFC3C8878743B197A5A0 /* PlayerSettingsSnapshotsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerSettingsSnapshotsView.swift; sourceTree = "<group>"; };
 		6C2265E244D6F18CB523A5E3 /* LeaderboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LeaderboardView.swift; sourceTree = "<group>"; };
+		0D29CEAEFF2890CD77B3E4D8 /* ProgressTimelineStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressTimelineStore.swift; sourceTree = "<group>"; };
 		78C42208E18092A2F85B3D6D /* SeasonGoalStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeasonGoalStore.swift; sourceTree = "<group>"; };
 		7A9EA7C79A4EA4E545601053 /* AccoladesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccoladesView.swift; sourceTree = "<group>"; };
 		819E6B134EB491BA50223BBA /* ShopHistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShopHistoryView.swift; sourceTree = "<group>"; };
 		82A400C08778CFE035D0A99E /* XMPPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XMPPClient.swift; sourceTree = "<group>"; };
 		89096187D7B55D13CD600E07 /* ContractPassDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContractPassDetailsView.swift; sourceTree = "<group>"; };
+		7DA5161700A16C61D97F0CDC /* PresetBannerComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PresetBannerComponents.swift; sourceTree = "<group>"; };
 		927DA79BBB716142FBE98293 /* LoadoutPresetsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadoutPresetsView.swift; sourceTree = "<group>"; };
 		9919CF4FA504131E3C300816 /* ExpressionImageView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpressionImageView.swift; sourceTree = "<group>"; };
 		A2E28C6318F29409F4119395 /* AccoladesModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccoladesModel.swift; sourceTree = "<group>"; };
 		A8C6FEC6737B65901228E00E /* FlexAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FlexAssets.swift; sourceTree = "<group>"; };
 		A9B9C4321EBB0B6F78D34946 /* WishlistManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WishlistManager.swift; sourceTree = "<group>"; };
+		022861B3A403372CCB293954 /* FavoritesManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FavoritesManager.swift; sourceTree = "<group>"; };
 		AD2F25628E171786AC35E756 /* LoadoutPresetManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadoutPresetManager.swift; sourceTree = "<group>"; };
 		B204D78353B8BB50425DFBA3 /* AgentMasterySectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMasterySectionView.swift; sourceTree = "<group>"; };
 		B797CF6EA4F1F59B486E14D9 /* AccountXPView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountXPView.swift; sourceTree = "<group>"; };
@@ -554,6 +564,7 @@
 		B932A10F2791272C009FAEE5 /* ValorantAPI */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = ValorantAPI; sourceTree = "<group>"; };
 		B933591E28A589F100C1A0FB /* PlayerCardPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerCardPicker.swift; sourceTree = "<group>"; };
 		B933592028A58A0000C1A0FB /* PlayerTitlePicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerTitlePicker.swift; sourceTree = "<group>"; };
+		64F5D1C262C12105E62F3F0B /* LoadoutPickerComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoadoutPickerComponents.swift; sourceTree = "<group>"; };
 		B933592428A58A1800C1A0FB /* SkinPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinPicker.swift; sourceTree = "<group>"; };
 		B933592628A58A2A00C1A0FB /* BuddyPicker.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BuddyPicker.swift; sourceTree = "<group>"; };
 		B9342C3D27A6D10300F232CB /* strange_summary.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = strange_summary.json; sourceTree = "<group>"; };
@@ -584,6 +595,7 @@
 		B941B6E425A7C48300F675C1 /* LoginForm.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginForm.swift; sourceTree = "<group>"; };
 		B941B6EB25A7C83700F675C1 /* example_updates.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = example_updates.json; sourceTree = "<group>"; };
 		B94288A029F7A97700F9415B /* MediaSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaSheets.swift; sourceTree = "<group>"; };
+		82D50705A2302B66981BE09D /* ExpressionDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExpressionDetailsView.swift; sourceTree = "<group>"; };
 		B94288A229F7A99900F9415B /* SkinDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinDetailsView.swift; sourceTree = "<group>"; };
 		B94288A629F7BF0700F9415B /* it */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = it; path = it.lproj/Widgets.strings; sourceTree = "<group>"; };
 		B94288A729F7BF0700F9415B /* it */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = it; path = it.lproj/Localizable.strings; sourceTree = "<group>"; };
@@ -854,6 +866,7 @@
 		B9F7A53E27DD091F00636DAF /* CurrencyAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CurrencyAssets.swift; sourceTree = "<group>"; };
 		B9F7A54027DD1E7D00636DAF /* BundleAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundleAssets.swift; sourceTree = "<group>"; };
 		B9F7A54227DD30C600636DAF /* BundleDetailsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundleDetailsView.swift; sourceTree = "<group>"; };
+		B69FADC37E38290D207CC493 /* AccountOverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountOverviewView.swift; sourceTree = "<group>"; };
 		B9F7FBC22935B6AB0022F5CE /* AccountSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccountSettingsView.swift; sourceTree = "<group>"; };
 		B9F7FBC42935C7A30022F5CE /* InAppStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = InAppStore.swift; sourceTree = "<group>"; };
 		B9F7FBC62935C8890022F5CE /* Products.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Products.storekit; sourceTree = "<group>"; };
@@ -870,6 +883,7 @@
 		B9FB9371269B359900927E03 /* SeasonCollection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeasonCollection.swift; sourceTree = "<group>"; };
 		B9FF792C2995FED300DFE90E /* ContentTierAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentTierAssets.swift; sourceTree = "<group>"; };
 		BA000B88009F6B2FA7A1CFD0 /* SeasonGoalsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SeasonGoalsView.swift; sourceTree = "<group>"; };
+		3377776ADA3B5F0F71E2FA49 /* ProgressTimelinesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressTimelinesView.swift; sourceTree = "<group>"; };
 		BCABFA7DE17DB3C82458717F /* FriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FriendsView.swift; sourceTree = "<group>"; };
 		CFC9BE436118A0DA3F2E73CE /* PassPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PassPlanner.swift; sourceTree = "<group>"; };
 		D1283410341CA64A29669D24 /* AgentMasteryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AgentMasteryModel.swift; sourceTree = "<group>"; };
@@ -983,6 +997,7 @@
 			isa = PBXGroup;
 			children = (
 				39E51293F42B93046E1707A4 /* ContractArchiveView.swift */,
+				3377776ADA3B5F0F71E2FA49 /* ProgressTimelinesView.swift */,
 				BCABFA7DE17DB3C82458717F /* FriendsView.swift */,
 				6C2265E244D6F18CB523A5E3 /* LeaderboardView.swift */,
 				14DAF20A5C6FF8ADBB626515 /* LineupsView.swift */,
@@ -1038,6 +1053,7 @@
 				1CF3D955D69F1CB89E2574D9 /* ExpressionPicker.swift */,
 				B933591E28A589F100C1A0FB /* PlayerCardPicker.swift */,
 				B933592028A58A0000C1A0FB /* PlayerTitlePicker.swift */,
+				64F5D1C262C12105E62F3F0B /* LoadoutPickerComponents.swift */,
 				B933592428A58A1800C1A0FB /* SkinPicker.swift */,
 				B933592628A58A2A00C1A0FB /* BuddyPicker.swift */,
 				364D42ACBE9C892BD9BD0EB2 /* LevelBorderPicker.swift */,
@@ -1097,10 +1113,12 @@
 				A2E28C6318F29409F4119395 /* AccoladesModel.swift */,
 				D1283410341CA64A29669D24 /* AgentMasteryModel.swift */,
 				1103B11A1FF96D0A2F6B243E /* LineupsManager.swift */,
+				022861B3A403372CCB293954 /* FavoritesManager.swift */,
 				AD2F25628E171786AC35E756 /* LoadoutPresetManager.swift */,
 				4F710D535247ED98A68A45AB /* LocalJSONStore.swift */,
 				CFC9BE436118A0DA3F2E73CE /* PassPlanner.swift */,
 				F5F67F8F169DCA970A04DA6C /* PlayerSettingsSnapshotStore.swift */,
+				0D29CEAEFF2890CD77B3E4D8 /* ProgressTimelineStore.swift */,
 				78C42208E18092A2F85B3D6D /* SeasonGoalStore.swift */,
 				09E03E9C3A28932439F7914C /* SessionRecapModel.swift */,
 				45040293E3869D88AA76FE6B /* ShopHistoryStore.swift */,
@@ -1299,6 +1317,7 @@
 				B9F174F929C97AF7008722B1 /* AssetLabels.swift */,
 				B9613E7029F4E8FB0001A048 /* LabeledRow.swift */,
 				B94288A029F7A97700F9415B /* MediaSheets.swift */,
+				82D50705A2302B66981BE09D /* ExpressionDetailsView.swift */,
 				B94288A229F7A99900F9415B /* SkinDetailsView.swift */,
 				B932A0FE279121B1009FAEE5 /* SquareAgentIcon.swift */,
 			);
@@ -1332,6 +1351,7 @@
 			isa = PBXGroup;
 			children = (
 				9919CF4FA504131E3C300816 /* ExpressionImageView.swift */,
+				7DA5161700A16C61D97F0CDC /* PresetBannerComponents.swift */,
 				927DA79BBB716142FBE98293 /* LoadoutPresetsView.swift */,
 				EFC1BD274B661D84D61F5F43 /* SprayWheelView.swift */,
 				B914AE86284809D50001781F /* LoadoutDetailsView.swift */,
@@ -1474,6 +1494,7 @@
 				B9DCC24028C96EF900C03B90 /* AssetsInfoView.swift */,
 				B98FC070279DD758002DDF93 /* MultifactorPromptView.swift */,
 				B9B11A6D28DD1407006EC232 /* ClientLogView.swift */,
+				B69FADC37E38290D207CC493 /* AccountOverviewView.swift */,
 				B9F7FBC22935B6AB0022F5CE /* AccountSettingsView.swift */,
 				B94931A429386B3400D44A48 /* InAppStorefront.swift */,
 				B9BC89D82939B6FB00B97626 /* AppIconPicker.swift */,
@@ -1870,10 +1891,12 @@
 				8387F60ED7F480A50AFA879B /* AccoladesModel.swift in Sources */,
 				63EE535CD86AD7C9F879DC67 /* AgentMasteryModel.swift in Sources */,
 				5659D0CF400C3CA2B86ACCC8 /* LineupsManager.swift in Sources */,
+				C3F5E7B54C843FB76C73D2A7 /* FavoritesManager.swift in Sources */,
 				B21612E86EDCB8F0205CC0A5 /* LoadoutPresetManager.swift in Sources */,
 				B304EBD7861D2A860F8210BD /* LocalJSONStore.swift in Sources */,
 				1CF9E81CB07EBACB6DB16E4C /* PassPlanner.swift in Sources */,
 				95F42532FC29C0C965601B7D /* PlayerSettingsSnapshotStore.swift in Sources */,
+				848BB1D051F7338865C53465 /* ProgressTimelineStore.swift in Sources */,
 				26532C763AECE11CCAB6F85E /* SeasonGoalStore.swift in Sources */,
 				1FF3108654E942D35C67873C /* SessionRecapModel.swift in Sources */,
 				B9DD8F05818C269FA8A7E3C4 /* ShopHistoryStore.swift in Sources */,
@@ -1882,6 +1905,7 @@
 				483C5BCC54D36311AD14E7BA /* WishlistManager.swift in Sources */,
 				BC24D89103D9557AA7AAFC8C /* XMPPClient.swift in Sources */,
 				1F6B77EA55D9F651BBDB0352 /* ExpressionImageView.swift in Sources */,
+				1FE8D21DD6514C407B12CD64 /* PresetBannerComponents.swift in Sources */,
 				BA9817319A684A6F766163E9 /* LoadoutPresetsView.swift in Sources */,
 				9678EE7FD5CECAB0F0EE8316 /* ExpressionPicker.swift in Sources */,
 				514CE6E01796629D0B551C11 /* SprayWheelView.swift in Sources */,
@@ -1899,6 +1923,7 @@
 				59D17D1BA64E53F23ABE6235 /* AccoladesView.swift in Sources */,
 				E8640D20F492BD91C941BCD6 /* SessionRecapView.swift in Sources */,
 				604337A5136A9346D39BE467 /* ContractArchiveView.swift in Sources */,
+				D78CC16B900D33E609998813 /* ProgressTimelinesView.swift in Sources */,
 				7E9B0F237C166BD20D09823D /* FriendsView.swift in Sources */,
 				338DD73C4B9F0776B0A0C662 /* LeaderboardView.swift in Sources */,
 				E20550254CF7C9915C1E7833 /* LineupsView.swift in Sources */,
@@ -2009,6 +2034,7 @@
 				B95FA88629C582A5001D1998 /* WinRateView.swift in Sources */,
 				B95B1A4F269CE1D10080EC81 /* KDASummaryView.swift in Sources */,
 				B90FFF3E26B4BC57007BE950 /* ContractDetailsView.swift in Sources */,
+				2DB23FB00A607FFEF2C70B20 /* ExpressionDetailsView.swift in Sources */,
 				B94288A329F7A99900F9415B /* SkinDetailsView.swift in Sources */,
 				B95FA88229C2D839001D1998 /* UserLabel.swift in Sources */,
 				B932A10C279122FF009FAEE5 /* UpcomingMissionsList.swift in Sources */,
@@ -2060,6 +2086,7 @@
 				B90B4B58267C167B00CACB95 /* PlayerCardAssets.swift in Sources */,
 				B95FA88429C2D8AB001D1998 /* SharedStatsViews.swift in Sources */,
 				B96A0CAA265AE32200844674 /* MissionAssets.swift in Sources */,
+				E783DDE3FF602A661D1D8132 /* AccountOverviewView.swift in Sources */,
 				B9F7FBC32935B6AB0022F5CE /* AccountSettingsView.swift in Sources */,
 				B90E298B29D6595500F26905 /* StorageManagementView.swift in Sources */,
 				B902823426A7A8A9004B1740 /* HenrikAPI.swift in Sources */,
@@ -2068,6 +2095,7 @@
 				B963C47626950FE90071E14A /* RankInfoView.swift in Sources */,
 				B90B4B64267C270500CACB95 /* CompetitiveTierImage.swift in Sources */,
 				B909D294292361E0003A53D9 /* AppSettings.swift in Sources */,
+				22BA447627F2CB780D18B0FD /* LoadoutPickerComponents.swift in Sources */,
 				B933592528A58A1800C1A0FB /* SkinPicker.swift in Sources */,
 				B9A11F51285296C400599719 /* UnwrappingView.swift in Sources */,
 				B933592128A58A0000C1A0FB /* PlayerTitlePicker.swift in Sources */,

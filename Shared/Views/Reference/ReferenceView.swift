@@ -61,6 +61,12 @@ struct ReferenceView: View {
 					} label: {
 						hubRow(icon: "target", title: "Season Goals")
 					}
+					
+					NavigationLink {
+						ProgressTimelinesView()
+					} label: {
+						hubRow(icon: "chart.xyaxis.line", title: "Progress Timelines")
+					}
 				} header: {
 					Text("Progress")
 				}

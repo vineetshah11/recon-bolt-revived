@@ -31,6 +31,8 @@ struct FriendsView: View {
 					ownPartySection(userID: ownUserID)
 				}
 				
+				pinnedFriendsSection
+				
 				valorantPartiesSection
 				
 				otherGamesSection
@@ -316,6 +318,52 @@ struct FriendsView: View {
 		}
 	}
 	
+	// MARK: - Pinned Friends
+	
+	@ViewBuilder
+	private var pinnedFriendsSection: some View {
+		let query = trimmedSearch
+		let ownPartyID = query.isEmpty ? socialManager.myPresence?.partyID : nil
+		let pinned = socialManager.friends
+			.filter { friend in
+				guard !friend.isIncomingRequest && !friend.isOutgoingRequest else { return false }
+				guard socialManager.isPinned(friend) else { return false }
+				if let ownPartyID, friend.status != .offline && friend.partyID == ownPartyID {
+					return false
+				}
+				return matchesSearch(friend, query: query)
+			}
+			.sorted { lhs, rhs in
+				let lhsOffline = lhs.status == .offline
+				let rhsOffline = rhs.status == .offline
+				if lhsOffline != rhsOffline {
+					return !lhsOffline
+				}
+				return compareFriends(lhs, rhs, isOffline: lhsOffline)
+			}
+		
+		if !pinned.isEmpty {
+			VStack(alignment: .leading, spacing: 8) {
+				Text("Pinned — \(pinned.count)")
+					.font(.subheadline.weight(.medium))
+					.foregroundStyle(.secondary)
+					.padding(.horizontal, 4)
+				
+				VStack(spacing: 0) {
+					ForEach(Array(pinned.enumerated()), id: \.element.id) { index, friend in
+						friendPartyRow(friend, isOfflineStyle: friend.status == .offline)
+						if index < pinned.count - 1 {
+							Divider()
+								.opacity(0.22)
+								.padding(.leading, friend.playerCardID == nil ? 14 : 72)
+						}
+					}
+				}
+				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+			}
+		}
+	}
+	
 	// MARK: - VALORANT Parties
 	
 	private struct PartyGroup: Identifiable {
@@ -332,6 +380,7 @@ struct FriendsView: View {
 		let ownPartyID = socialManager.myPresence?.partyID
 		let activeValFriends = socialManager.friends.filter { friend in
 			guard !friend.isIncomingRequest && !friend.isOutgoingRequest && friend.status != .offline else { return false }
+			guard !socialManager.isPinned(friend) else { return false }
 			if let ownPartyID, friend.partyID == ownPartyID { return false }
 			return friend.gameTitle == "VALORANT" && matchesSearch(friend)
 		}
@@ -584,6 +633,7 @@ struct FriendsView: View {
 			!friend.isIncomingRequest
 			&& !friend.isOutgoingRequest
 			&& friend.status != .offline
+			&& !socialManager.isPinned(friend)
 			&& friend.gameTitle != "VALORANT"
 			&& matchesSearch(friend)
 		}
@@ -617,7 +667,11 @@ struct FriendsView: View {
 	private var offlineFriendsSection: some View {
 		let offline = socialManager.friends
 			.filter {
-				!$0.isIncomingRequest && !$0.isOutgoingRequest && $0.status == .offline && matchesSearch($0)
+				!$0.isIncomingRequest
+					&& !$0.isOutgoingRequest
+					&& $0.status == .offline
+					&& !socialManager.isPinned($0)
+					&& matchesSearch($0)
 			}
 			.sorted { compareFriends($0, $1, isOffline: true) }
 		if !offline.isEmpty {
@@ -782,6 +836,15 @@ struct FriendsView: View {
 		}
 		.buttonStyle(.plain)
 		.contextMenu {
+			let pinned = socialManager.isPinned(friend)
+			Button {
+				withAnimation {
+					socialManager.togglePinned(jid: friend.jid)
+				}
+			} label: {
+				Label(pinned ? "Unpin Friend" : "Pin Friend", systemImage: pinned ? "pin.slash" : "pin")
+			}
+			
 			if opensProfileDirectly {
 				Button {
 					contextChatFriend = friend
@@ -820,6 +883,12 @@ struct FriendsView: View {
 					.font(.subheadline)
 					.foregroundStyle(.secondary)
 					.lineLimit(1)
+			}
+			if socialManager.isPinned(friend) {
+				Image(systemName: "pin.fill")
+					.font(.caption)
+					.foregroundStyle(.yellow)
+					.padding(.leading, 5)
 			}
 		}
 	}
@@ -1126,6 +1195,15 @@ struct ChatView: View {
 						}
 					}
 					
+					let pinned = socialManager.isPinned(liveFriend)
+					Button {
+						withAnimation {
+							socialManager.togglePinned(jid: liveFriend.jid)
+						}
+					} label: {
+						Label(pinned ? "Unpin Friend" : "Pin Friend", systemImage: pinned ? "pin.slash" : "pin")
+					}
+					
 					Button {
 						Task { await socialManager.loadHistory(for: friend.jid) }
 					} label: {
@@ -1194,6 +1272,12 @@ struct ChatView: View {
 								.font(.subheadline)
 								.foregroundStyle(.secondary)
 								.lineLimit(1)
+						}
+						if socialManager.isPinned(liveFriend) {
+							Image(systemName: "pin.fill")
+								.font(.caption2)
+								.foregroundStyle(.yellow)
+								.padding(.leading, 2)
 						}
 						if liveFriend.puuid != nil {
 							Image(systemName: "chevron.right")
