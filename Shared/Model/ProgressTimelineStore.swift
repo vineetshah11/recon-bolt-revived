@@ -209,7 +209,7 @@ final class ProgressTimelineStore: ObservableObject {
 		
 		let mergedSorted = Self.sortedAndTrimmed(Array(workingByID.values))
 		points = mergedSorted
-		await LocalJSONStore.saveAndWait(points, to: filename)
+		LocalJSONStore.save(points, to: filename)
 		return replaceAll ? mergedSorted.count : changedCount
 	}
 	

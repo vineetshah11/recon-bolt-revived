@@ -32,11 +32,26 @@ struct MatchListView: View {
 	}
 	
 	private var currentSeasonProgressKey: String {
-		guard let currentAct = seasons?.currentAct(),
-			  let info = summary?.competitiveInfo?.inSeason(currentAct.id) else {
-			return ""
-		}
-		return "\(info.competitiveTier)-\(info.adjustedRankedRating)-\(info.leaderboardRank)"
+		guard let currentAct = seasons?.currentAct() else { return "" }
+		guard let info = summary?.competitiveInfo?.inSeason(currentAct.id) else { return "" }
+		let tier = info.competitiveTier
+		let rating = info.adjustedRankedRating
+		let leaderboard = info.leaderboardRank
+		return "\(tier)-\(rating)-\(leaderboard)"
+	}
+	
+	private struct ProgressSnapshotKey: Equatable {
+		var accountLevel: Int?
+		var seasonCount: Int
+		var seasonProgress: String
+	}
+	
+	private var progressSnapshotKey: ProgressSnapshotKey {
+		ProgressSnapshotKey(
+			accountLevel: identity?.accountLevel,
+			seasonCount: summary?.competitiveInfo?.bySeason?.count ?? 0,
+			seasonProgress: currentSeasonProgressKey
+		)
 	}
 	
 	private var cachedMatchDetails: [MatchDetails] {
@@ -270,14 +285,11 @@ struct MatchListView: View {
 		.onChange(of: cachedMatchDetails.count) { _ in
 			cacheLoadedIdentityToSocial()
 		}
-		.onChange(of: identity?.accountLevel) { _ in
-			recordProgressIfOwnAccount()
-		}
 		.onChange(of: summary?.competitiveInfo?.bySeason?.count ?? 0) { _ in
 			cacheLoadedIdentityToSocial()
 			recordProgressIfOwnAccount()
 		}
-		.onChange(of: currentSeasonProgressKey) { _ in
+		.onChange(of: progressSnapshotKey) { _ in
 			recordProgressIfOwnAccount()
 		}
 		.anonymizing(additionally: shouldAnonymize(userID) ? .all : .none)
@@ -295,6 +307,16 @@ struct MatchListView: View {
 		let tier = summary?.competitiveInfo?.inSeason(currentActID)?.competitiveTier
 			?? summary?.competitiveInfo?.bySeason?.values.first(where: { $0.competitiveTier >= 3 })?.competitiveTier
 		socialManager.cacheIdentity(resolvedIdentity, competitiveTier: tier, asOf: updateTime)
+	}
+	
+	private func recordProgressIfOwnAccount() {
+		guard accountManager.storedAccounts.contains(userID) else { return }
+		if let summary {
+			progressTimelineStore.record(summary: summary, seasons: seasons, for: userID)
+		}
+		if let identity {
+			progressTimelineStore.record(identity: identity, for: userID)
+		}
 	}
 	
 	var title: Text {

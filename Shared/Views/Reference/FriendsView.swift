@@ -322,16 +322,16 @@ struct FriendsView: View {
 	
 	@ViewBuilder
 	private var pinnedFriendsSection: some View {
-		let query = trimmedSearch
+		let query = search.trimmingCharacters(in: .whitespaces)
 		let ownPartyID = query.isEmpty ? socialManager.myPresence?.partyID : nil
 		let pinned = socialManager.friends
 			.filter { friend in
 				guard !friend.isIncomingRequest && !friend.isOutgoingRequest else { return false }
 				guard socialManager.isPinned(friend) else { return false }
-				if let ownPartyID, friend.status != .offline && friend.partyID == ownPartyID {
+				if let ownPartyID, friend.status != .offline, friend.partyID == ownPartyID {
 					return false
 				}
-				return matchesSearch(friend, query: query)
+				return matchesSearch(friend)
 			}
 			.sorted { lhs, rhs in
 				let lhsOffline = lhs.status == .offline

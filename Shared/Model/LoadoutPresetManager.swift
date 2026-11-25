@@ -406,7 +406,7 @@ final class LoadoutPresetManager: ObservableObject {
 		
 		working.sort { $0.updatedAt > $1.updatedAt }
 		favoritesPresets = working
-		await LocalJSONStore.saveAndWait(favoritesPresets, to: favoritesFilename)
+		LocalJSONStore.save(favoritesPresets, to: favoritesFilename)
 		return replaceAll ? working.count : changedCount
 	}
 	
