@@ -218,11 +218,18 @@ struct LiveMatchView: View {
 		private static let alertLead: TimeInterval = 0.2
 		private static let bannerHeight: CGFloat = 80
 		
-		@State private var plantedAt: Date?
+		/// epoch of the plant. persisted so the countdown keeps running after leaving Live Match or backgrounding.
+		@AppStorage("spikePlantedAt") private var plantedAtInterval: Double = 0
 		@State private var isDetonated = false
 		
 		/// reuses the Live tab's existing haptic switch instead of adding a new setting
 		@AppStorage("vibrateOnMatchFound") private var canUseHaptics = true
+		
+		@Environment(\.scenePhase) private var scenePhase
+		
+		private var plantedAt: Date? {
+			plantedAtInterval > 0 ? Date(timeIntervalSince1970: plantedAtInterval) : nil
+		}
 		
 		private var endsAt: Date? {
 			plantedAt?.addingTimeInterval(Self.duration)
@@ -249,6 +256,10 @@ struct LiveMatchView: View {
 			.padding(.vertical, 12)
 			.task(id: plantedAt) { await runAlerts() }
 			.task(id: isDetonated) { await dismissDetonationAfterAWhile() }
+			.onAppear(perform: syncPhase)
+			.onChange(of: scenePhase) { phase in
+				if phase == .active { syncPhase() }
+			}
 		}
 		
 		private var idleRow: some View {
@@ -428,17 +439,33 @@ struct LiveMatchView: View {
 		
 		private func plant() {
 			isDetonated = false
-			plantedAt = .now
+			plantedAtInterval = Date.now.timeIntervalSince1970
 		}
 		
 		private func cancel() {
-			plantedAt = nil
+			plantedAtInterval = 0
 			isDetonated = false
 		}
 		
 		private func dismissDetonation() {
-			plantedAt = nil
+			plantedAtInterval = 0
 			isDetonated = false
+		}
+		
+		/// reconciles the persisted plant with the clock when the view or the app comes back:
+		/// still running -> show the countdown, just fired -> show the blast, long gone -> clear it.
+		private func syncPhase() {
+			guard let plantedAt else {
+				isDetonated = false
+				return
+			}
+			let elapsed = Date.now.timeIntervalSince(plantedAt)
+			if elapsed >= Self.duration + Self.detonationLinger {
+				plantedAtInterval = 0
+				isDetonated = false
+			} else {
+				isDetonated = elapsed >= Self.duration
+			}
 		}
 		
 		private func fireDetonation() {
@@ -461,6 +488,8 @@ struct LiveMatchView: View {
 					try? await Task.sleep(nanoseconds: UInt64(ready * 1_000_000_000))
 				}
 				guard !Task.isCancelled, self.plantedAt == plantedAt else { return }
+				// a mark that passed while the app was suspended should not buzz late on resume
+				guard trigger.timeIntervalSinceNow > -1.5 else { continue }
 				
 				fireHaptic(alert)
 			}

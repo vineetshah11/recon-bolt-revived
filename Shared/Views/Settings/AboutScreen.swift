@@ -203,12 +203,12 @@ struct AboutScreen: View {
 
 				Development was forced to stop after legal threats from Riot in 2024, even though Riot had reviewed and approved the app two years earlier. Without updates, Riot's API changes throughout 2024 gradually broke the app until users could no longer connect.
 
-				Recon Bolt Revived / Vantage is brought back to life and maintained by Vineet and DT, who rebuilt Riot WebView OAuth and 2FA login, repaired the broken API endpoints, added the newer weapons and Gauntlet support, and unlocked Pro features by default. Vantage is the Valpaw edition of that revival, and they keep it running today.
+				Recon Bolt Revived / Vantage was rebuilt by DT and Vineet, who repaired the broken APIs and added newer weapons, agents, Gauntlet support, and extended features for both Basic and Pro users.
 				""", comment: "About Screen"
 			)
 
 			Section(header: Text("Links", comment: "About Screen: section")) {
-				ListLink("GitHub Repo", icon: "chevron.left.forwardslash.chevron.right", destination: "https://github.com/vineetshah11/recon-bolt-revived")
+				ListLink("Discord", icon: "bubble.left.and.bubble.right", destination: "https://discord.gg/pG4an6bWQ")
 				ListLink("Vineet's GitHub", icon: "person.crop.circle", destination: "https://github.com/vineetshah11")
 				ListLink("DT's Page", icon: "person.crop.circle", destination: "https://guns.lol/dt.l21")
 				ListLink("Original Creator Page", destination: "https://juliand665.com/")
@@ -218,10 +218,6 @@ struct AboutScreen: View {
 				Text("Originally created by [Julian Dunskus (juliand665)](https://juliand665.com/), who designed and built Recon Bolt and its API layer.")
 
 				Text("Revived and maintained by [DT (Timothy Maume)](https://guns.lol/dt.l21), who rebuilt Riot authentication with WebView OAuth and 2FA, repaired the broken API endpoints, and added the newer weapons, Gauntlet support, and Pro features.")
-
-				Text("Extended and maintained for Valpaw by [Vineet (vineetshah11)](https://github.com/vineetshah11).")
-
-				Text("You can find DT and Vineet on Discord as dt.l21 and vineetshah_11.", comment: "About Screen: credits")
 
 				VStack(alignment: .leading, spacing: 8) {
 					Link("Valorant-API.com" as String, destination: URL(string: "https://valorant-api.com")!)
