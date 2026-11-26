@@ -14,6 +14,10 @@ struct ClientLogView: View {
 			placeholder: "Loading request log…"
 		) { log in
 			List {
+				Section("App") {
+					LabeledRow("Version", describing: AppVersion.display)
+				}
+				
 				Text("These are the last \(log.exchanges.count) requests sent by the app, along with their responses.")
 					.frame(maxWidth: .infinity, alignment: .leading)
 				
@@ -185,6 +189,8 @@ struct ClientLogView: View {
 
 struct ExchangeInfo: Encodable {
 	var time: Date
+	/// the app build the report was made from, so the dump says which version had the bug
+	var appVersion = AppVersion.display
 	var request: Request
 	var result: Result
 	

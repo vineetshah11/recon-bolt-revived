@@ -9,7 +9,6 @@ struct AgentSelectView: View {
 	
 	@AppStorage("instalock.enabled") private var instalockEnabled = false
 	@AppStorage("instalock.agentID") private var instalockAgentID = ""
-	@State private var lastInstalockAttempt: Date?
 
 	@Environment(\.valorantLoad) private var load
 	@Environment(\.dismiss) private var dismiss
