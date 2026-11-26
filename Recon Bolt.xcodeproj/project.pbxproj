@@ -1925,8 +1925,6 @@
 				B939C7EE2948584600ABD0C6 /* Keychain.swift in Sources */,
 				B917FD1B29BD5F010082187F /* BookmarkList.swift in Sources */,
 				34C4AB4B0985B1D9BAB091E9 /* PerfMonitor.swift in Sources */,
-				FEF0DBE5EA167189B3BF8BBE /* AccoladesCacheStore.swift in Sources */,
-				071E2279DA629331474573BB /* AccoladesModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2282,8 +2280,6 @@
 				B9C2E913284E3B9F0007FC55 /* SearchableAssetPicker.swift in Sources */,
 				640DE79522D207A602D71908 /* LevelBorderAssets.swift in Sources */,
 				BF98BA27A52A719786114E5F /* PerfMonitor.swift in Sources */,
-				F1863244FF77FF0AF9E9A16C /* AccoladesCacheStore.swift in Sources */,
-				2AF7601D45F91EB4C4582233 /* AccoladesModel.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2563,6 +2559,7 @@
 				SUPPORTS_MACCATALYST = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = TARGET_EXTENSION;
 			};
 			name = Debug;
 		};
@@ -2592,6 +2589,7 @@
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = TARGET_EXTENSION;
 			};
 			name = Release;
 		};
@@ -2875,7 +2873,7 @@
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SUPPORTS_MACCATALYST = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG WIDGETS";
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG WIDGETS TARGET_EXTENSION";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -2907,7 +2905,7 @@
 				SDKROOT = iphoneos;
 				SKIP_INSTALL = YES;
 				SUPPORTS_MACCATALYST = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = WIDGETS;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "WIDGETS TARGET_EXTENSION";
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALIDATE_PRODUCT = YES;

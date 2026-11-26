@@ -84,7 +84,10 @@ final class LocalDataProvider {
 	static func dataFetched(_ details: MatchDetails) {
 		shared.store(details.players.map(\.identity), asOf: details.matchInfo.gameStart)
 		UsernameHistoryStore.record(players: details.players)
+		#if !TARGET_EXTENSION
+		// The widget/intent targets don't compile the accolades model, so only the app caches here.
 		AccoladesCacheStore.recordIfTracked(details)
+		#endif
 	}
 	
 	static func dataFetched(_ info: LivePregameInfo) {
