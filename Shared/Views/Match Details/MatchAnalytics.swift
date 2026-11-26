@@ -257,7 +257,9 @@ final class MatchAnalytics {
 	private var cachedDuelMatrices: [Team.ID: DuelMatrixData?] = [:]
 	private var cachedEconomyAnalytics: [Team.ID: EconomyAnalytics?] = [:]
 	private var cachedOpponentMatchups: [Player.ID: [OpponentMatchupRow]] = [:]
+	#if !TARGET_EXTENSION
 	private var cachedAccolades: [Player.ID: [AccoladeMatchItem]] = [:]
+	#endif
 	
 	init(details: MatchDetails) {
 		self.details = details
@@ -1108,6 +1110,7 @@ final class MatchAnalytics {
 		return result
 	}
 	
+	#if !TARGET_EXTENSION
 	func accolades(for playerID: Player.ID) -> [AccoladeMatchItem] {
 		cacheLock.lock()
 		if let cached = cachedAccolades[playerID] {
@@ -1122,6 +1125,7 @@ final class MatchAnalytics {
 		cacheLock.unlock()
 		return computed
 	}
+	#endif
 	
 	func sitePreferences(for teamID: Team.ID, focusedPlayerID: Player.ID) -> [SitePreferenceStat] {
 		let teamByPlayer = Dictionary(uniqueKeysWithValues: details.players.map { ($0.id, $0.teamID) })
