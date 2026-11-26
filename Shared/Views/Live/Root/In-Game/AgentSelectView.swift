@@ -7,9 +7,13 @@ struct AgentSelectView: View {
 	@State var pregameInfo: LivePregameInfo
 	@State var hasEnded = false
 	
+	@AppStorage("instalock.enabled") private var instalockEnabled = false
+	@AppStorage("instalock.agentID") private var instalockAgentID = ""
+
 	@Environment(\.valorantLoad) private var load
 	@Environment(\.dismiss) private var dismiss
 	@Environment(\.scenePhase) private var scenePhase
+	@Environment(\.assets) private var assets
 	
 	var body: some View {
 		ScrollView {
@@ -93,8 +97,51 @@ struct AgentSelectView: View {
 				hadError = true
 				throw error
 			}
+
+			await attemptInstalock(using: $0)
 		}
 		return hadError
+	}
+
+	/// Opt-in: locks in the preferred agent as soon as agent select is active.
+	/// Never overrides a manual pick, and does nothing unless the setting is on.
+	private func attemptInstalock(using client: ValorantClient) async {
+		guard instalockEnabled else { return }
+		guard pregameInfo.state == .agentSelectActive else { return }
+		guard let uuid = LowercaseUUID(instalockAgentID) else { return }
+		let agentID = Agent.ID(rawID: uuid)
+		guard inventory.owns(agentID) else { return }
+
+		// voting-based agent select doesn't use the usual pick/lock flow
+		let gameMode = assets?.gameModes[pregameInfo.modeID]
+		if gameMode?.gameRuleOverride(for: .majorityVoteAgents) == true { return }
+
+		guard let ownPlayer = pregameInfo.team.players.firstElement(withID: userID) else { return }
+		guard !ownPlayer.isLockedIn else { return }
+		// respect a manual pick of a different agent
+		if let currentAgent = ownPlayer.agentID, currentAgent != agentID { return }
+
+		let isTaken = pregameInfo.team.players.contains {
+			$0.id != userID && $0.isLockedIn && $0.agentID == agentID
+		}
+		guard !isTaken else { return }
+
+		// wait a random 0.2–1.0s before locking in so the first attempt does not always fire at the same instant
+		let delay = Double.random(in: 0.2...1.0)
+		try? await Task.sleep(for: .seconds(delay))
+
+		// first attempt
+		do {
+			pregameInfo = try await client.lockInAgent(agentID, in: pregameInfo.id)
+		} catch {
+			// rare Riot hiccup or contested agent: retry once after 3s, then stop entirely
+			try? await Task.sleep(for: .seconds(3))
+			do {
+				pregameInfo = try await client.lockInAgent(agentID, in: pregameInfo.id)
+			} catch {
+				print("⚠️ Instalock failed:", error)
+			}
+		}
 	}
 	
 	@ViewBuilder

@@ -53,6 +53,39 @@ struct SettingsView: View {
 					}
 				}
 				
+				Section {
+					Toggle(isOn: Binding(
+						get: { settings.instalockEnabled },
+						set: { settings.instalockEnabled = $0 }
+					)) {
+						Label {
+							Text("Instalock Agent", comment: "Settings: toggle that automatically locks a chosen agent during agent select")
+						} icon: {
+							Image(systemName: "bolt.fill")
+						}
+					}
+
+					NavigationLink {
+						InstalockAgentPicker(settings: settings, accountManager: accountManager)
+					} label: {
+						Label {
+							HStack {
+								Text("Agent to Instalock", comment: "Settings: picker for the agent that gets locked in")
+								Spacer()
+								Text(settings.instalockAgent.flatMap { assetManager.assets?.agents[$0]?.displayName } ?? String(localized: "Not Selected", comment: "Instalock Agent: no agent chosen"))
+									.foregroundStyle(.secondary)
+							}
+						} icon: {
+							Image(systemName: "person.fill.viewfinder")
+						}
+					}
+					.disabled(!settings.instalockEnabled)
+				} header: {
+					Text("Agent Select", comment: "Settings: section for agent select features")
+				} footer: {
+					Text("When enabled, Vantage locks in the chosen agent as soon as Agent Select starts. This only works while the Agent Select screen is open (turn on auto-show for live matches to make it automatic), and only for agents you own.", comment: "Settings: instalock explanation")
+				}
+
 				Section(header: Text("About", comment: "Settings: section")) {
 					NavigationLink {
 						AboutScreen()
@@ -85,6 +118,10 @@ struct SettingsView: View {
 			if target != nil {
 				loginWebViewModel.startNewSession(clearWebData: settings.clearWebSignInDataOnOpen)
 			}
+		}
+		.onChange(of: accountManager.activeAccount?.id) { _ in
+			// the new account may not own the previously selected agent
+			settings.instalockAgent = nil
 		}
 		.navigationTitle("Settings")
 	}
@@ -284,6 +321,51 @@ private struct AccentColorPickerPresenter: UIViewControllerRepresentable {
 			}
 		}
 	}
+}
+
+private struct InstalockAgentPicker: View {
+	@ObservedObject var settings: AppSettings
+	@ObservedObject var accountManager: AccountManager
+
+	@State private var inventory: Inventory?
+	@State private var selection: Agent.ID?
+
+	var body: some View {
+		AssetsUnwrappingView { assets in
+			let agents = assets.agents.filter { $0.value.isPlayableCharacter }
+			let owned = inventory?.agents ?? Set(agents.keys)
+
+			SearchableAssetPicker(
+				allItems: agents,
+				ownedItems: owned
+			) { agent in
+				SelectableRow(isSelected: selection == agent.id, select: { selection = agent.id }) {
+					agent.displayIcon.view()
+						.frame(width: 48, height: 48)
+					Text(agent.displayName)
+				}
+			} deselector: {
+				SelectableRow(isSelected: selection == nil, select: { selection = nil }) {
+					Label("No Instalock Agent", systemImage: "xmark")
+				}
+			}
+		}
+		.navigationTitle("Agent to Instalock")
+		.onAppear {
+			selection = settings.instalockAgent
+		}
+		.onChange(of: selection) { newValue in
+			settings.instalockAgent = newValue
+		}
+		.task {
+			guard inventory == nil, let client = accountManager.activeAccount?.client else { return }
+			inventory = try? await client.getInventory()
+		}
+	}
+}
+
+extension AgentInfo: SearchableAsset {
+	var searchableText: String { displayName }
 }
 
 #if DEBUG

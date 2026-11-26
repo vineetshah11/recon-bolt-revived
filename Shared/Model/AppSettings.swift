@@ -1,7 +1,9 @@
 import SwiftUI
+import ValorantAPI
 
 final class AppSettings: ObservableObject {
-	static let defaultAccentColor = Color(.displayP3, red: 0.940, green: 0.019, blue: 0.311)
+	/// Vantage brand purple, `#842DC8` (sRGB 132, 45, 200).
+	static let defaultAccentColor = Color(.sRGB, red: 132 / 255, green: 45 / 255, blue: 200 / 255)
 	
 	@Published var accentReloadToken = UUID()
 	
@@ -17,6 +19,32 @@ final class AppSettings: ObservableObject {
 	
 	@AppStorage("vibrateOnMatchFound")
 	var vibrateOnMatchFound = true
+
+	@AppStorage("instalock.enabled")
+	private var storedInstalockEnabled = false
+
+	/// Locks in ``instalockAgent`` as soon as Agent Select starts. Off by default.
+	var instalockEnabled: Bool {
+		get { storedInstalockEnabled }
+		set {
+			objectWillChange.send()
+			storedInstalockEnabled = newValue
+		}
+	}
+
+	@AppStorage("instalock.agentID")
+	private var storedInstalockAgentID = ""
+
+	var instalockAgent: Agent.ID? {
+		get {
+			guard let uuid = LowercaseUUID(storedInstalockAgentID) else { return nil }
+			return Agent.ID(rawID: uuid)
+		}
+		set {
+			objectWillChange.send()
+			storedInstalockAgentID = newValue.map { $0.rawID.description } ?? ""
+		}
+	}
 	
 	@AppStorage("MatchList.isCompact")
 	var isCompactListStyle = false
