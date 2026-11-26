@@ -251,7 +251,12 @@ enum MapRatingCalculator {
 				if playedMapIDs.contains(map.id) { return true }
 				if map.id == .range || map.id == .rangeV2 || map.id == .gauntlet { return false }
 				let raw = map.id.rawValue.lowercased()
-				if raw.contains("hurm") || raw.contains("skirmish") || raw.contains("npe") || raw.contains("poveglia") {
+				if raw.contains("hurm")
+					|| raw.contains("skirmish")
+					|| raw.contains("/duel/")
+					|| raw.contains("abilitydraft")
+					|| raw.contains("npe")
+					|| raw.contains("poveglia") {
 					return false
 				}
 				return !(map.callouts ?? []).isEmpty && map.displayIcon != nil
@@ -276,6 +281,7 @@ enum MapRatingCalculator {
 		var byMap: [MapID: [RawObservation]] = [:]
 		for match in matches {
 			guard match.matchInfo.isCompleted,
+				  (targetActID == nil || match.matchInfo.seasonID == targetActID),
 				  queueScope.accepts(match.matchInfo.queueID),
 				  let player = match.players.firstElement(withID: userID) else {
 				continue
@@ -301,14 +307,6 @@ enum MapRatingCalculator {
 			
 			let pistolRounds = match.roundResults.filter { $0.number == 0 || $0.number == 12 }
 			let pistolWins = pistolRounds.count { $0.winningTeam == player.teamID }
-			
-			let matchesActFilter: Bool
-			if let selectedActID {
-				matchesActFilter = (match.matchInfo.seasonID == selectedActID)
-			} else {
-				matchesActFilter = true
-			}
-			guard matchesActFilter else { continue }
 			
 			let isBonusAct = effectiveActForBonus.map { match.matchInfo.seasonID == $0 } ?? true
 			byMap[match.matchInfo.mapID, default: []].append(
@@ -390,14 +388,90 @@ enum MapRatingCalculator {
 		}
 		
 		var matchEntriesChronological: [MapRatingMatchEntry] = []
+		matchEntriesChronological.reserveCapacity(chronological.count)
 		var prevRating = 0
+		
+		// O(N) geometric decay running accumulators (decay = 0.88 per match step)
+		let decay = 0.88
+		var weightSum = 0.0
+		var weightedWin = 0.0
+		var weightedPerf = 0.0
+		var atkWonSum = 0.0
+		var atkPlayedSum = 0.0
+		var defWonSum = 0.0
+		var defPlayedSum = 0.0
+		var bestActPerf = 0
+		var actCount = 0
+		
+		// Single-pass totals + agent accumulators
+		struct AgentAccum {
+			var matches = 0
+			var wins = 0
+			var kills = 0
+			var deaths = 0
+			var totalPerf = 0
+			var totalACS = 0.0
+		}
+		var agentAccum: [Agent.ID: AgentAccum] = [:]
+		var totalKills = 0
+		var totalDeaths = 0
+		var sumACS = 0.0
+		var sumADR = 0.0
+		var sumHS = 0.0
+		var sumKAST = 0.0
+		var fbDiff = 0
+		var pistolWins = 0
+		var pistolPlayed = 0
 		
 		for idx in chronological.indices {
 			let obs = chronological[idx]
-			let prefixSlice = Array(chronological[0...idx])
-			let ratingAfter = computeScore(observations: prefixSlice)
+			weightSum = weightSum * decay + 1.0
+			weightedWin = weightedWin * decay + (obs.won ? 1.0 : (obs.tied ? 0.5 : 0.0))
+			weightedPerf = weightedPerf * decay + Double(obs.analytics.performanceScore)
+			atkWonSum = atkWonSum * decay + Double(obs.analytics.attackHalf.roundsWon)
+			atkPlayedSum = atkPlayedSum * decay + Double(obs.analytics.attackHalf.roundsPlayed)
+			defWonSum = defWonSum * decay + Double(obs.analytics.defenseHalf.roundsWon)
+			defPlayedSum = defPlayedSum * decay + Double(obs.analytics.defenseHalf.roundsPlayed)
+			if obs.inSelectedAct {
+				actCount += 1
+				bestActPerf = max(bestActPerf, obs.analytics.performanceScore)
+			}
+			
+			let ratingAfter = computeScoreFromAccumulators(
+				count: idx + 1,
+				weightSum: weightSum,
+				weightedWin: weightedWin,
+				weightedPerf: weightedPerf,
+				atkWonSum: atkWonSum,
+				atkPlayedSum: atkPlayedSum,
+				defWonSum: defWonSum,
+				defPlayedSum: defPlayedSum,
+				bestActPerf: bestActPerf,
+				actMatchCount: actCount
+			)
 			let delta = ratingAfter - prevRating
 			prevRating = ratingAfter
+			
+			totalKills += obs.analytics.kills
+			totalDeaths += obs.analytics.deaths
+			sumACS += obs.analytics.acs
+			sumADR += obs.analytics.adr
+			sumHS += obs.analytics.hsPercent
+			sumKAST += obs.analytics.kastPercent
+			fbDiff += (obs.analytics.firstBloods - obs.analytics.firstDeaths)
+			pistolWins += obs.pistolWins
+			pistolPlayed += obs.pistolPlayed
+			
+			if let agentID = obs.agentID {
+				var acc = agentAccum[agentID] ?? AgentAccum()
+				acc.matches += 1
+				if obs.won { acc.wins += 1 }
+				acc.kills += obs.analytics.kills
+				acc.deaths += obs.analytics.deaths
+				acc.totalPerf += obs.analytics.performanceScore
+				acc.totalACS += obs.analytics.acs
+				agentAccum[agentID] = acc
+			}
 			
 			matchEntriesChronological.append(
 				MapRatingMatchEntry(
@@ -431,51 +505,54 @@ enum MapRatingCalculator {
 			)
 		}
 		
-		let actEntries = zip(chronological, matchEntriesChronological)
-			.filter { $0.0.inSelectedAct }
-			.map(\.1)
-		let bestMatchID = (actEntries.isEmpty ? matchEntriesChronological : actEntries).max { lhs, rhs in
-			if lhs.won != rhs.won { return !lhs.won && rhs.won }
+		var bestActIdx: Int?
+		var bestAnyIdx: Int?
+		func isBetter(_ lhs: MapRatingMatchEntry, than rhs: MapRatingMatchEntry) -> Bool {
+			if lhs.won != rhs.won { return lhs.won && !rhs.won }
 			if lhs.performanceScore != rhs.performanceScore {
-				return lhs.performanceScore < rhs.performanceScore
+				return lhs.performanceScore > rhs.performanceScore
 			}
-			if lhs.ratingAfter != rhs.ratingAfter { return lhs.ratingAfter < rhs.ratingAfter }
-			return lhs.matchStart < rhs.matchStart
-		}?.id
-		
+			if lhs.ratingAfter != rhs.ratingAfter { return lhs.ratingAfter > rhs.ratingAfter }
+			return lhs.matchStart > rhs.matchStart
+		}
 		for idx in matchEntriesChronological.indices {
-			if matchEntriesChronological[idx].id == bestMatchID {
-				matchEntriesChronological[idx].isBestMatchOfAct = true
+			let entry = matchEntriesChronological[idx]
+			if bestAnyIdx == nil || isBetter(entry, than: matchEntriesChronological[bestAnyIdx!]) {
+				bestAnyIdx = idx
+			}
+			if chronological[idx].inSelectedAct {
+				if bestActIdx == nil || isBetter(entry, than: matchEntriesChronological[bestActIdx!]) {
+					bestActIdx = idx
+				}
 			}
 		}
+		var resolvedBestMatch: MapRatingMatchEntry?
+		if let chosenBestIdx = bestActIdx ?? bestAnyIdx {
+			matchEntriesChronological[chosenBestIdx].isBestMatchOfAct = true
+			resolvedBestMatch = matchEntriesChronological[chosenBestIdx]
+		}
 		
-		let aggregateStats = computeWeightedPillars(from: chronological)
+		let overallWR = weightSum > 0 ? (weightedWin / weightSum) : 0
+		let avgWeightedPerf = weightSum > 0 ? (weightedPerf / weightSum) : 0
+		let atkWR = atkPlayedSum > 0 ? (atkWonSum / atkPlayedSum) : 0
+		let defWR = defPlayedSum > 0 ? (defWonSum / defPlayedSum) : 0
+		
 		let finalScore = override?.score ?? (matchEntriesChronological.last?.ratingAfter ?? 0)
 		let remaining = override?.matchesRemainingForCalibration
 			?? max(0, MapRatingReport.calibrationRequiredMatches - chronological.count)
 		let potential = MapRatingTier.calibratedTier(for: finalScore)
 		let finalTier = override?.tier ?? MapRatingTier.tier(for: finalScore, matchCount: chronological.count)
 		
-		// Agent mastery on this map
-		let groupedByAgent = Dictionary(grouping: chronological.compactMap { obs -> (Agent.ID, RawObservation)? in
-			obs.agentID.map { ($0, obs) }
-		}, by: \.0)
-		let bestAgents = groupedByAgent.map { agentID, pairs -> MapAgentBestStat in
-			let obsList = pairs.map(\.1)
-			let count = obsList.count
-			let wins = obsList.count(where: \.won)
-			let totalKills = obsList.reduce(0) { $0 + $1.analytics.kills }
-			let totalDeaths = obsList.reduce(0) { $0 + $1.analytics.deaths }
-			let avgPerf = Double(obsList.reduce(0) { $0 + $1.analytics.performanceScore }) / Double(count)
-			let avgACS = obsList.reduce(0.0) { $0 + $1.analytics.acs } / Double(count)
+		let bestAgents = agentAccum.map { agentID, acc -> MapAgentBestStat in
+			let count = acc.matches
 			return MapAgentBestStat(
 				id: agentID,
 				matches: count,
-				wins: wins,
-				winRate: Double(wins) / Double(count),
-				avgPerformanceScore: Int(avgPerf.rounded()),
-				kd: Double(totalKills) / Double(max(1, totalDeaths)),
-				acs: avgACS
+				wins: acc.wins,
+				winRate: Double(acc.wins) / Double(count),
+				avgPerformanceScore: Int((Double(acc.totalPerf) / Double(count)).rounded()),
+				kd: Double(acc.kills) / Double(max(1, acc.deaths)),
+				acs: acc.totalACS / Double(count)
 			)
 		}
 		.sorted { lhs, rhs in
@@ -485,15 +562,10 @@ enum MapRatingCalculator {
 		}
 		
 		let totalCount = Double(chronological.count)
-		let totalKills = chronological.reduce(0) { $0 + $1.analytics.kills }
-		let totalDeaths = chronological.reduce(0) { $0 + $1.analytics.deaths }
-		let avgACS = chronological.reduce(0.0) { $0 + $1.analytics.acs } / totalCount
-		let avgADR = chronological.reduce(0.0) { $0 + $1.analytics.adr } / totalCount
-		let avgHS = chronological.reduce(0.0) { $0 + $1.analytics.hsPercent } / totalCount
-		let avgKAST = chronological.reduce(0.0) { $0 + $1.analytics.kastPercent } / totalCount
-		let fbDiff = chronological.reduce(0) { $0 + ($1.analytics.firstBloods - $1.analytics.firstDeaths) }
-		let pistolWins = chronological.reduce(0) { $0 + $1.pistolWins }
-		let pistolPlayed = chronological.reduce(0) { $0 + $1.pistolPlayed }
+		let avgACS = sumACS / totalCount
+		let avgADR = sumADR / totalCount
+		let avgHS = sumHS / totalCount
+		let avgKAST = sumKAST / totalCount
 		let pistolWR = pistolPlayed > 0 ? Double(pistolWins) / Double(pistolPlayed) : nil
 		
 		let trend = Array(matchEntriesChronological.suffix(12).map(\.ratingAfter))
@@ -507,12 +579,12 @@ enum MapRatingCalculator {
 			isCalibrating: remaining > 0,
 			matchesRemainingForCalibration: remaining,
 			totalMatches: chronological.count,
-			actMatches: actEntries.count,
-			overallWinRate: aggregateStats.overallWinRate,
-			avgPerformanceScore: Int(aggregateStats.avgPerformance.rounded()),
-			attackWinRate: aggregateStats.attackWinRate,
-			defenseWinRate: aggregateStats.defenseWinRate,
-			bestMatch: descendingMatches.first(where: \.isBestMatchOfAct),
+			actMatches: actCount,
+			overallWinRate: overallWR,
+			avgPerformanceScore: Int(avgWeightedPerf.rounded()),
+			attackWinRate: atkWR,
+			defenseWinRate: defWR,
+			bestMatch: resolvedBestMatch,
 			bestAgents: bestAgents,
 			matches: descendingMatches,
 			avgKD: Double(totalKills) / Double(max(1, totalDeaths)),
@@ -526,78 +598,36 @@ enum MapRatingCalculator {
 		)
 	}
 	
-	private struct WeightedPillars {
-		var overallWinRate: Double
-		var avgPerformance: Double
-		var attackWinRate: Double
-		var defenseWinRate: Double
-		var bestActPerf: Int
-		var actMatchCount: Int
-	}
-	
-	private static func computeWeightedPillars(from chronological: [RawObservation]) -> WeightedPillars {
-		let n = chronological.count
-		var weightSum = 0.0
-		var weightedWin = 0.0
-		var weightedPerf = 0.0
-		var atkWonSum = 0.0
-		var atkPlayedSum = 0.0
-		var defWonSum = 0.0
-		var defPlayedSum = 0.0
-		var bestActPerf = 0
-		var actCount = 0
-		
-		for idx in chronological.indices {
-			let age = n - 1 - idx
-			let weight = pow(0.88, Double(age))
-			let obs = chronological[idx]
-			
-			weightSum += weight
-			weightedWin += weight * (obs.won ? 1.0 : (obs.tied ? 0.5 : 0.0))
-			weightedPerf += weight * Double(obs.analytics.performanceScore)
-			
-			atkWonSum += weight * Double(obs.analytics.attackHalf.roundsWon)
-			atkPlayedSum += weight * Double(obs.analytics.attackHalf.roundsPlayed)
-			defWonSum += weight * Double(obs.analytics.defenseHalf.roundsWon)
-			defPlayedSum += weight * Double(obs.analytics.defenseHalf.roundsPlayed)
-			
-			if obs.inSelectedAct {
-				actCount += 1
-				bestActPerf = max(bestActPerf, obs.analytics.performanceScore)
-			}
-		}
-		
+	private static func computeScoreFromAccumulators(
+		count: Int,
+		weightSum: Double,
+		weightedWin: Double,
+		weightedPerf: Double,
+		atkWonSum: Double,
+		atkPlayedSum: Double,
+		defWonSum: Double,
+		defPlayedSum: Double,
+		bestActPerf: Int,
+		actMatchCount: Int
+	) -> Int {
+		guard count > 0 else { return 0 }
 		let overallWR = weightSum > 0 ? (weightedWin / weightSum) : 0
 		let avgPerf = weightSum > 0 ? (weightedPerf / weightSum) : 0
 		let atkWR = atkPlayedSum > 0 ? (atkWonSum / atkPlayedSum) : 0
 		let defWR = defPlayedSum > 0 ? (defWonSum / defPlayedSum) : 0
 		
-		return WeightedPillars(
-			overallWinRate: overallWR,
-			avgPerformance: avgPerf,
-			attackWinRate: atkWR,
-			defenseWinRate: defWR,
-			bestActPerf: bestActPerf,
-			actMatchCount: actCount
-		)
-	}
-	
-	private static func computeScore(observations: [RawObservation]) -> Int {
-		guard !observations.isEmpty else { return 0 }
-		let p = computeWeightedPillars(from: observations)
-		
-		let normalizedPerf = min(1.0, max(0.0, p.avgPerformance / 500.0))
+		let normalizedPerf = min(1.0, max(0.0, avgPerf / 500.0))
 		let rawComposite = (
-			0.35 * p.overallWinRate
+			0.35 * overallWR
 			+ 0.30 * normalizedPerf
-			+ 0.175 * p.attackWinRate
-			+ 0.175 * p.defenseWinRate
+			+ 0.175 * atkWR
+			+ 0.175 * defWR
 		) * 500.0
 		
 		// During the 5-match calibration window, stabilize early variance around a baseline before unlocking full 0-500 range.
-		let alpha = min(1.0, 0.45 + 0.55 * Double(observations.count - 1) / Double(MapRatingReport.calibrationRequiredMatches - 1))
+		let alpha = min(1.0, 0.45 + 0.55 * Double(count - 1) / Double(MapRatingReport.calibrationRequiredMatches - 1))
 		let stabilized = 225.0 + (rawComposite - 225.0) * alpha
-		let actBonus = p.actMatchCount > 0 ? (Double(p.bestActPerf) / 500.0) * 12.0 : 0.0
+		let actBonus = actMatchCount > 0 ? (Double(bestActPerf) / 500.0) * 12.0 : 0.0
 		return max(0, min(500, Int((stabilized + actBonus).rounded())))
 	}
 }

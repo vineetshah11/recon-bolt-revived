@@ -11,6 +11,24 @@ struct ShopHistoryView: View {
 	@State private var search = ""
 	@State private var showAllFrequencies = false
 	@State private var selectedSkin: WeaponSkin?
+	@State private var cachedScopeKey: ScopeKey?
+	@State private var cachedHistory: [ShopHistoryDay] = []
+	@State private var cachedAllFrequencies: [SkinFrequencyStat] = []
+	@State private var cachedFiltered: [ShopHistoryDay] = []
+	@State private var cachedFilteredFrequencies: [SkinFrequencyStat] = []
+	
+	private struct ScopeKey: Equatable {
+		var days: [ShopHistoryDay]
+		var accountID: User.ID?
+		var assetVersion: AssetVersion?
+	}
+	
+	private struct FilterKey: Equatable {
+		var days: [ShopHistoryDay]
+		var accountID: User.ID?
+		var search: String
+		var assetVersion: AssetVersion?
+	}
 	
 	private var gridColumns: [GridItem] {
 		[
@@ -20,38 +38,22 @@ struct ShopHistoryView: View {
 	}
 	
 	var body: some View {
-		let history = shopHistoryStore.days(for: accountManager.activeAccount?.id)
-		let filtered = history.filter { day in
-			guard !search.isEmpty else { return true }
-			return day.offerSkinLevelIDs.contains { level in
-				guard let resolved = assets?.resolveSkin(level) else { return false }
-				return resolved.skin.displayName.localizedCaseInsensitiveContains(search)
-					|| resolved.weapon.displayName.localizedCaseInsensitiveContains(search)
-			}
-		}
-		let frequencies = shopHistoryStore.skinFrequencies(for: accountManager.activeAccount?.id, assets: assets)
-			.filter { stat in
-				search.isEmpty
-					|| stat.skin.displayName.localizedCaseInsensitiveContains(search)
-					|| stat.weapon.displayName.localizedCaseInsensitiveContains(search)
-			}
-		
 		ScrollView {
-			VStack(spacing: 16) {
-				if history.isEmpty {
+			LazyVStack(spacing: 16) {
+				if cachedHistory.isEmpty {
 					emptyStateCard
 				} else {
-					summaryCard(history: history)
+					summaryCard(history: cachedHistory)
 					
-					if search.isEmpty, let latest = history.first {
+					if search.isEmpty, let latest = cachedHistory.first {
 						currentShopCard(day: latest)
 					}
 					
-					if !frequencies.isEmpty {
-						frequencyCard(frequencies: frequencies)
+					if !cachedFilteredFrequencies.isEmpty {
+						frequencyCard(frequencies: cachedFilteredFrequencies)
 					}
 					
-					let olderDays = search.isEmpty ? Array(filtered.dropFirst()) : filtered
+					let olderDays = search.isEmpty ? Array(cachedFiltered.dropFirst()) : cachedFiltered
 					if !olderDays.isEmpty {
 						pastRotationsSection(days: olderDays)
 					}
@@ -64,6 +66,14 @@ struct ShopHistoryView: View {
 		.searchable(text: $search, prompt: Text("Search past offers"))
 		.navigationTitle("Shop History")
 		.navigationBarTitleDisplayMode(.inline)
+		.task(id: FilterKey(
+			days: shopHistoryStore.days,
+			accountID: accountManager.activeAccount?.id,
+			search: search,
+			assetVersion: assets?.version
+		)) {
+			recomputeFiltered()
+		}
 		.navigationDestination(isPresented: Binding(
 			get: { selectedSkin != nil },
 			set: { if !$0 { selectedSkin = nil } }
@@ -71,6 +81,38 @@ struct ShopHistoryView: View {
 			if let selectedSkin {
 				SkinDetailsView(skin: selectedSkin)
 			}
+		}
+	}
+	
+	private func recomputeFiltered() {
+		let accountID = accountManager.activeAccount?.id
+		let scopeKey = ScopeKey(
+			days: shopHistoryStore.days,
+			accountID: accountID,
+			assetVersion: assets?.version
+		)
+		if cachedScopeKey != scopeKey {
+			cachedScopeKey = scopeKey
+			cachedHistory = shopHistoryStore.days(for: accountID)
+			cachedAllFrequencies = shopHistoryStore.skinFrequencies(for: accountID, assets: assets)
+		}
+		
+		guard !search.isEmpty else {
+			cachedFiltered = cachedHistory
+			cachedFilteredFrequencies = cachedAllFrequencies
+			return
+		}
+		
+		cachedFiltered = cachedHistory.filter { day in
+			day.offerSkinLevelIDs.contains { level in
+				guard let resolved = assets?.resolveSkin(level) else { return false }
+				return resolved.skin.displayName.localizedCaseInsensitiveContains(search)
+					|| resolved.weapon.displayName.localizedCaseInsensitiveContains(search)
+			}
+		}
+		cachedFilteredFrequencies = cachedAllFrequencies.filter { stat in
+			stat.skin.displayName.localizedCaseInsensitiveContains(search)
+				|| stat.weapon.displayName.localizedCaseInsensitiveContains(search)
 		}
 	}
 	
@@ -181,7 +223,7 @@ struct ShopHistoryView: View {
 					}
 				}
 				
-				image?.view(preferFullResolution: true)
+				image?.view()
 					.frame(height: 52)
 					.frame(maxWidth: .infinity)
 				
@@ -284,7 +326,7 @@ struct ShopHistoryView: View {
 	}
 	
 	private func pastRotationsSection(days: [ShopHistoryDay]) -> some View {
-		VStack(alignment: .leading, spacing: 10) {
+		LazyVStack(alignment: .leading, spacing: 10) {
 			Text("Past Rotations")
 				.font(.subheadline.weight(.semibold))
 				.foregroundStyle(.secondary)

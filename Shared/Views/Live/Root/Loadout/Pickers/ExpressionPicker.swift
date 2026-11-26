@@ -35,6 +35,19 @@ struct ExpressionPicker: View {
 	@State private var search = ""
 	@State private var filter: LoadoutItemFilter = .favoritesAndOwned
 	@State private var detailTarget: DetailTarget?
+	@State private var cachedSprays: (total: Int, owned: Int, favs: Int, visible: [SprayInfo]) = (0, 0, 0, [])
+	@State private var cachedTotems: (total: Int, owned: Int, favs: Int, ownedIDs: Set<Totem.ID>, visible: [FlexInfo]) = (0, 0, 0, [], [])
+	
+	private struct ExpressionFilterKey: Equatable {
+		let tab: Tab
+		let search: String
+		let filter: LoadoutItemFilter
+		let favCount: Int
+		let ownedSpraysCount: Int
+		let ownedTotemsCount: Int
+		let equippedTotem: Totem.ID?
+		let assetsVersion: AssetVersion?
+	}
 	
 	init(selection: Binding<Loadout.Expression>, inventory: Inventory) {
 		self._selection = selection
@@ -47,6 +60,17 @@ struct ExpressionPicker: View {
 	}
 	
 	var body: some View {
+		let filterKey = ExpressionFilterKey(
+			tab: tab,
+			search: search,
+			filter: filter,
+			favCount: favoritesManager.favorites(for: activeAccountID)?.favoritedContent.count ?? 0,
+			ownedSpraysCount: inventory.sprays.count,
+			ownedTotemsCount: inventory.totems.count,
+			equippedTotem: selection.totem,
+			assetsVersion: assets?.version
+		)
+		
 		ScrollView {
 			VStack(spacing: 14) {
 				LoadoutPickerSearchField(
@@ -95,8 +119,45 @@ struct ExpressionPicker: View {
 				}
 			}
 		}
+		.task(id: filterKey) {
+			recomputeFilteredExpressions()
+		}
 		.valorantLoadTask(id: activeAccountID) { client in
 			await favoritesManager.refreshIfNeeded(using: client)
+		}
+	}
+	
+	private func recomputeFilteredExpressions() {
+		if tab == .sprays {
+			let allSprays = Array((assets?.sprays ?? [:]).values)
+				.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+			let ownedCount = allSprays.count { inventory.sprays.contains($0.id) }
+			let favCount = allSprays.count { favoritesManager.isFavorited($0.id.rawID, for: activeAccountID) }
+			let visible = allSprays.filter { spray in
+				let owned = inventory.sprays.contains(spray.id)
+				let favorited = favoritesManager.isFavorited(spray.id.rawID, for: activeAccountID)
+				guard filter.matches(isOwned: owned, isFavorited: favorited) else { return false }
+				return search.isEmpty || spray.displayName.localizedCaseInsensitiveContains(search)
+			}
+			cachedSprays = (allSprays.count, ownedCount, favCount, visible)
+		} else {
+			let allFlex = Array((assets?.flex ?? [:]).values)
+				.filter { $0.id != .none }
+				.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+			var ownedFlexIDs = inventory.totems.union(FlexInfo.defaultItems)
+			if let equipped = selection.totem, equipped != .none {
+				ownedFlexIDs.insert(equipped)
+			}
+			ownedFlexIDs.remove(.none)
+			let ownedCount = allFlex.count { ownedFlexIDs.contains($0.id) }
+			let favCount = allFlex.count { favoritesManager.isFavorited($0.id.rawID, for: activeAccountID) }
+			let visible = allFlex.filter { flex in
+				let owned = ownedFlexIDs.contains(flex.id)
+				let favorited = favoritesManager.isFavorited(flex.id.rawID, for: activeAccountID)
+				guard filter.matches(isOwned: owned, isFavorited: favorited) else { return false }
+				return search.isEmpty || flex.displayName.localizedCaseInsensitiveContains(search)
+			}
+			cachedTotems = (allFlex.count, ownedCount, favCount, ownedFlexIDs, visible)
 		}
 	}
 	
@@ -104,29 +165,17 @@ struct ExpressionPicker: View {
 	
 	@ViewBuilder
 	private var spraysContent: some View {
-		let allSprays = Array((assets?.sprays ?? [:]).values)
-			.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-		let ownedCount = allSprays.count { inventory.sprays.contains($0.id) }
-		let favCount = allSprays.count { favoritesManager.isFavorited($0.id.rawID, for: activeAccountID) }
-		
-		let visible = allSprays.filter { spray in
-			let owned = inventory.sprays.contains(spray.id)
-			let favorited = favoritesManager.isFavorited(spray.id.rawID, for: activeAccountID)
-			guard filter.matches(isOwned: owned, isFavorited: favorited) else { return false }
-			return search.isEmpty || spray.displayName.localizedCaseInsensitiveContains(search)
-		}
-		
 		LoadoutPickerStatsPill(
-			total: allSprays.count,
-			shown: visible.count,
-			favorites: favCount,
-			owned: ownedCount
+			total: cachedSprays.total,
+			shown: cachedSprays.visible.count,
+			favorites: cachedSprays.favs,
+			owned: cachedSprays.owned
 		)
 		
-		VStack(spacing: 0) {
+		LazyVStack(spacing: 0) {
 			clearExpressionRow
 			
-			ForEach(visible) { spray in
+			ForEach(cachedSprays.visible) { spray in
 				Divider()
 					.opacity(0.25)
 					.padding(.leading, 16)
@@ -134,7 +183,7 @@ struct ExpressionPicker: View {
 				sprayRow(spray)
 			}
 			
-			if visible.isEmpty {
+			if cachedSprays.visible.isEmpty {
 				Divider()
 					.opacity(0.25)
 					.padding(.leading, 16)
@@ -237,46 +286,25 @@ struct ExpressionPicker: View {
 	
 	@ViewBuilder
 	private var totemsContent: some View {
-		let allFlex = Array((assets?.flex ?? [:]).values)
-			.filter { $0.id != .none }
-			.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-		let ownedFlexIDs: Set<Totem.ID> = {
-			var set = inventory.totems.union(FlexInfo.defaultItems)
-			if let equipped = selection.totem, equipped != .none {
-				set.insert(equipped)
-			}
-			set.remove(.none)
-			return set
-		}()
-		let ownedCount = allFlex.count { ownedFlexIDs.contains($0.id) }
-		let favCount = allFlex.count { favoritesManager.isFavorited($0.id.rawID, for: activeAccountID) }
-		
-		let visible = allFlex.filter { flex in
-			let owned = ownedFlexIDs.contains(flex.id)
-			let favorited = favoritesManager.isFavorited(flex.id.rawID, for: activeAccountID)
-			guard filter.matches(isOwned: owned, isFavorited: favorited) else { return false }
-			return search.isEmpty || flex.displayName.localizedCaseInsensitiveContains(search)
-		}
-		
 		LoadoutPickerStatsPill(
-			total: allFlex.count,
-			shown: visible.count,
-			favorites: favCount,
-			owned: ownedCount
+			total: cachedTotems.total,
+			shown: cachedTotems.visible.count,
+			favorites: cachedTotems.favs,
+			owned: cachedTotems.owned
 		)
 		
-		VStack(spacing: 0) {
+		LazyVStack(spacing: 0) {
 			clearExpressionRow
 			
-			ForEach(visible) { flex in
+			ForEach(cachedTotems.visible) { flex in
 				Divider()
 					.opacity(0.25)
 					.padding(.leading, 16)
 				
-				totemRow(flex, isOwned: ownedFlexIDs.contains(flex.id))
+				totemRow(flex, isOwned: cachedTotems.ownedIDs.contains(flex.id))
 			}
 			
-			if visible.isEmpty {
+			if cachedTotems.visible.isEmpty {
 				Divider()
 					.opacity(0.25)
 					.padding(.leading, 16)

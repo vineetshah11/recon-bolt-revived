@@ -6,28 +6,23 @@ struct BackupPlayerPickerView: View {
 	@Binding var selectedPlayerIDs: Set<User.ID>
 	
 	@State private var searchText = ""
+	@State private var cachedGroupedRoles: [GroupedRoleSection] = []
+	@State private var cachedOwnAndBookmarkedIDs: Set<User.ID> = []
 	
-	private var filteredPlayers: [BackupSelectablePlayer] {
-		let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-		guard !query.isEmpty else { return players }
-		return players.filter { player in
-			player.displayName.lowercased().contains(query)
-			|| player.gameName.lowercased().contains(query)
-			|| player.tagLine.lowercased().contains(query)
-			|| player.id.description.lowercased().contains(query)
-		}
+	private struct GroupedRoleSection: Identifiable {
+		let role: BackupPlayerSummary.Role
+		let list: [BackupSelectablePlayer]
+		let playerIDs: Set<User.ID>
+		var id: BackupPlayerSummary.Role { role }
 	}
 	
-	private var groupedRoles: [(role: BackupPlayerSummary.Role, list: [BackupSelectablePlayer])] {
-		let allRoles: [BackupPlayerSummary.Role] = [.account, .bookmark, .cached]
-		return allRoles.compactMap { role in
-			let matches = filteredPlayers.filter { $0.role == role }
-			return matches.isEmpty ? nil : (role, matches)
-		}
+	private struct FilterKey: Equatable {
+		let players: [BackupSelectablePlayer]
+		let searchText: String
 	}
 	
-	private var ownAndBookmarkedIDs: Set<User.ID> {
-		Set(players.filter { $0.role == .account || $0.role == .bookmark }.map(\.id))
+	private var allPlayerIDs: Set<User.ID> {
+		Set(players.map(\.id))
 	}
 	
 	var body: some View {
@@ -35,11 +30,11 @@ struct BackupPlayerPickerView: View {
 			Section {
 				HStack(spacing: 10) {
 					quickButton(title: "All (\(players.count))") {
-						selectedPlayerIDs = Set(players.map(\.id))
+						selectedPlayerIDs = allPlayerIDs
 					}
-					if !ownAndBookmarkedIDs.isEmpty && ownAndBookmarkedIDs.count < players.count {
+					if !cachedOwnAndBookmarkedIDs.isEmpty && cachedOwnAndBookmarkedIDs.count < players.count {
 						quickButton(title: "Mine & Bookmarks") {
-							selectedPlayerIDs = ownAndBookmarkedIDs
+							selectedPlayerIDs = cachedOwnAndBookmarkedIDs
 						}
 					}
 					quickButton(title: "None") {
@@ -49,13 +44,13 @@ struct BackupPlayerPickerView: View {
 				.listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
 			}
 			
-			if groupedRoles.isEmpty {
+			if cachedGroupedRoles.isEmpty {
 				Section {
 					Text("No players match your search.")
 						.foregroundStyle(.secondary)
 				}
 			} else {
-				ForEach(groupedRoles, id: \.role) { group in
+				ForEach(cachedGroupedRoles) { group in
 					Section {
 						ForEach(group.list) { player in
 							playerRow(player)
@@ -64,13 +59,12 @@ struct BackupPlayerPickerView: View {
 						HStack {
 							Text(group.role.sectionTitle)
 							Spacer()
-							let groupIDs = Set(group.list.map(\.id))
-							let allGroupSelected = !groupIDs.isEmpty && groupIDs.isSubset(of: selectedPlayerIDs)
+							let allGroupSelected = !group.playerIDs.isEmpty && group.playerIDs.isSubset(of: selectedPlayerIDs)
 							Button(allGroupSelected ? "Deselect" : "Select All") {
 								if allGroupSelected {
-									selectedPlayerIDs.subtract(groupIDs)
+									selectedPlayerIDs.subtract(group.playerIDs)
 								} else {
-									selectedPlayerIDs.formUnion(groupIDs)
+									selectedPlayerIDs.formUnion(group.playerIDs)
 								}
 							}
 							.font(.caption.weight(.medium))
@@ -84,6 +78,43 @@ struct BackupPlayerPickerView: View {
 		.searchable(text: $searchText, prompt: "Search player name or UUID")
 		.navigationTitle("Select Players")
 		.navigationBarTitleDisplayMode(.inline)
+		.task(id: players) {
+			cachedOwnAndBookmarkedIDs = Set(
+				players.filter { $0.role == .account || $0.role == .bookmark }.map(\.id)
+			)
+		}
+		.task(id: FilterKey(players: players, searchText: searchText)) {
+			recomputeGroups()
+		}
+	}
+	
+	private func recomputeGroups() {
+		let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+		let filtered: [BackupSelectablePlayer]
+		if query.isEmpty {
+			filtered = players
+		} else {
+			filtered = players.filter { player in
+				player.displayName.localizedCaseInsensitiveContains(query)
+					|| player.gameName.localizedCaseInsensitiveContains(query)
+					|| player.tagLine.localizedCaseInsensitiveContains(query)
+					|| player.id.description.localizedCaseInsensitiveContains(query)
+			}
+		}
+		
+		var byRole: [BackupPlayerSummary.Role: [BackupSelectablePlayer]] = [:]
+		for player in filtered {
+			byRole[player.role, default: []].append(player)
+		}
+		let allRoles: [BackupPlayerSummary.Role] = [.account, .bookmark, .cached]
+		cachedGroupedRoles = allRoles.compactMap { role in
+			guard let list = byRole[role], !list.isEmpty else { return nil }
+			return GroupedRoleSection(
+				role: role,
+				list: list,
+				playerIDs: Set(list.map(\.id))
+			)
+		}
 	}
 	
 	private func quickButton(title: String, action: @escaping () -> Void) -> some View {

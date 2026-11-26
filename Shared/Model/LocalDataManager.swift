@@ -57,8 +57,27 @@ final class LocalDataManager<Object: Identifiable & Codable> where Object.ID: Lo
 	}
 	
 	func store<S: Sequence>(_ objects: S, asOf updateTime: Date) where S.Element == Object {
+		var didChange = false
+		var entriesToSave: [Entry] = []
+		
 		for object in objects {
-			store(object, asOf: updateTime)
+			if let existing = cache[object.id] ?? nil, existing.lastUpdate > updateTime {
+				continue
+			}
+			let entry = Entry(lastUpdate: updateTime, object: object)
+			cache[object.id] = entry
+			recordAccess(for: object.id)
+			subjects[object.id]?.send(object)
+			entriesToSave.append(entry)
+			didChange = true
+		}
+		
+		guard didChange else { return }
+		evictIfNeeded()
+		changePublisher.send()
+		
+		Task.detached(priority: .utility) { [storage] in
+			await storage.trySaveEntries(entriesToSave)
 		}
 	}
 	
@@ -398,6 +417,15 @@ final class LocalDataManager<Object: Identifiable & Codable> where Object.ID: Lo
 			}
 		}
 		
+		func trySaveEntries(_ entries: [Entry]) {
+			do {
+				try saveEntries(entries)
+			} catch {
+				print("error saving \(entries.count) entries to disk: \(error)")
+				dump(error)
+			}
+		}
+		
 		func tryLoadEntries(with ids: any Sequence<Object.ID>) -> [Entry] {
 			ids.compactMap(tryLoadEntry(with:))
 		}
@@ -492,8 +520,12 @@ extension LocalDataManager.Storage {
 		let knownIDs = Set(ids)
 		return .init() <- { usage in
 			for file in files {
-				guard let id = Object.ID(file.deletingPathExtension().lastPathComponent) else { continue }
-				let size = try! Int64(file.resourceValues(forKeys: [.fileSizeKey]).fileSize!)
+				guard file.pathExtension.lowercased() == "json",
+				      let id = Object.ID(file.deletingPathExtension().lastPathComponent),
+				      let rawSize = try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize else {
+					continue
+				}
+				let size = Int64(rawSize)
 				if knownIDs.contains(id) {
 					usage.tally[id, default: 0] += size
 				} else {

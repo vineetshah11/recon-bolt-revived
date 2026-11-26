@@ -4,12 +4,18 @@ import ValorantAPI
 struct AccoladesSummaryBox: View {
 	var userID: User.ID
 	var knownMatchIDs: [Match.ID] = []
-	var report: AccoladesReport
+	var report: AccoladesReport? = nil
 	
+	@Environment(\.seasons) private var seasons
 	@ObservedObject private var accoladesCache = AccoladesCacheStore.shared
 	@State private var isExpanded = false
 	
 	var body: some View {
+		let resolvedReport = report ?? accoladesCache.report(
+			for: userID,
+			act: seasons?.currentAct(),
+			seasons: seasons
+		)
 		VStack(alignment: .leading, spacing: 12) {
 			HStack {
 				Button {
@@ -47,23 +53,23 @@ struct AccoladesSummaryBox: View {
 					.font(.caption)
 					.foregroundStyle(.secondary)
 				Spacer()
-				Text("\(report.totalEarned) earned")
+				Text("\(resolvedReport.totalEarned) earned")
 					.font(.caption.weight(.semibold).monospacedDigit())
 			}
 			
-			if report.earnedItems.isEmpty {
+			if resolvedReport.earnedItems.isEmpty {
 				Text("Play matches in the current Act to earn performance accolades.")
 					.font(.caption)
 					.foregroundStyle(.secondary)
 			} else if !isExpanded {
 				HStack(spacing: 12) {
-					ForEach(Array(report.earnedItems.prefix(3))) { item in
+					ForEach(Array(resolvedReport.earnedItems.prefix(3))) { item in
 						accoladeCircleLink(item)
 					}
 				}
 			} else {
 				LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 3), spacing: 12) {
-					ForEach(report.earnedItems) { item in
+					ForEach(resolvedReport.earnedItems) { item in
 						accoladeCircleLink(item)
 					}
 				}
@@ -118,16 +124,33 @@ struct AccoladesView: View {
 	@Environment(\.assets) private var assets
 	@ObservedObject private var accoladesCache = AccoladesCacheStore.shared
 	@State private var scope: Scope = .thisAct
+	@State private var computedReport = AccoladesReport(
+		totalEarned: 0,
+		earnedTypesCount: 0,
+		totalTypesCount: AccoladeType.allCases.count,
+		scannedMatchesCount: 0,
+		allItems: [],
+		earnedItems: [],
+		recentMatches: []
+	)
+	
+	private struct ReportKey: Equatable {
+		let userID: User.ID
+		let scope: Scope
+		let revision: Int
+		let currentActID: Act.ID?
+	}
 	
 	private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
 	
 	var body: some View {
-		let report = accoladesCache.report(
-			for: userID,
-			act: scope == .thisAct ? seasons?.currentAct() : nil,
-			seasons: seasons
-		)
 		let cachedCount = accoladesCache.cachedMatchCount(for: userID)
+		let reportKey = ReportKey(
+			userID: userID,
+			scope: scope,
+			revision: accoladesCache.revision,
+			currentActID: seasons?.currentAct()?.id
+		)
 		
 		ScrollView {
 			VStack(spacing: 14) {
@@ -139,9 +162,9 @@ struct AccoladesView: View {
 				.pickerStyle(.segmented)
 				
 				VStack(alignment: .leading, spacing: 4) {
-					Text("\(report.totalEarned) earned")
+					Text("\(computedReport.totalEarned) earned")
 						.font(.title2.bold().monospacedDigit())
-					Text("\(report.earnedTypesCount) of \(report.totalTypesCount) accolades")
+					Text("\(computedReport.earnedTypesCount) of \(computedReport.totalTypesCount) accolades")
 						.font(.subheadline)
 						.foregroundStyle(.secondary)
 				}
@@ -150,7 +173,7 @@ struct AccoladesView: View {
 				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 				
 				LazyVGrid(columns: columns, spacing: 10) {
-					ForEach(report.allItems) { item in
+					ForEach(computedReport.allItems) { item in
 						NavigationLink {
 							AccoladeDetailView(
 								userID: userID,
@@ -164,8 +187,8 @@ struct AccoladesView: View {
 					}
 				}
 				
-				if !report.recentMatches.isEmpty {
-					recentMatchesSection(report.recentMatches)
+				if !computedReport.recentMatches.isEmpty {
+					recentMatchesSection(computedReport.recentMatches)
 				}
 			}
 			.padding(.horizontal, 16)
@@ -174,6 +197,16 @@ struct AccoladesView: View {
 		.background(Color.groupedBackground)
 		.navigationTitle("Accolades")
 		.navigationBarTitleDisplayMode(.inline)
+		.task(id: reportKey) {
+			let act = scope == .thisAct ? seasons?.currentAct() : nil
+			let seasonsSnapshot = seasons
+			let uid = userID
+			computedReport = accoladesCache.report(
+				for: uid,
+				act: act,
+				seasons: seasonsSnapshot
+			)
+		}
 		.task(id: knownMatchIDs) {
 			await accoladesCache.syncMissingMatches(for: userID, matchIDs: knownMatchIDs)
 		}
@@ -227,7 +260,7 @@ struct AccoladesView: View {
 				.frame(maxWidth: .infinity, alignment: .leading)
 				.padding(.top, 8)
 			
-			VStack(spacing: 0) {
+			LazyVStack(spacing: 0) {
 				ForEach(Array(recentMatches.enumerated()), id: \.element.id) { index, entry in
 					if index > 0 {
 						Divider()
@@ -425,16 +458,13 @@ struct AccoladeDetailView: View {
 							.foregroundStyle(.secondary)
 					}
 					
-					GeometryReader { geo in
-						let ratio = Double(actRow.count) / Double(maxCount)
-						ZStack(alignment: .leading) {
-							Capsule().fill(Color.secondary.opacity(0.18))
-							Capsule()
-								.fill(Color.accentColor)
-								.frame(width: max(8, geo.size.width * CGFloat(ratio)))
-						}
-					}
-					.frame(height: 6)
+					HorizontalFillCapsuleShape(
+						fraction: Double(actRow.count) / Double(maxCount),
+						minWidth: 8
+					)
+						.fill(Color.accentColor)
+						.background(Color.secondary.opacity(0.18), in: Capsule())
+						.frame(height: 6)
 				}
 			}
 		}
@@ -459,7 +489,8 @@ struct AccoladeDetailView: View {
 					.padding(14)
 					.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 			} else {
-				ForEach(item.allTimeRecords) { record in
+				LazyVStack(spacing: 8) {
+					ForEach(item.allTimeRecords) { record in
 					NavigationLink {
 						MatchDetailsContainer(matchID: record.matchID, userID: userID)
 					} label: {
@@ -497,6 +528,7 @@ struct AccoladeDetailView: View {
 						.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 					}
 					.buttonStyle(.plain)
+					}
 				}
 			}
 		}

@@ -8,7 +8,7 @@ struct AccoladeIcon: View {
 		Group {
 			switch type {
 			case .mvp:
-				MVPEmblem()
+				MVPEmblem(side: size)
 			case .topFrag:
 				TopFragShape()
 					.fill()
@@ -22,7 +22,7 @@ struct AccoladeIcon: View {
 				DamageShockwaveShape()
 					.fill()
 			case .headshots:
-				HeadshotReticleEmblem()
+				HeadshotReticleEmblem(side: size)
 			case .firstBloods:
 				FirstBloodShape()
 					.fill(style: FillStyle(eoFill: true))
@@ -115,18 +115,17 @@ struct AccoladePillView: View {
 // MARK: - Accolade Vector Emblems
 
 private struct MVPEmblem: View {
+	let side: CGFloat
+	
 	var body: some View {
-		GeometryReader { geo in
-			let side = min(geo.size.width, geo.size.height)
-			ZStack {
-				HexagonOutlineShape()
-					.stroke(style: StrokeStyle(lineWidth: side * 0.095, lineJoin: .miter))
-				FivePointStarShape()
-					.fill()
-					.frame(width: side * 0.48, height: side * 0.48)
-			}
-			.frame(width: geo.size.width, height: geo.size.height)
+		ZStack {
+			HexagonOutlineShape()
+				.stroke(style: StrokeStyle(lineWidth: side * 0.095, lineJoin: .miter))
+			FivePointStarShape()
+				.fill()
+				.frame(width: side * 0.48, height: side * 0.48)
 		}
+		.frame(width: side, height: side)
 	}
 }
 
@@ -308,17 +307,16 @@ private struct DamageShockwaveShape: Shape {
 }
 
 private struct HeadshotReticleEmblem: View {
+	let side: CGFloat
+	
 	var body: some View {
-		GeometryReader { geo in
-			let side = min(geo.size.width, geo.size.height)
-			ZStack {
-				HeadshotReticleLinesShape()
-					.stroke(style: StrokeStyle(lineWidth: side * 0.095, lineCap: .square))
-				Circle()
-					.frame(width: side * 0.18, height: side * 0.18)
-			}
-			.frame(width: geo.size.width, height: geo.size.height)
+		ZStack {
+			HeadshotReticleLinesShape()
+				.stroke(style: StrokeStyle(lineWidth: side * 0.095, lineCap: .square))
+			Circle()
+				.frame(width: side * 0.18, height: side * 0.18)
 		}
+		.frame(width: side, height: side)
 	}
 }
 

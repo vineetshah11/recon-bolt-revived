@@ -14,7 +14,8 @@ struct AccountOverviewView: View {
 	
 	struct AccountSnapshot {
 		var accountXP: AccountXP?
-		var contractsProgress: ContractsProgress?
+		var resolvedContracts: ResolvedContracts?
+		var battlePassSummaryText: String?
 		var summary: CareerSummary?
 		var loadError: String?
 		var isLoading = false
@@ -101,33 +102,49 @@ struct AccountOverviewView: View {
 			snapshots[accountID] = existing
 		}
 		
-		let tasks: [(User.ID, Task<AccountSnapshot, Never>)] = accounts.map { accountID in
+		let accountClients: [(User.ID, ValorantClient?)] = accounts.map { accountID in
 			let client: ValorantClient? = (accountManager.activeAccount?.id == accountID)
 				? accountManager.activeAccount?.client
 				: accountManager.makeReadOnlyClient(for: accountID)
-			let task = Task { @MainActor in
-				await Self.fetchSnapshot(for: accountID, using: client)
-			}
-			return (accountID, task)
+			return (accountID, client)
 		}
+		let currentAssets = assets
+		let currentSeasons = seasons
 		
-		for (accountID, task) in tasks {
-			let result = await task.value
-			snapshots[accountID] = result
-			
-			if let summary = result.summary {
-				LocalDataProvider.shared.careerSummaryManager.store(summary, asOf: .now)
-				progressTimelineStore.record(summary: summary, seasons: seasons, for: accountID)
+		await withTaskGroup(of: (User.ID, AccountSnapshot).self) { group in
+			for (accountID, client) in accountClients {
+				group.addTask { @MainActor in
+					let result = await Self.fetchSnapshot(
+						for: accountID,
+						using: client,
+						assets: currentAssets,
+						seasons: currentSeasons
+					)
+					return (accountID, result)
+				}
 			}
-			if let xp = result.accountXP {
-				progressTimelineStore.record(accountXP: xp, for: accountID)
+			for await (accountID, result) in group {
+				snapshots[accountID] = result
+				if let summary = result.summary {
+					LocalDataProvider.shared.careerSummaryManager.store(summary, asOf: .now)
+				}
+				if result.summary != nil || result.accountXP != nil {
+					progressTimelineStore.recordBatch(
+						accountXP: result.accountXP,
+						summary: result.summary,
+						seasons: currentSeasons,
+						for: accountID
+					)
+				}
 			}
 		}
 	}
 	
 	private static func fetchSnapshot(
 		for accountID: User.ID,
-		using client: ValorantClient?
+		using client: ValorantClient?,
+		assets: AssetCollection?,
+		seasons: SeasonCollection.Accessor?
 	) async -> AccountSnapshot {
 		guard let client else {
 			return AccountSnapshot(
@@ -154,13 +171,67 @@ struct AccountOverviewView: View {
 			? "Could not refresh — session may have expired."
 			: nil
 		
+		let resolvedContracts = contracts.map {
+			ResolvedContracts(progress: $0, assets: assets, seasons: seasons)
+		}
+		let battlePassSummaryText: String? = resolvedContracts.flatMap {
+			guard let (bpInfo, bpContract) = Self.currentBattlePass(
+				from: $0,
+				assets: assets,
+				seasons: seasons
+			) else {
+				return nil
+			}
+			let progress = PassPlanner.levelProgress(
+				contract: bpInfo,
+				details: bpContract,
+				includeEpilogue: true
+			)
+			return "Level \(progress.currentLevel) / \(progress.totalLevels)"
+		}
+		
 		return AccountSnapshot(
 			accountXP: xp,
-			contractsProgress: contracts,
+			resolvedContracts: resolvedContracts,
+			battlePassSummaryText: battlePassSummaryText,
 			summary: summary,
 			loadError: loadError,
 			isLoading: false
 		)
+	}
+	
+	private static func currentBattlePass(
+		from resolved: ResolvedContracts,
+		assets: AssetCollection?,
+		seasons: SeasonCollection.Accessor?
+	) -> (ContractInfo, Contract?)? {
+		guard let assets else { return nil }
+		let contractsList = resolved.details.contracts
+		func progress(for id: Contract.ID) -> Contract? {
+			contractsList.first { $0.id == id }
+		}
+		if let currentActID = seasons?.currentAct()?.id,
+		   let active = assets.contracts.values.first(where: {
+			   $0.content.relationType == .season && $0.content.seasonID == currentActID
+		   }) {
+			return (active, progress(for: active.id))
+		}
+		if let specialID = resolved.details.activeSpecialContract,
+		   let special = assets.contracts[specialID],
+		   special.content.relationType == .season {
+			return (special, progress(for: specialID))
+		}
+		var matched: (ContractInfo, Contract?)?
+		var fallback: ContractInfo?
+		for contract in assets.contracts.values where contract.content.relationType == .season {
+			fallback = contract
+			if let p = progress(for: contract.id) {
+				matched = (contract, p)
+				break
+			}
+		}
+		if let matched { return matched }
+		return fallback.map { ($0, nil) }
 	}
 }
 
@@ -201,10 +272,7 @@ private struct AccountOverviewCard: View {
 		let level = snapshot?.accountXP?.progress.level ?? identity?.accountLevel
 		let currentXP = max(0, min(5_000, snapshot?.accountXP?.progress.xp ?? 0))
 		let xpRatio = Double(currentXP) / Double(5_000)
-		
-		let resolvedContracts = snapshot?.contractsProgress.map {
-			ResolvedContracts(progress: $0, assets: assets, seasons: seasons)
-		}
+		let resolvedContracts = snapshot?.resolvedContracts
 		
 		VStack(alignment: .leading, spacing: 14) {
 			headerRow
@@ -309,15 +377,12 @@ private struct AccountOverviewCard: View {
 				Text(level.map { "Level \($0)" } ?? "Level —")
 					.font(.subheadline.weight(.semibold).monospacedDigit())
 				
-				GeometryReader { geo in
-					ZStack(alignment: .leading) {
-						Capsule()
-							.fill(Color.secondary.opacity(0.25))
-						if xp != nil, xpRatio > 0 {
-							Capsule()
-								.fill(Color.primary)
-								.frame(width: max(4, geo.size.width * CGFloat(xpRatio)))
-						}
+				ZStack(alignment: .leading) {
+					Capsule()
+						.fill(Color.secondary.opacity(0.25))
+					if xp != nil, xpRatio > 0 {
+						HorizontalFillCapsuleShape(fraction: xpRatio, minWidth: 4)
+							.fill(Color.primary)
 					}
 				}
 				.frame(width: 84, height: 4)
@@ -362,13 +427,8 @@ private struct AccountOverviewCard: View {
 			}
 			
 			overviewRow(title: "Battle Pass") {
-				if let resolved, let (bpInfo, bpContract) = currentBattlePass(from: resolved) {
-					let progress = PassPlanner.levelProgress(
-						contract: bpInfo,
-						details: bpContract,
-						includeEpilogue: true
-					)
-					Text("Level \(progress.currentLevel) / \(progress.totalLevels)")
+				if let text = snapshot?.battlePassSummaryText {
+					Text(text)
 						.font(.subheadline.monospacedDigit())
 						.foregroundStyle(.secondary)
 				} else {
@@ -421,27 +481,6 @@ private struct AccountOverviewCard: View {
 			Spacer(minLength: 8)
 			value()
 		}
-	}
-	
-	private func currentBattlePass(from resolved: ResolvedContracts) -> (ContractInfo, Contract?)? {
-		guard let assets else { return nil }
-		let progressByID = Dictionary(uniqueKeysWithValues: resolved.details.contracts.map { ($0.id, $0) })
-		let currentActID = seasons?.currentAct()?.id
-		
-		let seasonContracts = assets.contracts.values.filter { $0.content.relationType == .season }
-		if let currentActID,
-		   let active = seasonContracts.first(where: { $0.content.seasonID == currentActID }) {
-			return (active, progressByID[active.id])
-		}
-		if let specialID = resolved.details.activeSpecialContract,
-		   let special = assets.contracts[specialID],
-		   special.content.relationType == .season {
-			return (special, progressByID[specialID])
-		}
-		if let matched = seasonContracts.first(where: { progressByID[$0.id] != nil }) ?? seasonContracts.last {
-			return (matched, progressByID[matched.id])
-		}
-		return nil
 	}
 }
 

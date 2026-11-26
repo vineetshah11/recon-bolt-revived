@@ -4,7 +4,6 @@ import HandyOperators
 
 struct LiveGameContainer: View {
 	var userID: User.ID
-	var playersInParty: Set<Player.ID>
 	@State var activeMatch: ActiveMatch?
 	@State var details: Details?
 	
@@ -21,9 +20,11 @@ struct LiveGameContainer: View {
 				guard let playerIDs = details?.playerIDs else { return }
 				try await $0.fetchUsers(for: playerIDs)
 			}
-			.task {
+			.task(id: scenePhase) {
+				guard scenePhase == .active else { return }
 				while !Task.isCancelled {
 					await refreshActiveMatch()
+					guard !Task.isCancelled else { return }
 					await Task.sleep(seconds: 5, tolerance: 1)
 				}
 			}
@@ -103,7 +104,6 @@ struct LiveGameContainer_Previews: PreviewProvider {
 	static var previews: some View {
 		LiveGameContainer(
 			userID: PreviewData.userID,
-			playersInParty: [],
 			activeMatch: .init(id: PreviewData.liveGameInfo.id, inPregame: false),
 			details: .liveGame(PreviewData.liveGameInfo)
 		)

@@ -206,10 +206,69 @@ final class LoadoutPresetManager: ObservableObject {
 	
 	private let filename = "LoadoutPresets.v1.json"
 	private let favoritesFilename = "FavoritesPresets.v1.json"
+	private var hasLoadedFromDisk = false
+	private var initialLoadTask: Task<Void, Never>?
+	private var pendingRemovedPresetIDs: Set<UUID> = []
+	private var pendingRemovedFavPresetIDs: Set<UUID> = []
+	private var pendingSavePresetsTask: Task<Void, Never>?
+	private var pendingSaveFavsTask: Task<Void, Never>?
 	
 	init() {
-		presets = LocalJSONStore.load([LoadoutPreset].self, from: filename) ?? []
-		favoritesPresets = LocalJSONStore.load([FavoritesPreset].self, from: favoritesFilename) ?? []
+		initialLoadTask = Task { @MainActor [weak self] in
+			guard let self else { return }
+			async let loadedPresets = LocalJSONStore.loadAsync([LoadoutPreset].self, from: self.filename)
+			async let loadedFavs = LocalJSONStore.loadAsync([FavoritesPreset].self, from: self.favoritesFilename)
+			let (diskPresets, diskFavs) = await (loadedPresets ?? [], loadedFavs ?? [])
+			self.mergeDiskData(presets: diskPresets, favoritesPresets: diskFavs)
+		}
+	}
+	
+	func waitUntilLoaded() async {
+		if let initialLoadTask, !hasLoadedFromDisk {
+			await initialLoadTask.value
+		}
+	}
+	
+	private static func sortPresets(_ list: [LoadoutPreset]) -> [LoadoutPreset] {
+		list.sorted { lhs, rhs in
+			if lhs.isPinned != rhs.isPinned { return lhs.isPinned }
+			return lhs.updatedAt > rhs.updatedAt
+		}
+	}
+	
+	private static func sortFavoritesPresets(_ list: [FavoritesPreset]) -> [FavoritesPreset] {
+		list.sorted { lhs, rhs in
+			if lhs.isPinned != rhs.isPinned { return lhs.isPinned }
+			return lhs.updatedAt > rhs.updatedAt
+		}
+	}
+	
+	private func mergeDiskData(presets diskPresets: [LoadoutPreset], favoritesPresets diskFavs: [FavoritesPreset]) {
+		hasLoadedFromDisk = true
+		if presets.isEmpty && pendingRemovedPresetIDs.isEmpty {
+			presets = Self.sortPresets(diskPresets)
+		} else {
+			var working = presets
+			var seen = Set(working.map(\.id))
+			for item in diskPresets {
+				guard !pendingRemovedPresetIDs.contains(item.id), seen.insert(item.id).inserted else { continue }
+				working.append(item)
+			}
+			presets = Self.sortPresets(working)
+		}
+		if favoritesPresets.isEmpty && pendingRemovedFavPresetIDs.isEmpty {
+			favoritesPresets = Self.sortFavoritesPresets(diskFavs)
+		} else {
+			var working = favoritesPresets
+			var seen = Set(working.map(\.id))
+			for item in diskFavs {
+				guard !pendingRemovedFavPresetIDs.contains(item.id), seen.insert(item.id).inserted else { continue }
+				working.append(item)
+			}
+			favoritesPresets = Self.sortFavoritesPresets(working)
+		}
+		pendingRemovedPresetIDs.removeAll()
+		pendingRemovedFavPresetIDs.removeAll()
 	}
 	
 	func presets(for accountID: User.ID?, favoritesOnly: Bool = false) -> [LoadoutPreset] {
@@ -218,23 +277,11 @@ final class LoadoutPresetManager: ObservableObject {
 			let matchesFav = !favoritesOnly || preset.isFavoritePreset
 			return matchesAccount && matchesFav
 		}
-		.sorted { lhs, rhs in
-			if lhs.isPinned != rhs.isPinned {
-				return lhs.isPinned
-			}
-			return lhs.updatedAt > rhs.updatedAt
-		}
 	}
 	
 	func favoritesPresets(for accountID: User.ID?) -> [FavoritesPreset] {
 		favoritesPresets.filter { preset in
 			preset.accountID == nil || accountID == nil || preset.accountID == accountID
-		}
-		.sorted { lhs, rhs in
-			if lhs.isPinned != rhs.isPinned {
-				return lhs.isPinned
-			}
-			return lhs.updatedAt > rhs.updatedAt
 		}
 	}
 	
@@ -265,7 +312,7 @@ final class LoadoutPresetManager: ObservableObject {
 			includedWeapons: includedWeapons,
 			loadout: loadout
 		)
-		presets.insert(preset, at: 0)
+		presets = Self.sortPresets([preset] + presets)
 		persist()
 	}
 	
@@ -279,12 +326,14 @@ final class LoadoutPresetManager: ObservableObject {
 		} else {
 			presets.insert(updated, at: 0)
 		}
+		presets = Self.sortPresets(presets)
 		persist()
 	}
 	
 	func togglePinned(id: UUID) {
 		guard let idx = presets.firstIndex(where: { $0.id == id }) else { return }
 		presets[idx].isPinned.toggle()
+		presets = Self.sortPresets(presets)
 		persist()
 	}
 	
@@ -293,6 +342,7 @@ final class LoadoutPresetManager: ObservableObject {
 		presets[idx].bannerCardID = cardID
 		presets[idx].bannerImageData = imageData
 		presets[idx].updatedAt = Date()
+		presets = Self.sortPresets(presets)
 		persist()
 	}
 	
@@ -304,7 +354,12 @@ final class LoadoutPresetManager: ObservableObject {
 	}
 	
 	func delete(id: UUID) {
+		if !hasLoadedFromDisk {
+			pendingRemovedPresetIDs.insert(id)
+		}
+		let before = presets.count
 		presets.removeAll { $0.id == id }
+		guard presets.count != before else { return }
 		persist()
 	}
 	
@@ -329,7 +384,7 @@ final class LoadoutPresetManager: ObservableObject {
 			bannerImageData: bannerImageData,
 			itemIDs: deduped
 		)
-		favoritesPresets.insert(preset, at: 0)
+		favoritesPresets = Self.sortFavoritesPresets([preset] + favoritesPresets)
 		persistFavorites()
 	}
 	
@@ -343,12 +398,14 @@ final class LoadoutPresetManager: ObservableObject {
 		} else {
 			favoritesPresets.insert(updated, at: 0)
 		}
+		favoritesPresets = Self.sortFavoritesPresets(favoritesPresets)
 		persistFavorites()
 	}
 	
 	func toggleFavoritesPresetPinned(id: UUID) {
 		guard let idx = favoritesPresets.firstIndex(where: { $0.id == id }) else { return }
 		favoritesPresets[idx].isPinned.toggle()
+		favoritesPresets = Self.sortFavoritesPresets(favoritesPresets)
 		persistFavorites()
 	}
 	
@@ -357,6 +414,7 @@ final class LoadoutPresetManager: ObservableObject {
 		favoritesPresets[idx].bannerCardID = cardID
 		favoritesPresets[idx].bannerImageData = imageData
 		favoritesPresets[idx].updatedAt = Date()
+		favoritesPresets = Self.sortFavoritesPresets(favoritesPresets)
 		persistFavorites()
 	}
 	
@@ -368,7 +426,12 @@ final class LoadoutPresetManager: ObservableObject {
 	}
 	
 	func deleteFavoritesPreset(id: UUID) {
+		if !hasLoadedFromDisk {
+			pendingRemovedFavPresetIDs.insert(id)
+		}
+		let before = favoritesPresets.count
 		favoritesPresets.removeAll { $0.id == id }
+		guard favoritesPresets.count != before else { return }
 		persistFavorites()
 	}
 	
@@ -389,22 +452,26 @@ final class LoadoutPresetManager: ObservableObject {
 	
 	@discardableResult
 	func importPresets(_ incoming: [LoadoutPreset], replaceAll: Bool) async -> Int {
-		var working = replaceAll ? [] : presets
+		await waitUntilLoaded()
+		pendingSavePresetsTask?.cancel()
+		var workingByID = replaceAll
+			? [:]
+			: Dictionary(presets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 		var changedCount = 0
 		
 		for preset in incoming {
-			if let idx = working.firstIndex(where: { $0.id == preset.id }) {
-				if preset.updatedAt > working[idx].updatedAt {
-					working[idx] = preset
+			if let existing = workingByID[preset.id] {
+				if preset.updatedAt > existing.updatedAt {
+					workingByID[preset.id] = preset
 					changedCount += 1
 				}
 			} else {
-				working.append(preset)
+				workingByID[preset.id] = preset
 				changedCount += 1
 			}
 		}
 		
-		working.sort { $0.updatedAt > $1.updatedAt }
+		let working = Self.sortPresets(Array(workingByID.values))
 		presets = working
 		await LocalJSONStore.saveAndWait(presets, to: filename)
 		return replaceAll ? working.count : changedCount
@@ -420,35 +487,55 @@ final class LoadoutPresetManager: ObservableObject {
 	
 	@discardableResult
 	func importFavoritesPresets(_ incoming: [FavoritesPreset], replaceAll: Bool) async -> Int {
-		var working = replaceAll ? [] : favoritesPresets
+		await waitUntilLoaded()
+		pendingSaveFavsTask?.cancel()
+		var workingByID = replaceAll
+			? [:]
+			: Dictionary(favoritesPresets.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 		var changedCount = 0
 		
 		for preset in incoming {
-			if let idx = working.firstIndex(where: { $0.id == preset.id }) {
-				if preset.updatedAt > working[idx].updatedAt {
-					working[idx] = preset
+			if let existing = workingByID[preset.id] {
+				if preset.updatedAt > existing.updatedAt {
+					workingByID[preset.id] = preset
 					changedCount += 1
 				}
 			} else {
-				working.append(preset)
+				workingByID[preset.id] = preset
 				changedCount += 1
 			}
 		}
 		
-		working.sort { $0.updatedAt > $1.updatedAt }
+		let working = Self.sortFavoritesPresets(Array(workingByID.values))
 		favoritesPresets = working
-		await LocalJSONStore.saveAndWait(favoritesPresets, to: favoritesFavoritesFilename)
+		await LocalJSONStore.saveAndWait(favoritesPresets, to: favoritesFilename)
 		return replaceAll ? working.count : changedCount
 	}
 	
-	private var favoritesFavoritesFilename: String { favoritesFilename }
-	
 	private func persist() {
-		LocalJSONStore.save(presets, to: filename)
+		if hasLoadedFromDisk {
+			LocalJSONStore.save(presets, to: filename)
+		} else {
+			pendingSavePresetsTask?.cancel()
+			pendingSavePresetsTask = Task { @MainActor [weak self] in
+				await self?.waitUntilLoaded()
+				guard let self, !Task.isCancelled else { return }
+				LocalJSONStore.save(self.presets, to: self.filename)
+			}
+		}
 	}
 	
 	private func persistFavorites() {
-		LocalJSONStore.save(favoritesPresets, to: favoritesFilename)
+		if hasLoadedFromDisk {
+			LocalJSONStore.save(favoritesPresets, to: favoritesFilename)
+		} else {
+			pendingSaveFavsTask?.cancel()
+			pendingSaveFavsTask = Task { @MainActor [weak self] in
+				await self?.waitUntilLoaded()
+				guard let self, !Task.isCancelled else { return }
+				LocalJSONStore.save(self.favoritesPresets, to: self.favoritesFilename)
+			}
+		}
 	}
 	
 	/// Builds a randomized loadout from the player's inventory, optionally restricted to items favorited in VALORANT.
@@ -462,40 +549,41 @@ final class LoadoutPresetManager: ObservableObject {
 		let favIDs = favorites?.itemIDs
 		
 		// Card & Title
-		let cards = Array(inventory.cards).filter { favIDs == nil || favIDs!.contains($0.rawID) }
-		if let card = cards.randomElement() ?? inventory.cards.randomElement() {
+		let favCards = favIDs.map { favs in inventory.cards.filter { favs.contains($0.rawID) } } ?? []
+		if let card = favCards.randomElement() ?? inventory.cards.randomElement() {
 			next.identity.card = card
 		}
 		
-		let titles = Array(inventory.titles).filter { favIDs == nil || favIDs!.contains($0.rawID) }
-		if let title = titles.randomElement() {
+		let favTitles = favIDs.map { favs in inventory.titles.filter { favs.contains($0.rawID) } } ?? []
+		if let title = favTitles.randomElement() ?? inventory.titles.randomElement() {
 			next.identity.title = title
 		}
 		
-		// Weapons
+		// Weapons (single pass per weapon collecting both favorite-owned and all-owned candidates)
 		for (weaponID, existingGun) in current.guns {
 			guard let weapon = assets.weapons[weaponID] else { continue }
 			var updatedGun = existingGun
 			
-			// Find owned skin levels belonging to this weapon
-			let ownedSkins: [(skin: WeaponSkin, ownedLevels: [WeaponSkin.Level], ownedChromas: [WeaponSkin.Chroma])] = weapon.skins.compactMap { skin in
-				let isFavSkin = favIDs == nil || favIDs!.contains(skin.id.rawID)
+			typealias SkinCandidate = (skin: WeaponSkin, ownedLevels: [WeaponSkin.Level], ownedChromas: [WeaponSkin.Chroma])
+			var favOwned: [SkinCandidate] = []
+			var allOwned: [SkinCandidate] = []
+			
+			for skin in weapon.skins {
 				let ownedLevels = skin.levels.filter {
 					inventory.owns($0.id) || skin.id == weapon.defaultSkinID
 				}
-				guard isFavSkin, !ownedLevels.isEmpty else { return nil }
+				guard !ownedLevels.isEmpty else { continue }
 				let ownedChromas = skin.chromas.filter {
 					inventory.owns($0.id) || $0.id == skin.chromas.first?.id
 				}
-				return (skin, ownedLevels, ownedChromas)
+				let candidate: SkinCandidate = (skin, ownedLevels, ownedChromas)
+				allOwned.append(candidate)
+				if favIDs == nil || favIDs!.contains(skin.id.rawID) {
+					favOwned.append(candidate)
+				}
 			}
 			
-			if let picked = ownedSkins.randomElement() ?? weapon.skins.compactMap({ skin -> (WeaponSkin, [WeaponSkin.Level], [WeaponSkin.Chroma])? in
-				let ownedLevels = skin.levels.filter { inventory.owns($0.id) || skin.id == weapon.defaultSkinID }
-				guard !ownedLevels.isEmpty else { return nil }
-				let ownedChromas = skin.chromas.filter { inventory.owns($0.id) || $0.id == skin.chromas.first?.id }
-				return (skin, ownedLevels, ownedChromas)
-			}).randomElement() {
+			if let picked = (favOwned.isEmpty ? allOwned : favOwned).randomElement() {
 				let bestLevel = picked.ownedLevels.last ?? picked.ownedLevels.first!
 				let pickedChroma = picked.ownedChromas.randomElement() ?? picked.skin.chromas.first
 				updatedGun.skin = Loadout.Gun.Skin(
@@ -507,17 +595,43 @@ final class LoadoutPresetManager: ObservableObject {
 			next.guns[weaponID] = updatedGun
 		}
 		
-		// Expressions (Sprays + Flex)
+		// Expressions (Sprays + Flex) — sample 4 without shuffling the entire pool
 		var availableExpressions: [Loadout.Expression] = []
-		let sprayPool = Array(inventory.sprays).filter { favIDs == nil || favIDs!.contains($0.rawID) }
-		availableExpressions += (sprayPool.isEmpty ? Array(inventory.sprays) : sprayPool).map { .spray($0) }
-		let totemPool = Array(inventory.totems).filter { favIDs == nil || favIDs!.contains($0.rawID) }
-		availableExpressions += (totemPool.isEmpty ? Array(inventory.totems) : totemPool).map { .totem($0) }
+		if let favIDs {
+			let favSprays = inventory.sprays.filter { favIDs.contains($0.rawID) }
+			if favSprays.isEmpty {
+				availableExpressions.append(contentsOf: inventory.sprays.map { .spray($0) })
+			} else {
+				availableExpressions.append(contentsOf: favSprays.map { .spray($0) })
+			}
+			let favTotems = inventory.totems.filter { favIDs.contains($0.rawID) }
+			if favTotems.isEmpty {
+				availableExpressions.append(contentsOf: inventory.totems.map { .totem($0) })
+			} else {
+				availableExpressions.append(contentsOf: favTotems.map { .totem($0) })
+			}
+		} else {
+			availableExpressions.reserveCapacity(inventory.sprays.count + inventory.totems.count)
+			availableExpressions.append(contentsOf: inventory.sprays.map { .spray($0) })
+			availableExpressions.append(contentsOf: inventory.totems.map { .totem($0) })
+		}
 		
 		if !availableExpressions.isEmpty {
-			let shuffled = availableExpressions.shuffled()
-			for index in 0..<4 {
-				next.expressions[index] = shuffled[index % shuffled.count]
+			let total = availableExpressions.count
+			if total <= 4 {
+				let shuffled = availableExpressions.shuffled()
+				for index in 0..<4 {
+					next.expressions[index] = shuffled[index % total]
+				}
+			} else {
+				var pickedIndices = Set<Int>()
+				for index in 0..<4 {
+					var candidate = Int.random(in: 0..<total)
+					while !pickedIndices.insert(candidate).inserted {
+						candidate = Int.random(in: 0..<total)
+					}
+					next.expressions[index] = availableExpressions[candidate]
+				}
 			}
 		}
 		

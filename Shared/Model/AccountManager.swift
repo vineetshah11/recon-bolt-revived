@@ -105,22 +105,17 @@ final class AccountManager: ObservableObject {
 		try .init(loadingFor: id, using: context)
 	}
 	
+	private static let sharedDecoder = JSONDecoder()
+
 	func makeReadOnlyClient(for id: User.ID) -> ValorantClient? {
 		if id == activeAccount?.id, let client = activeAccount?.client {
 			return client
 		}
 		guard let stored = try? keychain.loadData(forKey: id.rawID.description),
-			  let session = try? JSONDecoder().decode(APISession.self, from: stored) else {
+			  let session = try? Self.sharedDecoder.decode(APISession.self, from: stored) else {
 			return nil
 		}
-		var client = ValorantClient(
-			session: session,
-			urlSessionOverride: .init(configuration: .ephemeral <- {
-				$0.httpAdditionalHeaders = ["User-Agent": ""]
-				$0.timeoutIntervalForRequest = 20
-				$0.timeoutIntervalForResource = 30
-			})
-		)
+		var client = ValorantClient(session: session)
 		if let clientVersion {
 			client.clientVersion = clientVersion
 		}
@@ -246,13 +241,17 @@ final class StoredAccount: ObservableObject, Identifiable {
 		didSet { trySave() }
 	}
 	
+	private static let sharedDecoder = JSONDecoder()
+	private static let sharedEncoder = JSONEncoder()
+	private static let sharedURLSession = URLSession(configuration: .ephemeral <- {
+		$0.httpAdditionalHeaders = ["User-Agent": ""]
+		$0.timeoutIntervalForRequest = 20
+		$0.timeoutIntervalForResource = 60
+	})
+
 	private(set) lazy var client = ValorantClient(
 		session: session,
-		urlSessionOverride: .init(configuration: .ephemeral <- {
-			$0.httpAdditionalHeaders = ["User-Agent": ""]
-			$0.timeoutIntervalForRequest = 20
-			$0.timeoutIntervalForResource = 60
-		})
+		urlSessionOverride: Self.sharedURLSession
 	) <- {
 		sessionUpdateListener = $0.onSessionUpdate { [weak self] session in
 			guard let self else { return }
@@ -280,7 +279,7 @@ final class StoredAccount: ObservableObject, Identifiable {
 		self.context = context
 		let stored = try context.keychain.loadData(forKey: id.rawID.description)
 		??? LoadingError.noStoredSession
-		self.session = try JSONDecoder().decode(APISession.self, from: stored)
+		self.session = try Self.sharedDecoder.decode(APISession.self, from: stored)
 		setReauthBehavior(context.reauthBehavior)
 	}
 	
@@ -297,7 +296,7 @@ final class StoredAccount: ObservableObject, Identifiable {
 #if !WIDGETS // don't override from widgets to avoid overwriting new app data with old widgets data
 		guard isActive else { throw SavingError.replaced }
 		try context.keychain.store(
-			try! JSONEncoder().encode(session),
+			try Self.sharedEncoder.encode(session),
 			forKey: id.rawID.description
 		)
 #endif

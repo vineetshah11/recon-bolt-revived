@@ -18,6 +18,8 @@ struct LiveView: View {
 	@State private var accountXP: AccountXP?
 	@State private var activeRecruitment: ActiveRecruitmentEvent?
 	@State private var agentMastery: AgentMastery?
+	@State private var resolvedContracts: ResolvedContracts?
+	@State private var contractsGeneration = 0
 	
 	@UserDefault.State("LiveView.expandedBoxes")
 	var expandedBoxes: Set<Box> = [.party]
@@ -27,11 +29,17 @@ struct LiveView: View {
 	@Environment(\.valorantLoad) private var load
 	@Environment(\.assets) private var assets
 	@Environment(\.seasons) private var seasons
-	@EnvironmentObject private var favoritesManager: FavoritesManager
-	@EnvironmentObject private var progressTimelineStore: ProgressTimelineStore
+	@Environment(\.favoritesManagerRef) private var favoritesManager
+	@Environment(\.progressTimelineStoreRef) private var progressTimelineStore
 	
 	@Namespace private var missionsBoxID
 	@Namespace private var storeBoxID
+	
+	private struct ContractRefreshKey: Hashable {
+		let generation: Int
+		let assetsVersion: AssetVersion?
+		let currentActID: Act.ID?
+	}
 	
 	var body: some View {
 		ScrollViewReader { scrollView in
@@ -54,13 +62,23 @@ struct LiveView: View {
 		.withLocalData($user, id: userID)
 		.id(userID) // when user changes, current state is bound to become invalid/irrelevant
 		.updatingGameConfig()
+		.task(id: ContractRefreshKey(
+			generation: contractsGeneration,
+			assetsVersion: assets?.version,
+			currentActID: seasons?.currentAct()?.id
+		)) {
+			resolvedContracts = contractsProgress.map {
+				ResolvedContracts(progress: $0, assets: assets, seasons: seasons)
+			}
+		}
 	}
 	
 	var missionsBox: some View {
 		RefreshableBox(title: "Contracts", isExpanded: $expandedBoxes.contains(.missions)) {
-			infoOrPlaceholder(placeholder: "Contracts not loaded!", contractsProgress) {
+			infoOrPlaceholder(placeholder: "Contracts not loaded!", contractsProgress) { progress in
+				let resolved = resolvedContracts ?? ResolvedContracts(progress: progress, assets: assets, seasons: seasons)
 				ContractDetailsView(
-					contracts: .init(progress: $0, assets: assets, seasons: seasons),
+					contracts: resolved,
 					userID: userID,
 					accountXP: accountXP,
 					activeRecruitment: activeRecruitment,
@@ -74,9 +92,11 @@ struct LiveView: View {
 			async let masteryTask = try? client.getAgentMastery()
 			let (progress, xp, recruitment, mastery) = try await (progressTask, xpTask, recruitmentTask, masteryTask)
 			contractsProgress = progress
+			contractsGeneration &+= 1
+			resolvedContracts = ResolvedContracts(progress: progress, assets: assets, seasons: seasons)
 			accountXP = xp
 			if let xp {
-				progressTimelineStore.record(accountXP: xp, for: userID)
+				progressTimelineStore?.record(accountXP: xp, for: userID)
 			}
 			activeRecruitment = recruitment
 			agentMastery = mastery
@@ -92,7 +112,7 @@ struct LiveView: View {
 		} refresh: { client in
 			do {
 				loadoutInfo = try await .init(using: client)
-				await favoritesManager.refresh(using: client)
+				await favoritesManager?.refresh(using: client)
 			} catch Loadout.FetchError.uninitialized {
 				throw WrongAccountError(user: user)
 			}
@@ -110,7 +130,7 @@ struct LiveView: View {
 		} refresh: {
 			let fetched = try await StoreInfo(using: $0)
 			storeInfo = fetched
-			progressTimelineStore.record(wallet: fetched.wallet, for: userID)
+			progressTimelineStore?.record(wallet: fetched.wallet, for: userID)
 		}
 		.id(storeBoxID)
 	}

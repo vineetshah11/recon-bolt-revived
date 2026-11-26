@@ -5,20 +5,11 @@ import WidgetKit
 
 struct ContentView: View {
 	@ObservedObject var accountManager: AccountManager
-	@ObservedObject var assetManager: AssetManager
-	@ObservedObject var settings: AppSettings
-	@ObservedObject var store: InAppStore
+	let assetManager: AssetManager
+	let settings: AppSettings
+	let store: InAppStore
 	
-	@EnvironmentObject private var bookmarkList: BookmarkList
-	@EnvironmentObject private var loadoutPresetManager: LoadoutPresetManager
-	@EnvironmentObject private var wishlistManager: WishlistManager
-	@EnvironmentObject private var shopHistoryStore: ShopHistoryStore
-	@EnvironmentObject private var usernameHistoryStore: UsernameHistoryStore
-	@EnvironmentObject private var playerSettingsSnapshotStore: PlayerSettingsSnapshotStore
-	@EnvironmentObject private var seasonGoalStore: SeasonGoalStore
-	@EnvironmentObject private var progressTimelineStore: ProgressTimelineStore
-	@EnvironmentObject private var socialManager: SocialManager
-	@EnvironmentObject private var lineupsManager: LineupsManager
+	@Environment(\.backupStores) private var backupStores
 	
 	@SceneStorage("tab")
 	var tab = Tab.career
@@ -65,8 +56,6 @@ struct ContentView: View {
 				) }
 				.tag(Tab.settings)
 		}
-		.tint(settings.effectiveAccentColor)
-		.accentColor(settings.effectiveAccentColor)
 		.modifier(LiquidGlassTabBarModifier())
 		.task(id: accountManager.requiresAction) {
 			if accountManager.requiresAction {
@@ -81,33 +70,18 @@ struct ContentView: View {
 		.withValorantLoadFunction(manager: accountManager)
 		.withLoadErrorAlerts()
 		.onSceneActivation {
-			Task { await assetManager.tryLoadAssets() }
+			await assetManager.tryLoadAssets()
 		}
 		.readingDeepLinkHandler { handleDeepLink = $0 }
 		.environment(\.deepLink, handle(_:))
 		.onOpenURL(perform: handle(_:))
 		.sheet(item: $incomingBackupFile) { file in
-			NavigationStack {
-				BackupImportView(stores: makeBackupStores(), initialURL: file.url)
+			if let backupStores {
+				NavigationStack {
+					BackupImportView(stores: backupStores, initialURL: file.url)
+				}
 			}
 		}
-	}
-	
-	private func makeBackupStores() -> BackupStores {
-		BackupStores(
-			accountManager: accountManager,
-			bookmarkList: bookmarkList,
-			settings: settings,
-			loadoutPresetManager: loadoutPresetManager,
-			wishlistManager: wishlistManager,
-			shopHistoryStore: shopHistoryStore,
-			usernameHistoryStore: usernameHistoryStore,
-			playerSettingsSnapshotStore: playerSettingsSnapshotStore,
-			seasonGoalStore: seasonGoalStore,
-			progressTimelineStore: progressTimelineStore,
-			socialManager: socialManager,
-			lineupsManager: lineupsManager
-		)
 	}
 	
 	@ViewBuilder

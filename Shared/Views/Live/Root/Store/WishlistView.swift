@@ -14,6 +14,12 @@ struct WishlistView: View {
 	@State private var fullscreenImages: AssetImageCollection?
 	@State private var selectedSkin: WeaponSkin?
 	@State private var selectedExpression: ExpressionDetailsView.Subject?
+	@State private var cachedResolvedItems: [ResolvedWishlistItem] = []
+	
+	private struct ResolveKey: Equatable {
+		var entries: [WishlistEntry]
+		var assetVersion: AssetVersion?
+	}
 	
 	private enum ResolvedWishlistItem: Identifiable {
 		case skin(entry: WishlistEntry, skin: WeaponSkin, weapon: WeaponInfo)
@@ -38,18 +44,26 @@ struct WishlistView: View {
 		}
 	}
 	
-	private var resolvedItems: [ResolvedWishlistItem] {
+	private func buildResolvedItems() -> [ResolvedWishlistItem] {
 		guard let assets else { return [] }
-		let allWeapons = Array(assets.weapons.values)
+		let needsSkin = wishlistManager.entries.contains { $0.kind == .skin }
+		let skinByID: [WeaponSkin.ID: (WeaponSkin, WeaponInfo)]
+		if needsSkin {
+			var map: [WeaponSkin.ID: (WeaponSkin, WeaponInfo)] = [:]
+			for weapon in assets.weapons.values {
+				for skin in weapon.skins {
+					map[skin.id] = (skin, weapon)
+				}
+			}
+			skinByID = map
+		} else {
+			skinByID = [:]
+		}
 		return wishlistManager.entries.compactMap { entry in
 			switch entry.kind {
 			case .skin:
-				for weapon in allWeapons {
-					if let skin = weapon.skins.first(where: { $0.id == entry.skinID }) {
-						return .skin(entry: entry, skin: skin, weapon: weapon)
-					}
-				}
-				return nil
+				guard let (skin, weapon) = skinByID[entry.skinID] else { return nil }
+				return .skin(entry: entry, skin: skin, weapon: weapon)
 			case .buddy:
 				guard let buddy = assets.buddies[Weapon.Buddy.ID(rawID: entry.itemID)] else { return nil }
 				return .buddy(entry: entry, buddy: buddy)
@@ -94,11 +108,11 @@ struct WishlistView: View {
 					.background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 				}
 				
-				if resolvedItems.isEmpty {
+				if cachedResolvedItems.isEmpty {
 					emptyStateCard
 				} else {
 					LazyVGrid(columns: columns, spacing: 12) {
-						ForEach(resolvedItems) { item in
+						ForEach(cachedResolvedItems) { item in
 							wishlistCard(for: item)
 						}
 					}
@@ -110,6 +124,9 @@ struct WishlistView: View {
 		.background(Color.groupedBackground)
 		.navigationTitle("Wishlist")
 		.navigationBarTitleDisplayMode(.inline)
+		.task(id: ResolveKey(entries: wishlistManager.entries, assetVersion: assets?.version)) {
+			cachedResolvedItems = buildResolvedItems()
+		}
 		.lightbox(for: $fullscreenImages)
 		.navigationDestination(isPresented: Binding(
 			get: { selectedSkin != nil },
@@ -254,7 +271,7 @@ struct WishlistView: View {
 					
 					Spacer(minLength: 4)
 					
-					image?.view(preferFullResolution: true)
+					image?.view()
 						.frame(height: 64)
 						.frame(maxWidth: .infinity)
 					
@@ -386,7 +403,7 @@ struct WishlistView: View {
 				
 				Group {
 					if let image {
-						image.view(preferFullResolution: true)
+						image.view()
 							.cornerRadius(8)
 					} else {
 						Image.bundledAsset("Player Title", renderingMode: .template)
@@ -523,6 +540,35 @@ struct WishlistItemPicker: View {
 	@State private var selectedCategory: WishlistItemKind = .skin
 	@State private var search = ""
 	@State private var selectedWeaponID: Weapon.ID?
+	@State private var cachedBaseKey: BaseKey?
+	@State private var cachedBaseItems: [PickerRowItem] = []
+	@State private var cachedVisibleItems: [PickerRowItem] = []
+	
+	private struct BaseKey: Equatable {
+		var category: WishlistItemKind
+		var assetVersion: AssetVersion?
+	}
+	
+	private struct FilterKey: Equatable {
+		var category: WishlistItemKind
+		var weaponID: Weapon.ID?
+		var search: String
+		var assetVersion: AssetVersion?
+	}
+	
+	private struct PickerRowItem: Identifiable {
+		enum Target {
+			case skin(WeaponSkin.ID, weaponID: Weapon.ID)
+			case other(kind: WishlistItemKind, itemID: LowercaseUUID)
+		}
+		
+		let id: String
+		let target: Target
+		let title: String
+		let subtitle: String
+		let extraSearchText: String?
+		let image: AssetImage?
+	}
 	
 	var body: some View {
 		List {
@@ -537,31 +583,175 @@ struct WishlistItemPicker: View {
 			}
 			
 			if let assets {
-				switch selectedCategory {
-				case .skin:
-					skinRows(assets: assets)
-				case .buddy:
-					buddyRows(assets: assets)
-				case .spray:
-					sprayRows(assets: assets)
-				case .card:
-					cardRows(assets: assets)
-				case .title:
-					titleRows(assets: assets)
-				case .flex:
-					flexRows(assets: assets)
+				if selectedCategory == .skin {
+					skinFilterSection(assets: assets)
+				}
+				
+				Section {
+					ForEach(cachedVisibleItems) { item in
+						let wishlisted: Bool = switch item.target {
+						case .skin(let skinID, _):
+							wishlistManager.contains(skinID)
+						case .other(let kind, let itemID):
+							wishlistManager.contains(kind: kind, itemID: itemID)
+						}
+						pickerToggleRow(
+							title: item.title,
+							subtitle: item.subtitle,
+							image: item.image,
+							isWishlisted: wishlisted
+						) {
+							switch item.target {
+							case .skin(let skinID, _):
+								wishlistManager.toggle(skinID)
+							case .other(let kind, let itemID):
+								wishlistManager.toggle(kind: kind, itemID: itemID)
+							}
+						}
+					}
 				}
 			}
 		}
 		.searchable(text: $search, prompt: Text("Search \(selectedCategory.displayName.lowercased())"))
 		.navigationTitle("Add to Wishlist")
 		.navigationBarTitleDisplayMode(.inline)
+		.task(id: FilterKey(
+			category: selectedCategory,
+			weaponID: selectedWeaponID,
+			search: search,
+			assetVersion: assets?.version
+		)) {
+			rebuildVisibleItems()
+		}
 	}
 	
-	@ViewBuilder
-	private func skinRows(assets: AssetCollection) -> some View {
+	private func rebuildVisibleItems() {
+		guard let assets else {
+			cachedBaseKey = nil
+			cachedBaseItems = []
+			cachedVisibleItems = []
+			return
+		}
+		
+		let baseKey = BaseKey(category: selectedCategory, assetVersion: assets.version)
+		let baseItems: [PickerRowItem]
+		if cachedBaseKey == baseKey {
+			baseItems = cachedBaseItems
+		} else {
+			baseItems = Self.buildBaseItems(for: selectedCategory, assets: assets)
+			cachedBaseKey = baseKey
+			cachedBaseItems = baseItems
+		}
+		
+		let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+		let filterWeaponID = (selectedCategory == .skin) ? selectedWeaponID : nil
+		if filterWeaponID == nil, query.isEmpty {
+			cachedVisibleItems = baseItems
+			return
+		}
+		
+		cachedVisibleItems = baseItems.filter { item in
+			if let filterWeaponID {
+				guard case .skin(_, let weaponID) = item.target, weaponID == filterWeaponID else {
+					return false
+				}
+			}
+			guard !query.isEmpty else { return true }
+			return item.title.localizedCaseInsensitiveContains(query)
+				|| item.subtitle.localizedCaseInsensitiveContains(query)
+				|| (item.extraSearchText?.localizedCaseInsensitiveContains(query) == true)
+		}
+	}
+	
+	private static func buildBaseItems(for category: WishlistItemKind, assets: AssetCollection) -> [PickerRowItem] {
+		switch category {
+		case .skin:
+			let weapons = Weapon.ID.orderInCollection.compactMap { assets.weapons[$0] }
+			return weapons.flatMap { weapon in
+				weapon.skins
+					.filter { !$0.themeID.isFree }
+					.map { skin in
+						PickerRowItem(
+							id: skin.id.rawID.description,
+							target: .skin(skin.id, weaponID: weapon.id),
+							title: skin.displayName,
+							subtitle: weapon.displayName,
+							extraSearchText: nil,
+							image: skin.displayIcon ?? skin.levels.first?.displayIcon
+						)
+					}
+			}
+			.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+		case .buddy:
+			return assets.buddies.values.map { buddy in
+				PickerRowItem(
+					id: buddy.id.rawID.description,
+					target: .other(kind: .buddy, itemID: buddy.id.rawID),
+					title: buddy.displayName,
+					subtitle: "Gun Buddy",
+					extraSearchText: nil,
+					image: buddy.displayIcon
+				)
+			}
+			.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+		case .spray:
+			return assets.sprays.values.map { spray in
+				PickerRowItem(
+					id: spray.id.rawID.description,
+					target: .other(kind: .spray, itemID: spray.id.rawID),
+					title: spray.displayName,
+					subtitle: "Spray",
+					extraSearchText: nil,
+					image: spray.bestIcon
+				)
+			}
+			.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+		case .card:
+			return assets.playerCards.values.map { card in
+				PickerRowItem(
+					id: card.id.rawID.description,
+					target: .other(kind: .card, itemID: card.id.rawID),
+					title: card.displayName,
+					subtitle: "Player Card",
+					extraSearchText: nil,
+					image: card.smallArt
+				)
+			}
+			.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+		case .title:
+			return assets.playerTitles.values
+				.filter { $0.displayName?.isEmpty == false }
+				.map { title in
+					PickerRowItem(
+						id: title.id.rawID.description,
+						target: .other(kind: .title, itemID: title.id.rawID),
+						title: title.titleText ?? title.displayName ?? "Title",
+						subtitle: title.displayName ?? "Player Title",
+						extraSearchText: title.displayName,
+						image: nil
+					)
+				}
+				.sorted { $0.subtitle.localizedCaseInsensitiveCompare($1.subtitle) == .orderedAscending }
+		case .flex:
+			return assets.flex.values
+				.filter { $0.id != .none }
+				.map { flex in
+					PickerRowItem(
+						id: flex.id.rawID.description,
+						target: .other(kind: .flex, itemID: flex.id.rawID),
+						title: flex.displayName,
+						subtitle: "Flex",
+						extraSearchText: nil,
+						image: flex.displayIcon
+					)
+				}
+				.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+		}
+	}
+	
+	private func skinFilterSection(assets: AssetCollection) -> some View {
 		let weapons = Weapon.ID.orderInCollection.compactMap { assets.weapons[$0] }
-		Section {
+		return Section {
 			ScrollView(.horizontal, showsIndicators: false) {
 				HStack(spacing: 8) {
 					filterChip(title: "All", isSelected: selectedWeaponID == nil) {
@@ -576,122 +766,6 @@ struct WishlistItemPicker: View {
 				.padding(.vertical, 4)
 			}
 			.listRowInsets(EdgeInsets(top: 6, leading: 12, bottom: 6, trailing: 12))
-		}
-		
-		let matchingSkins: [(weapon: WeaponInfo, skin: WeaponSkin)] = weapons
-			.filter { selectedWeaponID == nil || $0.id == selectedWeaponID }
-			.flatMap { weapon in
-				weapon.skins
-					.filter { !$0.themeID.isFree }
-					.map { (weapon, $0) }
-			}
-			.filter { search.isEmpty || $0.skin.displayName.localizedCaseInsensitiveContains(search) || $0.weapon.displayName.localizedCaseInsensitiveContains(search) }
-			.sorted { $0.skin.displayName.localizedCaseInsensitiveCompare($1.skin.displayName) == .orderedAscending }
-		
-		Section {
-			ForEach(matchingSkins, id: \.skin.id) { item in
-				let wishlisted = wishlistManager.contains(item.skin.id)
-				pickerToggleRow(
-					title: item.skin.displayName,
-					subtitle: item.weapon.displayName,
-					image: item.skin.displayIcon ?? item.skin.levels.first?.displayIcon,
-					isWishlisted: wishlisted
-				) {
-					wishlistManager.toggle(item.skin.id)
-				}
-			}
-		}
-	}
-	
-	private func buddyRows(assets: AssetCollection) -> some View {
-		let items = Array(assets.buddies.values)
-			.filter { search.isEmpty || $0.displayName.localizedCaseInsensitiveContains(search) }
-			.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-		return Section {
-			ForEach(items) { buddy in
-				pickerToggleRow(
-					title: buddy.displayName,
-					subtitle: "Gun Buddy",
-					image: buddy.displayIcon,
-					isWishlisted: wishlistManager.contains(kind: .buddy, itemID: buddy.id.rawID)
-				) {
-					wishlistManager.toggle(kind: .buddy, itemID: buddy.id.rawID)
-				}
-			}
-		}
-	}
-	
-	private func sprayRows(assets: AssetCollection) -> some View {
-		let items = Array(assets.sprays.values)
-			.filter { search.isEmpty || $0.displayName.localizedCaseInsensitiveContains(search) }
-			.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-		return Section {
-			ForEach(items) { spray in
-				pickerToggleRow(
-					title: spray.displayName,
-					subtitle: "Spray",
-					image: spray.bestIcon,
-					isWishlisted: wishlistManager.contains(kind: .spray, itemID: spray.id.rawID)
-				) {
-					wishlistManager.toggle(kind: .spray, itemID: spray.id.rawID)
-				}
-			}
-		}
-	}
-	
-	private func cardRows(assets: AssetCollection) -> some View {
-		let items = Array(assets.playerCards.values)
-			.filter { search.isEmpty || $0.displayName.localizedCaseInsensitiveContains(search) }
-			.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-		return Section {
-			ForEach(items) { card in
-				pickerToggleRow(
-					title: card.displayName,
-					subtitle: "Player Card",
-					image: card.smallArt,
-					isWishlisted: wishlistManager.contains(kind: .card, itemID: card.id.rawID)
-				) {
-					wishlistManager.toggle(kind: .card, itemID: card.id.rawID)
-				}
-			}
-		}
-	}
-	
-	private func titleRows(assets: AssetCollection) -> some View {
-		let items = Array(assets.playerTitles.values)
-			.filter { ($0.displayName?.isEmpty == false) }
-			.filter { search.isEmpty || ($0.displayName ?? "").localizedCaseInsensitiveContains(search) || ($0.titleText ?? "").localizedCaseInsensitiveContains(search) }
-			.sorted { ($0.displayName ?? "").localizedCaseInsensitiveCompare($1.displayName ?? "") == .orderedAscending }
-		return Section {
-			ForEach(items) { title in
-				pickerToggleRow(
-					title: title.titleText ?? title.displayName ?? "Title",
-					subtitle: title.displayName ?? "Player Title",
-					image: nil,
-					isWishlisted: wishlistManager.contains(kind: .title, itemID: title.id.rawID)
-				) {
-					wishlistManager.toggle(kind: .title, itemID: title.id.rawID)
-				}
-			}
-		}
-	}
-	
-	private func flexRows(assets: AssetCollection) -> some View {
-		let items = Array(assets.flex.values)
-			.filter { $0.id != .none }
-			.filter { search.isEmpty || $0.displayName.localizedCaseInsensitiveContains(search) }
-			.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-		return Section {
-			ForEach(items) { flex in
-				pickerToggleRow(
-					title: flex.displayName,
-					subtitle: "Flex",
-					image: flex.displayIcon,
-					isWishlisted: wishlistManager.contains(kind: .flex, itemID: flex.id.rawID)
-				) {
-					wishlistManager.toggle(kind: .flex, itemID: flex.id.rawID)
-				}
-			}
 		}
 	}
 	

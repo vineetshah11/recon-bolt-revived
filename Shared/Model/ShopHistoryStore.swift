@@ -33,7 +33,31 @@ struct SkinFrequencyStat: Identifiable {
 
 @MainActor
 final class ShopHistoryStore: ObservableObject {
-	@Published var days: [ShopHistoryDay] = []
+	private struct AccountDayKey: Hashable {
+		var accountID: User.ID
+		var id: String
+	}
+	
+	private struct StatsScopeKey: Hashable {
+		var accountID: User.ID?
+		var version: AssetVersion
+	}
+	
+	private struct AccessoryKey: Hashable {
+		var kind: WishlistItemKind
+		var itemID: LowercaseUUID
+	}
+	
+	private struct CachedAccountStats {
+		var skinStats: [WeaponSkin.ID: WishlistAppearanceStats]
+		var accessoryStats: [AccessoryKey: WishlistAppearanceStats]
+	}
+	
+	@Published var days: [ShopHistoryDay] = [] {
+		didSet {
+			statsCache.removeAll(keepingCapacity: true)
+		}
+	}
 	@Published private(set) var lastDailyCheckAt: Date?
 	@Published private(set) var lastDailyCheckAccountCount: Int
 	
@@ -52,25 +76,56 @@ final class ShopHistoryStore: ObservableObject {
 	private static let expiryMatchTolerance: TimeInterval = 7_200 // 2h leeway for clock drift
 	private static let offerDuplicateWindow: TimeInterval = 26 * 3_600
 	
+	private var hasLoadedFromDisk = false
+	private var initialLoadTask: Task<Void, Never>?
+	private var pendingSaveTask: Task<Void, Never>?
+	private var statsCache: [StatsScopeKey: CachedAccountStats] = [:]
+	
 	init() {
-		let loaded = LocalJSONStore.load([ShopHistoryDay].self, from: filename) ?? []
-		let deduplicated = Self.deduplicateRotations(loaded)
-		days = deduplicated
 		lastDailyCheckAt = UserDefaults.standard.object(forKey: Self.lastCheckAtKey) as? Date
 		lastDailyCheckAccountCount = UserDefaults.standard.integer(forKey: Self.lastCheckCountKey)
-		if deduplicated != loaded {
+		initialLoadTask = Task { @MainActor [weak self] in
+			guard let self else { return }
+			let loaded = await LocalJSONStore.loadAsync([ShopHistoryDay].self, from: self.filename) ?? []
+			let deduplicated = await Task.detached(priority: .userInitiated) {
+				Self.deduplicateRotations(loaded)
+			}.value
+			self.mergeDiskDays(deduplicated, originalCount: loaded.count, didChangeOnLoad: deduplicated != loaded)
+		}
+	}
+	
+	func waitUntilLoaded() async {
+		if let initialLoadTask, !hasLoadedFromDisk {
+			await initialLoadTask.value
+		}
+	}
+	
+	private func mergeDiskDays(_ diskDays: [ShopHistoryDay], originalCount: Int, didChangeOnLoad: Bool) {
+		hasLoadedFromDisk = true
+		if days.isEmpty {
+			days = diskDays
+			if didChangeOnLoad {
+				persist()
+			}
+			return
+		}
+		let merged = Self.deduplicateRotations(diskDays + days)
+		days = merged
+		if didChangeOnLoad || merged.count != originalCount {
 			persist()
 		}
 	}
 	
 	func days(for accountID: User.ID?) -> [ShopHistoryDay] {
-		days
-			.filter { accountID == nil || $0.accountID == accountID }
-			.sorted { $0.date > $1.date }
+		guard let accountID else { return days }
+		return days.filter { $0.accountID == accountID }
 	}
 	
 	func firstRecordedDate(for accountID: User.ID?) -> Date? {
-		days(for: accountID).last?.date
+		if let accountID {
+			return days.last { $0.accountID == accountID }?.date
+		}
+		return days.last?.date
 	}
 	
 	func recordDailyCheck(accountCount: Int) {
@@ -94,6 +149,7 @@ final class ShopHistoryStore: ObservableObject {
 		let now = Date()
 		let dayKey = Self.rotationKey(now: now, remainingDuration: remaining)
 		
+		var daysModified = false
 		if let existingIdx = days.firstIndex(where: {
 			$0.accountID == accountID
 			&& Self.isSameRotation(
@@ -104,33 +160,41 @@ final class ShopHistoryStore: ObservableObject {
 				targetKey: dayKey
 			)
 		}) {
-			let unchanged = days[existingIdx].offerSkinLevelIDs == offerLevels
-				&& days[existingIdx].nightMarketLevelIDs == nmLevels
-				&& days[existingIdx].accessoryOffers == accessories
-			days[existingIdx].id = dayKey
-			days[existingIdx].dailyRemainingDuration = remaining
-			days[existingIdx].date = max(days[existingIdx].date, now)
-			if !unchanged {
-				days[existingIdx].offerSkinLevelIDs = offerLevels
-				days[existingIdx].nightMarketLevelIDs = nmLevels ?? days[existingIdx].nightMarketLevelIDs
-				days[existingIdx].accessoryOffers = accessories ?? days[existingIdx].accessoryOffers
+			let existing = days[existingIdx]
+			let contentUnchanged = existing.id == dayKey
+				&& existing.offerSkinLevelIDs == offerLevels
+				&& (nmLevels == nil || existing.nightMarketLevelIDs == nmLevels)
+				&& (accessories == nil || existing.accessoryOffers == accessories)
+				&& existing.dailyRemainingDuration != nil
+			if !contentUnchanged {
+				var updated = existing
+				updated.id = dayKey
+				updated.dailyRemainingDuration = remaining
+				updated.date = max(existing.date, now)
+				updated.offerSkinLevelIDs = offerLevels
+				updated.nightMarketLevelIDs = nmLevels ?? existing.nightMarketLevelIDs
+				updated.accessoryOffers = accessories ?? existing.accessoryOffers
+				days[existingIdx] = updated
+				days.sort { $0.date > $1.date }
+				daysModified = true
 			}
 		} else {
-			days.insert(
-				ShopHistoryDay(
-					id: dayKey,
-					accountID: accountID,
-					date: now,
-					offerSkinLevelIDs: offerLevels,
-					nightMarketLevelIDs: nmLevels,
-					accessoryOffers: accessories,
-					dailyRemainingDuration: remaining
-				),
-				at: 0
+			let newEntry = ShopHistoryDay(
+				id: dayKey,
+				accountID: accountID,
+				date: now,
+				offerSkinLevelIDs: offerLevels,
+				nightMarketLevelIDs: nmLevels,
+				accessoryOffers: accessories,
+				dailyRemainingDuration: remaining
 			)
+			if let insertIdx = days.firstIndex(where: { $0.date <= now }) {
+				days.insert(newEntry, at: insertIdx)
+			} else {
+				days.append(newEntry)
+			}
+			daysModified = true
 		}
-		
-		days = Self.deduplicateRotations(days)
 		
 		lastDailyCheckAt = now
 		if lastDailyCheckAccountCount == 0 {
@@ -138,7 +202,9 @@ final class ShopHistoryStore: ObservableObject {
 		}
 		UserDefaults.standard.set(now, forKey: Self.lastCheckAtKey)
 		UserDefaults.standard.set(lastDailyCheckAccountCount, forKey: Self.lastCheckCountKey)
-		persist()
+		if daysModified {
+			persist()
+		}
 	}
 	
 	func appearanceCount(for skinID: Weapon.Skin.ID, accountID: User.ID?, assets: AssetCollection?) -> Int {
@@ -151,56 +217,96 @@ final class ShopHistoryStore: ObservableObject {
 		assets: AssetCollection?
 	) -> WishlistAppearanceStats {
 		guard let assets else { return WishlistAppearanceStats(count: 0, lastSeenDate: nil) }
-		let matchingDays = days(for: accountID).filter { day in
-			dayMatches(day, entry: entry, assets: assets)
+		let stats = cachedAccountStats(for: accountID, assets: assets)
+		if entry.kind == .skin {
+			return stats.skinStats[entry.skinID] ?? WishlistAppearanceStats(count: 0, lastSeenDate: nil)
 		}
-		return WishlistAppearanceStats(
-			count: matchingDays.count,
-			lastSeenDate: matchingDays.first?.date
-		)
+		let key = AccessoryKey(kind: entry.kind, itemID: entry.itemID)
+		return stats.accessoryStats[key] ?? WishlistAppearanceStats(count: 0, lastSeenDate: nil)
 	}
 	
-	private func dayMatches(_ day: ShopHistoryDay, entry: WishlistEntry, assets: AssetCollection) -> Bool {
-		switch entry.kind {
-		case .skin:
-			let targetSkinID = entry.skinID
-			if day.offerSkinLevelIDs.contains(where: { assets.resolveSkin($0)?.skin.id == targetSkinID }) {
-				return true
-			}
-			if let nm = day.nightMarketLevelIDs,
-			   nm.contains(where: { assets.resolveSkin($0)?.skin.id == targetSkinID }) {
-				return true
-			}
-			return false
-		case .buddy:
-			return day.accessoryOffers?.contains { offer in
-				guard offer.itemTypeID == .buddies else { return false }
-				if offer.itemID == entry.itemID { return true }
-				return assets.resolveBuddy(.init(rawID: offer.itemID))?.id.rawID == entry.itemID
-			} ?? false
-		case .spray:
-			return day.accessoryOffers?.contains {
-				$0.itemTypeID == .sprays && $0.itemID == entry.itemID
-			} ?? false
-		case .card:
-			return day.accessoryOffers?.contains {
-				$0.itemTypeID == .cards && $0.itemID == entry.itemID
-			} ?? false
-		case .title:
-			return day.accessoryOffers?.contains {
-				$0.itemTypeID == .titles && $0.itemID == entry.itemID
-			} ?? false
-		case .flex:
-			return day.accessoryOffers?.contains {
-				$0.itemTypeID == .totems && $0.itemID == entry.itemID
-			} ?? false
+	private func cachedAccountStats(for accountID: User.ID?, assets: AssetCollection) -> CachedAccountStats {
+		let scopeKey = StatsScopeKey(accountID: accountID, version: assets.version)
+		if let cached = statsCache[scopeKey] {
+			return cached
 		}
+		
+		var skinStats: [WeaponSkin.ID: WishlistAppearanceStats] = [:]
+		var accessoryStats: [AccessoryKey: WishlistAppearanceStats] = [:]
+		let accountDays = days(for: accountID)
+		
+		for day in accountDays {
+			var seenSkinsInDay: Set<WeaponSkin.ID> = []
+			for levelID in day.offerSkinLevelIDs {
+				guard let resolved = assets.resolveSkin(levelID),
+					  seenSkinsInDay.insert(resolved.skin.id).inserted else { continue }
+				var stat = skinStats[resolved.skin.id] ?? WishlistAppearanceStats(count: 0, lastSeenDate: day.date)
+				stat.count += 1
+				if stat.lastSeenDate == nil || day.date > stat.lastSeenDate! {
+					stat.lastSeenDate = day.date
+				}
+				skinStats[resolved.skin.id] = stat
+			}
+			if let nm = day.nightMarketLevelIDs {
+				for levelID in nm {
+					guard let resolved = assets.resolveSkin(levelID),
+						  seenSkinsInDay.insert(resolved.skin.id).inserted else { continue }
+					var stat = skinStats[resolved.skin.id] ?? WishlistAppearanceStats(count: 0, lastSeenDate: day.date)
+					stat.count += 1
+					if stat.lastSeenDate == nil || day.date > stat.lastSeenDate! {
+						stat.lastSeenDate = day.date
+					}
+					skinStats[resolved.skin.id] = stat
+				}
+			}
+			if let accessories = day.accessoryOffers {
+				var seenAccessoriesInDay: Set<AccessoryKey> = []
+				for offer in accessories {
+					let kind: WishlistItemKind?
+					let resolvedID: LowercaseUUID
+					switch offer.itemTypeID {
+					case .buddies:
+						kind = .buddy
+						resolvedID = assets.resolveBuddy(.init(rawID: offer.itemID))?.id.rawID ?? offer.itemID
+					case .sprays:
+						kind = .spray
+						resolvedID = offer.itemID
+					case .cards:
+						kind = .card
+						resolvedID = offer.itemID
+					case .titles:
+						kind = .title
+						resolvedID = offer.itemID
+					case .totems:
+						kind = .flex
+						resolvedID = offer.itemID
+					default:
+						kind = nil
+						resolvedID = offer.itemID
+					}
+					guard let kind else { continue }
+					let key = AccessoryKey(kind: kind, itemID: resolvedID)
+					guard seenAccessoriesInDay.insert(key).inserted else { continue }
+					var stat = accessoryStats[key] ?? WishlistAppearanceStats(count: 0, lastSeenDate: day.date)
+					stat.count += 1
+					if stat.lastSeenDate == nil || day.date > stat.lastSeenDate! {
+						stat.lastSeenDate = day.date
+					}
+					accessoryStats[key] = stat
+				}
+			}
+		}
+		
+		let built = CachedAccountStats(skinStats: skinStats, accessoryStats: accessoryStats)
+		statsCache[scopeKey] = built
+		return built
 	}
 	
 	func skinFrequencies(for accountID: User.ID?, assets: AssetCollection?) -> [SkinFrequencyStat] {
 		guard let assets else { return [] }
 		let accountDays = days(for: accountID)
-		var bySkin: [WeaponSkin.ID: (resolved: ResolvedLevel, dates: [Date])] = [:]
+		// accountDays is maintained in descending date order; appending yields dates already descending.
+		var bySkin: [WeaponSkin.ID: (resolved: ResolvedLevel, count: Int, newest: Date, oldest: Date)] = [:]
 		
 		for day in accountDays {
 			var seenInDay: Set<WeaponSkin.ID> = []
@@ -208,29 +314,28 @@ final class ShopHistoryStore: ObservableObject {
 				guard let resolved = assets.resolveSkin(levelID),
 					  seenInDay.insert(resolved.skin.id).inserted else { continue }
 				if var entry = bySkin[resolved.skin.id] {
-					entry.dates.append(day.date)
+					entry.count += 1
+					if day.date > entry.newest { entry.newest = day.date }
+					if day.date < entry.oldest { entry.oldest = day.date }
 					bySkin[resolved.skin.id] = entry
 				} else {
-					bySkin[resolved.skin.id] = (resolved, [day.date])
+					bySkin[resolved.skin.id] = (resolved, 1, day.date, day.date)
 				}
 			}
 		}
 		
 		return bySkin.values.map { item in
-			let sortedDates = item.dates.sorted(by: >)
 			let avgInterval: Int? = {
-				guard sortedDates.count >= 2,
-					  let newest = sortedDates.first,
-					  let oldest = sortedDates.last else { return nil }
-				let spanDays = newest.timeIntervalSince(oldest) / Double(86_400)
-				return max(1, Int(round(spanDays / Double(sortedDates.count - 1))))
+				guard item.count >= 2 else { return nil }
+				let spanDays = item.newest.timeIntervalSince(item.oldest) / Double(86_400)
+				return max(1, Int(round(spanDays / Double(item.count - 1))))
 			}()
 			return SkinFrequencyStat(
 				skin: item.resolved.skin,
 				weapon: item.resolved.weapon,
 				levelID: item.resolved.level.id,
-				count: sortedDates.count,
-				lastSeenDate: sortedDates.first ?? Date(),
+				count: item.count,
+				lastSeenDate: item.newest,
 				averageIntervalDays: avgInterval
 			)
 		}
@@ -247,28 +352,37 @@ final class ShopHistoryStore: ObservableObject {
 	
 	@discardableResult
 	func importDays(_ incoming: [ShopHistoryDay], replaceAll: Bool) async -> Int {
+		await waitUntilLoaded()
+		pendingSaveTask?.cancel()
 		var working = replaceAll ? [] : days
+		var indexByKey: [AccountDayKey: Int] = [:]
+		indexByKey.reserveCapacity(working.count + incoming.count)
+		for (idx, day) in working.enumerated() {
+			indexByKey[AccountDayKey(accountID: day.accountID, id: day.id)] = idx
+		}
 		var changedCount = 0
 		
 		for day in incoming {
-			if let idx = working.firstIndex(where: { $0.accountID == day.accountID && $0.id == day.id }) {
+			let key = AccountDayKey(accountID: day.accountID, id: day.id)
+			if let idx = indexByKey[key] {
 				if day.date > working[idx].date {
 					working[idx] = day
 					changedCount += 1
 				}
 			} else {
+				indexByKey[key] = working.count
 				working.append(day)
 				changedCount += 1
 			}
 		}
 		
-		working = Self.deduplicateRotations(working)
-		days = working
+		let deduplicated = Self.deduplicateRotations(working)
+		days = deduplicated
 		await LocalJSONStore.saveAndWait(days, to: filename)
-		return replaceAll ? working.count : changedCount
+		return replaceAll ? deduplicated.count : changedCount
 	}
 	
-	static func rotationKey(now: Date, remainingDuration: TimeInterval?) -> String {
+	nonisolated static func rotationKey(now: Date, remainingDuration: TimeInterval?) -> String {
 		if let remaining = remainingDuration, remaining > 0, remaining <= 172_800 {
 			let expiry = now.addingTimeInterval(remaining)
 			// Anchoring 12h before expiry maps every timestamp inside a 24h UTC shop window to the same yyyy-MM-dd key.
@@ -278,17 +392,21 @@ final class ShopHistoryStore: ObservableObject {
 		return dayFormatter.string(from: now)
 	}
 	
-	private static func isSameRotation(
+	private nonisolated static func isSameRotation(
 		_ existing: ShopHistoryDay,
 		now: Date,
 		remaining: TimeInterval?,
 		offerLevels: [Weapon.Skin.Level.ID],
-		targetKey: String
+		targetKey: String,
+		existingNormalizedKey: String? = nil
 	) -> Bool {
-		let existingNormalizedKey = existing.dailyRemainingDuration.map {
+		if existing.id == targetKey {
+			return true
+		}
+		let normalizedExisting = existingNormalizedKey ?? existing.dailyRemainingDuration.map {
 			rotationKey(now: existing.date, remainingDuration: $0)
 		} ?? existing.id
-		if existing.id == targetKey || existingNormalizedKey == targetKey {
+		if normalizedExisting == targetKey {
 			return true
 		}
 		if let existingRemaining = existing.dailyRemainingDuration, existingRemaining > 0,
@@ -301,15 +419,19 @@ final class ShopHistoryStore: ObservableObject {
 		}
 		if !offerLevels.isEmpty,
 		   existing.offerSkinLevelIDs.count == offerLevels.count,
-		   Set(existing.offerSkinLevelIDs) == Set(offerLevels),
-		   abs(now.timeIntervalSince(existing.date)) <= offerDuplicateWindow {
+		   abs(now.timeIntervalSince(existing.date)) <= offerDuplicateWindow,
+		   Set(existing.offerSkinLevelIDs) == Set(offerLevels) {
 			return true
 		}
 		return false
 	}
 	
-	private static func deduplicateRotations(_ input: [ShopHistoryDay]) -> [ShopHistoryDay] {
+	private nonisolated static func deduplicateRotations(_ input: [ShopHistoryDay]) -> [ShopHistoryDay] {
 		var result: [ShopHistoryDay] = []
+		result.reserveCapacity(input.count)
+		var indexByKey: [AccountDayKey: Int] = [:]
+		var recentIndicesByAccount: [User.ID: [Int]] = [:]
+		
 		let chronological = input.sorted { $0.date < $1.date }
 		
 		for var entry in chronological {
@@ -321,16 +443,27 @@ final class ShopHistoryStore: ObservableObject {
 				normalizedKey = entry.id
 			}
 			
-			if let matchIdx = result.firstIndex(where: { existing in
-				existing.accountID == entry.accountID
-				&& isSameRotation(
-					existing,
-					now: entry.date,
-					remaining: entry.dailyRemainingDuration,
-					offerLevels: entry.offerSkinLevelIDs,
-					targetKey: normalizedKey
-				)
-			}) {
+			let exactKey = AccountDayKey(accountID: entry.accountID, id: normalizedKey)
+			var matchedIndex = indexByKey[exactKey]
+			
+			if matchedIndex == nil, let candidates = recentIndicesByAccount[entry.accountID] {
+				for idx in candidates.reversed() {
+					let existing = result[idx]
+					if isSameRotation(
+						existing,
+						now: entry.date,
+						remaining: entry.dailyRemainingDuration,
+						offerLevels: entry.offerSkinLevelIDs,
+						targetKey: normalizedKey,
+						existingNormalizedKey: existing.id
+					) {
+						matchedIndex = idx
+						break
+					}
+				}
+			}
+			
+			if let matchIdx = matchedIndex {
 				let older = result[matchIdx]
 				var merged = entry.date >= older.date ? entry : older
 				merged.id = normalizedKey.count == 10 ? normalizedKey : merged.id
@@ -340,8 +473,17 @@ final class ShopHistoryStore: ObservableObject {
 					merged.dailyRemainingDuration = older.dailyRemainingDuration
 				}
 				result[matchIdx] = merged
+				indexByKey[AccountDayKey(accountID: merged.accountID, id: merged.id)] = matchIdx
 			} else {
+				let newIndex = result.count
 				result.append(entry)
+				indexByKey[exactKey] = newIndex
+				var recent = recentIndicesByAccount[entry.accountID] ?? []
+				recent.append(newIndex)
+				if recent.count > 3 {
+					recent.removeFirst(recent.count - 3)
+				}
+				recentIndicesByAccount[entry.accountID] = recent
 			}
 		}
 		
@@ -349,28 +491,33 @@ final class ShopHistoryStore: ObservableObject {
 	}
 	
 	private func persist() {
-		LocalJSONStore.save(days, to: filename)
+		if hasLoadedFromDisk {
+			LocalJSONStore.save(days, to: filename)
+		} else {
+			pendingSaveTask?.cancel()
+			pendingSaveTask = Task { @MainActor [weak self] in
+				await self?.waitUntilLoaded()
+				guard let self, !Task.isCancelled else { return }
+				LocalJSONStore.save(self.days, to: self.filename)
+			}
+		}
 	}
 }
 
 extension ShopHistoryDay {
-	private static let utcParser: DateFormatter = {
+	private static let localDayParser: DateFormatter = {
 		let formatter = DateFormatter()
 		formatter.locale = Locale(identifier: "en_US_POSIX")
-		formatter.timeZone = TimeZone(secondsFromGMT: 0)!
+		formatter.calendar = Calendar(identifier: .gregorian)
+		formatter.timeZone = .autoupdatingCurrent
 		formatter.dateFormat = "yyyy-MM-dd"
 		return formatter
 	}()
 	
 	/// Calendar-friendly date matching the UTC rotation ID (`yyyy-MM-dd`), avoiding local post-midnight shifts.
 	var rotationDisplayDate: Date {
-		if id.count == 10, let parsedUTC = Self.utcParser.date(from: id) {
-			var utcCal = Calendar(identifier: .gregorian)
-			utcCal.timeZone = TimeZone(secondsFromGMT: 0)!
-			let utcComps = utcCal.dateComponents([.year, .month, .day], from: parsedUTC)
-			if let localDate = Calendar.current.date(from: utcComps) {
-				return localDate
-			}
+		if id.count == 10, let localDate = Self.localDayParser.date(from: id) {
+			return localDate
 		}
 		return date
 	}

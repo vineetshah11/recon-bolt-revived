@@ -10,8 +10,9 @@ struct ProgressTimelinesView: View {
 	@Environment(\.valorantLoad) private var load
 	
 	@State private var range: ProgressTimeRange = .days90
-	@State private var selectedCurrency: WalletCurrency = .vp
 	@State private var isRefreshing = false
+	@State private var lastRefreshedAt: Date?
+	@State private var lastRefreshedAccountID: User.ID?
 	@Namespace private var rangeNamespace
 	
 	enum WalletCurrency: String, CaseIterable, Identifiable {
@@ -46,12 +47,6 @@ struct ProgressTimelinesView: View {
 		}
 	}
 	
-	private struct ChartDatum: Identifiable {
-		var id: String
-		var date: Date
-		var value: Double
-	}
-	
 	var body: some View {
 		ScrollView {
 			VStack(spacing: 14) {
@@ -68,7 +63,7 @@ struct ProgressTimelinesView: View {
 					
 					leaderboardRankCard(filtered: filteredPoints, all: allPoints)
 					
-					walletCard(filtered: filteredPoints, all: allPoints)
+					WalletTimelineCard(filtered: filteredPoints, all: allPoints)
 				} else {
 					emptySignedOutCard
 				}
@@ -165,10 +160,10 @@ struct ProgressTimelinesView: View {
 		filtered: [ProgressTimelinePoint],
 		all: [ProgressTimelinePoint]
 	) -> some View {
-		let levelSeries: [ChartDatum] = filtered.compactMap { point in
+		let levelSeries: [TimelineChartDatum] = filtered.compactMap { point in
 			guard let level = point.accountLevel else { return nil }
 			let fractionalXP = Double(max(0, min(5_000, point.accountXP ?? 0))) / Double(5_000)
-			return ChartDatum(
+			return TimelineChartDatum(
 				id: point.id,
 				date: point.recordedAt,
 				value: Double(level) + fractionalXP
@@ -222,7 +217,7 @@ struct ProgressTimelinesView: View {
 				let domainLow = Double(max(0, minInt - 1))
 				let domainHigh = Double(max(minInt + 2, maxInt + 2))
 				
-				lineChart(
+				TimelineLineChartView(
 					data: levelSeries,
 					yDomain: domainLow...domainHigh,
 					color: .accentColor,
@@ -233,7 +228,7 @@ struct ProgressTimelinesView: View {
 				)
 				.frame(height: 165)
 			} else {
-				chartEmptyPlaceholder("No account level points in this range yet.")
+				TimelineChartEmptyPlaceholder(message: "No account level points in this range yet.")
 			}
 			
 			if let latestXP {
@@ -241,13 +236,12 @@ struct ProgressTimelinesView: View {
 				let ratio = Double(clamped) / Double(5_000)
 				
 				VStack(alignment: .leading, spacing: 6) {
-					GeometryReader { geo in
-						ZStack(alignment: .leading) {
-							Capsule()
-								.fill(Color.secondary.opacity(0.2))
-							Capsule()
+					ZStack(alignment: .leading) {
+						Capsule()
+							.fill(Color.secondary.opacity(0.2))
+						if clamped > 0 {
+							HorizontalFillCapsuleShape(fraction: ratio, minWidth: 6)
 								.fill(Color.accentColor)
-								.frame(width: clamped > 0 ? max(6, geo.size.width * CGFloat(ratio)) : 0)
 						}
 					}
 					.frame(height: 5)
@@ -278,8 +272,8 @@ struct ProgressTimelinesView: View {
 		let currentRank = rankPoints.last?.rank ?? latestRank
 		
 		// Plot -rank so smaller leaderboard numbers (better ranks) sit near the top.
-		let rankSeries: [ChartDatum] = rankPoints.map { item in
-			ChartDatum(
+		let rankSeries: [TimelineChartDatum] = rankPoints.map { item in
+			TimelineChartDatum(
 				id: item.point.id,
 				date: item.point.recordedAt,
 				value: Double(-item.rank)
@@ -335,7 +329,7 @@ struct ProgressTimelinesView: View {
 				let highY = Double(-max(1, minRank - pad))
 				let safeHighY = max(lowY + Double(10), highY)
 				
-				lineChart(
+				TimelineLineChartView(
 					data: rankSeries,
 					yDomain: lowY...safeHighY,
 					color: .valorantBlue,
@@ -346,22 +340,120 @@ struct ProgressTimelinesView: View {
 				)
 				.frame(height: 155)
 			} else {
-				chartEmptyPlaceholder("No leaderboard rank points recorded in this range.")
+				TimelineChartEmptyPlaceholder(message: "No leaderboard rank points recorded in this range.")
 			}
 		}
 		.padding(16)
 		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 	}
 	
-	// MARK: - Wallet Card
+	// MARK: - Refresh
 	
-	private func walletCard(
-		filtered: [ProgressTimelinePoint],
-		all: [ProgressTimelinePoint]
-	) -> some View {
-		let walletSeries: [ChartDatum] = filtered.compactMap { point in
+	@MainActor
+	private func refreshTimelines(showErrorAlerts: Bool) async {
+		guard let account = accountManager.activeAccount else { return }
+		guard !isRefreshing else { return }
+		let now = Date()
+		if !showErrorAlerts,
+		   lastRefreshedAccountID == account.id,
+		   let lastRefreshedAt,
+		   now.timeIntervalSince(lastRefreshedAt) < 60 {
+			return
+		}
+		isRefreshing = true
+		defer { isRefreshing = false }
+		
+		var recordedSummary: CareerSummary?
+		let cachedSummary = LocalDataProvider.shared.careerSummaryManager.loadedObject(for: account.id)
+		
+		if showErrorAlerts {
+			await load { client in
+				async let xpTask = try? client.getAccountXP()
+				async let walletTask = try? client.getStoreWallet()
+				async let summaryTask = try? client.getCareerSummary(userID: account.id)
+				
+				let (xp, wallet, summary) = await (xpTask, walletTask, summaryTask)
+				if let summary {
+					LocalDataProvider.shared.careerSummaryManager.store(summary, asOf: .now)
+					recordedSummary = summary
+				} else {
+					recordedSummary = cachedSummary
+				}
+				if xp != nil || wallet != nil || recordedSummary != nil {
+					progressTimelineStore.recordBatch(
+						accountXP: xp,
+						wallet: wallet,
+						summary: recordedSummary,
+						seasons: seasons,
+						for: account.id
+					)
+				}
+			}
+		} else {
+			let client = account.client
+			async let xpTask = try? client.getAccountXP()
+			async let walletTask = try? client.getStoreWallet()
+			async let summaryTask = try? client.getCareerSummary(userID: account.id)
+			
+			let (xp, wallet, summary) = await (xpTask, walletTask, summaryTask)
+			if let summary {
+				LocalDataProvider.shared.careerSummaryManager.store(summary, asOf: .now)
+				recordedSummary = summary
+			} else {
+				recordedSummary = cachedSummary
+			}
+			if xp != nil || wallet != nil || recordedSummary != nil {
+				progressTimelineStore.recordBatch(
+					accountXP: xp,
+					wallet: wallet,
+					summary: recordedSummary,
+					seasons: seasons,
+					for: account.id
+				)
+			}
+		}
+		
+		lastRefreshedAccountID = account.id
+		lastRefreshedAt = Date()
+	}
+	
+	// MARK: - Formatting
+	
+	private static let spacedNumberFormatter: NumberFormatter = {
+		let formatter = NumberFormatter()
+		formatter.numberStyle = .decimal
+		formatter.groupingSeparator = " "
+		return formatter
+	}()
+	
+	fileprivate static func spacedNumber(_ value: Int) -> String {
+		spacedNumberFormatter.string(from: NSNumber(value: value)) ?? "\(value)"
+	}
+	
+	fileprivate static func compactBalance(_ value: Int) -> String {
+		if value >= 10_000 {
+			return "\(value / 1_000)k"
+		}
+		return "\(value)"
+	}
+}
+
+private struct TimelineChartDatum: Identifiable {
+	var id: String
+	var date: Date
+	var value: Double
+}
+
+private struct WalletTimelineCard: View {
+	let filtered: [ProgressTimelinePoint]
+	let all: [ProgressTimelinePoint]
+	
+	@State private var selectedCurrency: ProgressTimelinesView.WalletCurrency = .vp
+	
+	var body: some View {
+		let walletSeries: [TimelineChartDatum] = filtered.compactMap { point in
 			guard let amount = selectedCurrency.value(in: point) else { return nil }
-			return ChartDatum(
+			return TimelineChartDatum(
 				id: point.id,
 				date: point.recordedAt,
 				value: Double(amount)
@@ -388,18 +480,18 @@ struct ProgressTimelinesView: View {
 			if delta == 0 {
 				return "No \(selectedCurrency.rawValue) change since \(dateStr)"
 			}
-			return "\(prefix)\(Self.spacedNumber(abs(delta))) \(selectedCurrency.rawValue) since \(dateStr)"
+			return "\(prefix)\(ProgressTimelinesView.spacedNumber(abs(delta))) \(selectedCurrency.rawValue) since \(dateStr)"
 		}()
 		
 		let latestBalances = all.last(where: { $0.vp != nil || $0.rp != nil || $0.kc != nil })
 		
-		return VStack(alignment: .leading, spacing: 10) {
+		VStack(alignment: .leading, spacing: 10) {
 			HStack(spacing: 10) {
 				Text("Wallet")
 					.font(.headline)
 				
 				HStack(spacing: 2) {
-					ForEach(WalletCurrency.allCases) { currency in
+					ForEach(ProgressTimelinesView.WalletCurrency.allCases) { currency in
 						let selected = (currency == selectedCurrency)
 						Button {
 							withAnimation(.easeInOut(duration: 0.15)) {
@@ -446,18 +538,18 @@ struct ProgressTimelinesView: View {
 				let domainLow = max(Double(0), minVal - span * Double(0.15))
 				let domainHigh = max(domainLow + Double(50), maxVal + span * Double(0.15))
 				
-				lineChart(
+				TimelineLineChartView(
 					data: walletSeries,
 					yDomain: domainLow...domainHigh,
 					color: selectedCurrency.accentColor,
 					desiredYAxisCount: 3,
 					yLabel: { value in
-						Self.compactBalance(Int(value.rounded()))
+						ProgressTimelinesView.compactBalance(Int(value.rounded()))
 					}
 				)
 				.frame(height: 155)
 			} else {
-				chartEmptyPlaceholder("No wallet snapshots recorded in this range yet.")
+				TimelineChartEmptyPlaceholder(message: "No wallet snapshots recorded in this range yet.")
 			}
 			
 			if let latestBalances {
@@ -465,7 +557,7 @@ struct ProgressTimelinesView: View {
 					.opacity(0.35)
 				
 				HStack {
-					ForEach(WalletCurrency.allCases) { currency in
+					ForEach(ProgressTimelinesView.WalletCurrency.allCases) { currency in
 						let value = currency.value(in: latestBalances) ?? 0
 						CurrencyLabel(amount: value, currencyID: currency.currencyID)
 							.font(.subheadline.monospacedDigit())
@@ -478,17 +570,16 @@ struct ProgressTimelinesView: View {
 		.padding(16)
 		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 	}
+}
+
+private struct TimelineLineChartView: View {
+	let data: [TimelineChartDatum]
+	let yDomain: ClosedRange<Double>
+	let color: Color
+	let desiredYAxisCount: Int
+	let yLabel: (Double) -> String
 	
-	// MARK: - Shared Chart Builder
-	
-	@ViewBuilder
-	private func lineChart(
-		data: [ChartDatum],
-		yDomain: ClosedRange<Double>,
-		color: Color,
-		desiredYAxisCount: Int,
-		yLabel: @escaping (Double) -> String
-	) -> some View {
+	var body: some View {
 		let baseChart = Chart(data) { entry in
 			LineMark(
 				x: .value("Date", entry.date),
@@ -536,81 +627,18 @@ struct ProgressTimelinesView: View {
 			baseChart
 		}
 	}
+}
+
+private struct TimelineChartEmptyPlaceholder: View {
+	let message: String
 	
-	private func chartEmptyPlaceholder(_ message: String) -> some View {
+	var body: some View {
 		Text(message)
 			.font(.caption)
 			.foregroundStyle(.secondary)
 			.frame(maxWidth: .infinity, minHeight: 72, alignment: .center)
 			.padding(.horizontal, 12)
 			.background(Color.tertiaryGroupedBackground.opacity(0.65), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-	}
-	
-	// MARK: - Refresh
-	
-	@MainActor
-	private func refreshTimelines(showErrorAlerts: Bool) async {
-		guard let account = accountManager.activeAccount else { return }
-		guard !isRefreshing else { return }
-		isRefreshing = true
-		defer { isRefreshing = false }
-		
-		if let cachedSummary = LocalDataProvider.shared.careerSummaryManager.loadedObject(for: account.id) {
-			progressTimelineStore.record(summary: cachedSummary, seasons: seasons, for: account.id)
-		}
-		
-		if showErrorAlerts {
-			await load { client in
-				async let xpTask = try? client.getAccountXP()
-				async let walletTask = try? client.getStoreWallet()
-				async let summaryTask = try? client.getCareerSummary(userID: account.id)
-				
-				let (xp, wallet, summary) = await (xpTask, walletTask, summaryTask)
-				if let xp {
-					progressTimelineStore.record(accountXP: xp, for: account.id)
-				}
-				if let wallet {
-					progressTimelineStore.record(wallet: wallet, for: account.id)
-				}
-				if let summary {
-					LocalDataProvider.shared.careerSummaryManager.store(summary, asOf: .now)
-					progressTimelineStore.record(summary: summary, seasons: seasons, for: account.id)
-				}
-			}
-		} else {
-			let client = account.client
-			async let xpTask = try? client.getAccountXP()
-			async let walletTask = try? client.getStoreWallet()
-			async let summaryTask = try? client.getCareerSummary(userID: account.id)
-			
-			let (xp, wallet, summary) = await (xpTask, walletTask, summaryTask)
-			if let xp {
-				progressTimelineStore.record(accountXP: xp, for: account.id)
-			}
-			if let wallet {
-				progressTimelineStore.record(wallet: wallet, for: account.id)
-			}
-			if let summary {
-				LocalDataProvider.shared.careerSummaryManager.store(summary, asOf: .now)
-				progressTimelineStore.record(summary: summary, seasons: seasons, for: account.id)
-			}
-		}
-	}
-	
-	// MARK: - Formatting
-	
-	private static func spacedNumber(_ value: Int) -> String {
-		let formatter = NumberFormatter()
-		formatter.numberStyle = .decimal
-		formatter.groupingSeparator = " "
-		return formatter.string(from: NSNumber(value: value)) ?? "\(value)"
-	}
-	
-	private static func compactBalance(_ value: Int) -> String {
-		if value >= 10_000 {
-			return "\(value / 1_000)k"
-		}
-		return "\(value)"
 	}
 }
 

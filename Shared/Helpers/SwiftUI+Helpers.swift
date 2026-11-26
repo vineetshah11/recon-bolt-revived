@@ -281,3 +281,21 @@ struct NavigationButton<Label: View>: View {
 		}
 	}
 }
+
+struct HorizontalFillCapsuleShape: Shape {
+	var fraction: Double
+	var minWidth: CGFloat = 6
+	
+	var animatableData: Double {
+		get { fraction }
+		set { fraction = newValue }
+	}
+	
+	func path(in rect: CGRect) -> Path {
+		guard rect.width > 0, rect.height > 0 else { return Path() }
+		let clamped = max(0, min(1, fraction))
+		let fillWidth = max(min(rect.width, minWidth), rect.width * CGFloat(clamped))
+		let barRect = CGRect(x: rect.minX, y: rect.minY, width: fillWidth, height: rect.height)
+		return Capsule().path(in: barRect)
+	}
+}

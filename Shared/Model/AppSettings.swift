@@ -57,14 +57,27 @@ final class AppSettings: ObservableObject {
 		!customAccentColorComponents.isEmpty
 	}
 	
+	private static let sRGBSpace = CGColorSpace(name: CGColorSpace.sRGB)
+	
+	private static func parseRGBComponents(_ raw: String) -> (Double, Double, Double)? {
+		guard let firstComma = raw.firstIndex(of: ",") else { return nil }
+		let afterFirst = raw.index(after: firstComma)
+		guard let secondComma = raw[afterFirst...].firstIndex(of: ",") else { return nil }
+		let afterSecond = raw.index(after: secondComma)
+		guard !raw[afterSecond...].contains(","),
+			  let r = Double(raw[..<firstComma]),
+			  let g = Double(raw[afterFirst..<secondComma]),
+			  let b = Double(raw[afterSecond...]) else {
+			return nil
+		}
+		return (r, g, b)
+	}
+	
 	var effectiveAccentColor: Color {
-		let parts = customAccentColorComponents
-			.split(separator: ",")
-			.compactMap { Double($0) }
-		guard parts.count == 3 else {
+		guard let (r, g, b) = Self.parseRGBComponents(customAccentColorComponents) else {
 			return Self.defaultAccentColor
 		}
-		return Self.strictSRGBColor(red: parts[0], green: parts[1], blue: parts[2])
+		return Self.strictSRGBColor(red: r, green: g, blue: b)
 	}
 	
 	var accentColorBinding: Binding<Color> {
@@ -78,15 +91,16 @@ final class AppSettings: ObservableObject {
 			},
 			set: { newValue in
 				let (r, g, b) = Self.clampedSRGBComponents(from: newValue)
-				self.customAccentColorComponents = "\(r),\(g),\(b)"
-				self.objectWillChange.send()
+				let formatted = "\(r),\(g),\(b)"
+				guard self.customAccentColorComponents != formatted else { return }
+				self.customAccentColorComponents = formatted
 			}
 		)
 	}
 	
 	private static func clampedSRGBComponents(from color: Color) -> (Double, Double, Double) {
 		let cgColor = UIColor(color).cgColor
-		if let srgbSpace = CGColorSpace(name: CGColorSpace.sRGB),
+		if let srgbSpace = sRGBSpace,
 		   let converted = cgColor.converted(to: srgbSpace, intent: .defaultIntent, options: nil),
 		   let components = converted.components,
 		   components.count >= 3
@@ -115,7 +129,7 @@ final class AppSettings: ObservableObject {
 		let r = min(max(red, Double(0)), Double(1))
 		let g = min(max(green, Double(0)), Double(1))
 		let b = min(max(blue, Double(0)), Double(1))
-		if let space = CGColorSpace(name: CGColorSpace.sRGB),
+		if let space = sRGBSpace,
 		   let cgColor = CGColor(colorSpace: space, components: [CGFloat(r), CGFloat(g), CGFloat(b), 1])
 		{
 			return Color(cgColor: cgColor)
@@ -126,7 +140,7 @@ final class AppSettings: ObservableObject {
 	var pickerSelectedUIColor: UIColor {
 		let baseColor = hasCustomAccentColor ? effectiveAccentColor : Self.defaultAccentColor
 		let (r, g, b) = Self.clampedSRGBComponents(from: baseColor)
-		if let space = CGColorSpace(name: CGColorSpace.sRGB),
+		if let space = Self.sRGBSpace,
 		   let cgColor = CGColor(colorSpace: space, components: [CGFloat(r), CGFloat(g), CGFloat(b), 1])
 		{
 			return UIColor(cgColor: cgColor)
@@ -177,9 +191,9 @@ final class AppSettings: ObservableObject {
 	@MainActor
 	func setCustomAccentColor(_ uiColor: UIColor) {
 		let (r, g, b) = Self.clampedSRGBComponents(from: Color(uiColor))
-		customAccentColorComponents = "\(r),\(g),\(b)"
-		objectWillChange.send()
-		Self.applyGlobalTint(effectiveAccentColor)
+		let formatted = "\(r),\(g),\(b)"
+		guard customAccentColorComponents != formatted else { return }
+		customAccentColorComponents = formatted
 	}
 	
 	@MainActor
@@ -190,29 +204,29 @@ final class AppSettings: ObservableObject {
 	
 	@MainActor
 	func resetAccentColor() {
-		customAccentColorComponents = ""
-		objectWillChange.send()
+		if !customAccentColorComponents.isEmpty {
+			customAccentColorComponents = ""
+		}
 		reloadAppForAccentChange()
 	}
 	
 	@MainActor
 	func resetAll() {
-		theme = .system
-		customAccentColorComponents = ""
-		autoOpenMatchDetails = false
-		vibrateOnMatchFound = true
-		isCompactListStyle = false
-		autoDownloadMatches = true
-		copyPlayerNames = true
-		openProfileDirectly = false
-		sortOfflineByLastSeen = true
-		friendsSortOrder = .defaultOrder
-		clearWebSignInDataOnOpen = true
-		matchRetentionDays = 14
-		keepsOwnMatches = true
-		keepsBookmarkedMatches = true
-		keepsUnlinkedMatches = false
-		objectWillChange.send()
+		if theme != .system { theme = .system }
+		if customAccentColorComponents != "" { customAccentColorComponents = "" }
+		if autoOpenMatchDetails != false { autoOpenMatchDetails = false }
+		if vibrateOnMatchFound != true { vibrateOnMatchFound = true }
+		if isCompactListStyle != false { isCompactListStyle = false }
+		if autoDownloadMatches != true { autoDownloadMatches = true }
+		if copyPlayerNames != true { copyPlayerNames = true }
+		if openProfileDirectly != false { openProfileDirectly = false }
+		if sortOfflineByLastSeen != true { sortOfflineByLastSeen = true }
+		if friendsSortOrder != .defaultOrder { friendsSortOrder = .defaultOrder }
+		if clearWebSignInDataOnOpen != true { clearWebSignInDataOnOpen = true }
+		if matchRetentionDays != 14 { matchRetentionDays = 14 }
+		if keepsOwnMatches != true { keepsOwnMatches = true }
+		if keepsBookmarkedMatches != true { keepsBookmarkedMatches = true }
+		if keepsUnlinkedMatches != false { keepsUnlinkedMatches = false }
 		reloadAppForAccentChange()
 	}
 	
@@ -257,22 +271,23 @@ final class AppSettings: ObservableObject {
 	@MainActor
 	func applySnapshot(_ snapshot: BackupSnapshot) {
 		let accentChanged = customAccentColorComponents != snapshot.customAccentColorComponents
-		theme = snapshot.theme
-		customAccentColorComponents = snapshot.customAccentColorComponents
-		autoOpenMatchDetails = snapshot.autoOpenMatchDetails
-		vibrateOnMatchFound = snapshot.vibrateOnMatchFound
-		isCompactListStyle = snapshot.isCompactListStyle
-		autoDownloadMatches = snapshot.autoDownloadMatches
-		copyPlayerNames = snapshot.copyPlayerNames
-		openProfileDirectly = snapshot.openProfileDirectly
-		sortOfflineByLastSeen = snapshot.sortOfflineByLastSeen
-		friendsSortOrder = snapshot.friendsSortOrder
-		clearWebSignInDataOnOpen = snapshot.clearWebSignInDataOnOpen
-		matchRetentionDays = snapshot.matchRetentionDays
-		keepsOwnMatches = snapshot.keepsOwnMatches
-		keepsBookmarkedMatches = snapshot.keepsBookmarkedMatches
-		keepsUnlinkedMatches = snapshot.keepsUnlinkedMatches
-		objectWillChange.send()
+		if theme != snapshot.theme { theme = snapshot.theme }
+		if customAccentColorComponents != snapshot.customAccentColorComponents {
+			customAccentColorComponents = snapshot.customAccentColorComponents
+		}
+		if autoOpenMatchDetails != snapshot.autoOpenMatchDetails { autoOpenMatchDetails = snapshot.autoOpenMatchDetails }
+		if vibrateOnMatchFound != snapshot.vibrateOnMatchFound { vibrateOnMatchFound = snapshot.vibrateOnMatchFound }
+		if isCompactListStyle != snapshot.isCompactListStyle { isCompactListStyle = snapshot.isCompactListStyle }
+		if autoDownloadMatches != snapshot.autoDownloadMatches { autoDownloadMatches = snapshot.autoDownloadMatches }
+		if copyPlayerNames != snapshot.copyPlayerNames { copyPlayerNames = snapshot.copyPlayerNames }
+		if openProfileDirectly != snapshot.openProfileDirectly { openProfileDirectly = snapshot.openProfileDirectly }
+		if sortOfflineByLastSeen != snapshot.sortOfflineByLastSeen { sortOfflineByLastSeen = snapshot.sortOfflineByLastSeen }
+		if friendsSortOrder != snapshot.friendsSortOrder { friendsSortOrder = snapshot.friendsSortOrder }
+		if clearWebSignInDataOnOpen != snapshot.clearWebSignInDataOnOpen { clearWebSignInDataOnOpen = snapshot.clearWebSignInDataOnOpen }
+		if matchRetentionDays != snapshot.matchRetentionDays { matchRetentionDays = snapshot.matchRetentionDays }
+		if keepsOwnMatches != snapshot.keepsOwnMatches { keepsOwnMatches = snapshot.keepsOwnMatches }
+		if keepsBookmarkedMatches != snapshot.keepsBookmarkedMatches { keepsBookmarkedMatches = snapshot.keepsBookmarkedMatches }
+		if keepsUnlinkedMatches != snapshot.keepsUnlinkedMatches { keepsUnlinkedMatches = snapshot.keepsUnlinkedMatches }
 		if accentChanged {
 			reloadAppForAccentChange()
 		}

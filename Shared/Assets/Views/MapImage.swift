@@ -10,16 +10,16 @@ extension MapImage {
 	typealias Label = _MapImageLabel
 	typealias LabelText = _MapImageLabelText
 	
-	static func splash(_ id: MapID) -> Self {
-		Self(id: id, aspectRatio: 16/9, getImage: \.splash)
+	static func splash(_ id: MapID, bucket: ImageBucket? = nil) -> Self {
+		Self(id: id, aspectRatio: 16/9, bucket: bucket, getImage: \.splash)
 	}
 	
 	static func wideImage(_ id: MapID) -> Self {
 		Self(id: id, aspectRatio: 4.56, shouldLoadImmediately: true, bucket: .banner, getImage: \.listViewIcon)
 	}
 	
-	static func minimap(_ id: MapID) -> Self {
-		Self(id: id, aspectRatio: 1, preferFullResolution: true, getImage: \.displayIcon)
+	static func minimap(_ id: MapID, bucket: ImageBucket? = nil) -> Self {
+		Self(id: id, aspectRatio: 1, preferFullResolution: bucket == nil, bucket: bucket, getImage: \.displayIcon)
 	}
 }
 

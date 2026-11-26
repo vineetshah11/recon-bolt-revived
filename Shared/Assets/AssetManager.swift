@@ -102,7 +102,12 @@ final class AssetManager: ObservableObject {
 		if self.error != nil { self.error = nil }
 		do {
 			let loaded = try await loadAssets()
-			if let current = assets, current.version == loaded.version, current.language == loaded.language, !current.flex.isEmpty, !current.levelBorders.isEmpty, !current.gamePods.isEmpty {
+			if let current = assets, current.version == loaded.version, current.language == loaded.language, storage.schemaVersion == Self.currentSchemaVersion {
+				if current.flex.isEmpty != loaded.flex.isEmpty
+					|| current.levelBorders.isEmpty != loaded.levelBorders.isEmpty
+					|| current.gamePods.isEmpty != loaded.gamePods.isEmpty {
+					assets = loaded
+				}
 				return
 			}
 			assets = loaded
@@ -125,11 +130,11 @@ final class AssetManager: ObservableObject {
 		let client = AssetClient(language: language)
 		let newest = try await client.getCurrentVersion()
 		
-		if let current = assets, current.version == newest, current.language == language, !current.flex.isEmpty, !current.levelBorders.isEmpty, !current.gamePods.isEmpty {
+		if let current = assets, storage.schemaVersion == Self.currentSchemaVersion, current.version == newest, current.language == language {
 			return false
 		}
 		
-		let downloaded = try await downloadAndStore(client: client, version: newest)
+		let downloaded = try await downloadAndStore(client: client, version: newest, existingAssets: assets)
 		assets = downloaded
 		return true
 	}
@@ -245,7 +250,7 @@ final class AssetManager: ObservableObject {
 	static let mockEmpty = AssetManager(assets: nil)
 	#endif
 	
-	private static let currentSchemaVersion = 6
+	private static let currentSchemaVersion = 7
 	
 	var resolvedLanguage: String {
 		languageOverride
@@ -262,38 +267,76 @@ final class AssetManager: ObservableObject {
 			storage.schemaVersion == Self.currentSchemaVersion,
 			let stored = self.assets,
 			stored.version == version,
-			stored.language == language,
-			!stored.flex.isEmpty,
-			!stored.levelBorders.isEmpty,
-			!stored.gamePods.isEmpty
+			stored.language == language
 		{
 			return stored
 		} else {
-			return try await downloadAndStore(client: client, version: version)
+			return try await downloadAndStore(client: client, version: version, existingAssets: self.assets)
 		}
 	}
 	
-	private func downloadAndStore(client: AssetClient, version: AssetVersion) async throws -> AssetCollection {
-		let downloaded = try await client.collectAssets(for: version)
+	private func downloadAndStore(
+		client: AssetClient,
+		version: AssetVersion,
+		existingAssets: AssetCollection?
+	) async throws -> AssetCollection {
+		var downloaded = try await client.collectAssets(for: version)
+		if let existing = existingAssets, existing.language == downloaded.language {
+			if (downloaded.flex.isEmpty && !existing.flex.isEmpty)
+				|| (downloaded.levelBorders.isEmpty && !existing.levelBorders.isEmpty)
+				|| (downloaded.gamePods.isEmpty && !existing.gamePods.isEmpty) {
+				downloaded = AssetCollection(
+					version: downloaded.version,
+					language: downloaded.language,
+					maps: downloaded.maps,
+					agents: downloaded.agents,
+					missions: downloaded.missions,
+					contracts: downloaded.contracts,
+					gameModes: downloaded.gameModes,
+					queues: downloaded.queues,
+					objectives: downloaded.objectives,
+					playerCards: downloaded.playerCards,
+					playerTitles: downloaded.playerTitles,
+					weapons: downloaded.weapons,
+					seasons: downloaded.seasons,
+					skinsByLevelID: downloaded.skinsByLevelID,
+					sprays: downloaded.sprays,
+					buddies: downloaded.buddies,
+					buddiesByLevelID: downloaded.buddiesByLevelID,
+					currencies: downloaded.currencies,
+					bundles: downloaded.bundles,
+					contentTiers: downloaded.contentTiers,
+					flex: downloaded.flex.isEmpty ? existing.flex : downloaded.flex,
+					levelBorders: downloaded.levelBorders.isEmpty ? existing.levelBorders : downloaded.levelBorders,
+					gamePods: downloaded.gamePods.isEmpty ? existing.gamePods : downloaded.gamePods
+				)
+			}
+		}
+		let finalCollection = downloaded
 		try await Task.detached(priority: .userInitiated) {
 			let fm = FileManager.default
 			try fm.createDirectory(
 				at: Self.storedFileURL.deletingLastPathComponent(),
 				withIntermediateDirectories: true
 			)
-			if fm.fileExists(atPath: Self.storedFileURL.path),
-			   let existingData = try? Data(contentsOf: Self.storedFileURL) {
-				try? existingData.write(to: Self.backupFileURL, options: .atomic)
+			if fm.fileExists(atPath: Self.storedFileURL.path) {
+				let tempBackup = Self.backupFileURL.appendingPathExtension("tmp")
+				try? fm.removeItem(at: tempBackup)
+				try? fm.copyItem(at: Self.storedFileURL, to: tempBackup)
+				if fm.fileExists(atPath: tempBackup.path) {
+					try? fm.removeItem(at: Self.backupFileURL)
+					try? fm.moveItem(at: tempBackup, to: Self.backupFileURL)
+				}
 			} else if let legacyData = Self.legacyStoredDefaultsData() {
 				try? legacyData.write(to: Self.backupFileURL, options: .atomic)
 			}
-			let encoded = try JSONEncoder().encode(downloaded)
+			let encoded = try JSONEncoder().encode(finalCollection)
 			try encoded.write(to: Self.storedFileURL, options: .atomic)
 			UserDefaults.shared.removeObject(forKey: Self.legacyStoredDefaultsKey)
 		}.value
 		storage.schemaVersion = Self.currentSchemaVersion
 		storage.installedAt = Date()
-		return downloaded
+		return finalCollection
 	}
 	
 	private struct Storage {

@@ -14,9 +14,11 @@ struct LiveGameBox: View {
 	
 	@AppStorage("LiveGameBox.shouldAutoShow")
 	var shouldAutoShow = false
+	@AppStorage("vibrateOnMatchFound")
+	private var vibrateOnMatchFound = true
 	
+	@State private var isRefreshing = false
 	@Environment(\.valorantLoad) private var load
-	@EnvironmentObject private var settings: AppSettings
 	
 	var body: some View {
 		VStack(spacing: 0) {
@@ -32,7 +34,7 @@ struct LiveGameBox: View {
 				Spacer()
 				
 				if isExpanded {
-					AutoRefresher {
+					AutoRefresher(isPaused: shownMatch != nil) {
 						await load(refresh)
 					}
 					.padding()
@@ -70,7 +72,7 @@ struct LiveGameBox: View {
 			if shouldAutoShow, activeMatch?.id != newMatch?.id {
 				shownMatch = newMatch
 			}
-			if settings.vibrateOnMatchFound, activeMatch == nil, newMatch != nil {
+			if vibrateOnMatchFound, activeMatch == nil, newMatch != nil {
 				AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
 				UINotificationFeedbackGenerator().notificationOccurred(.success)
 			}
@@ -94,7 +96,6 @@ struct LiveGameBox: View {
 				NavigationLink(tag: activeMatch, selection: $shownMatch) {
 					LiveGameContainer(
 						userID: userID,
-						playersInParty: Set(party?.members.map(\.id) ?? []),
 						activeMatch: activeMatch
 					)
 				} label: {
@@ -118,12 +119,12 @@ struct LiveGameBox: View {
 			.frame(maxWidth: .infinity)
 			.padding(14)
 			.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-		} else if party != nil {
+		} else if let currentParty = party {
 			PartyInfoBox(
 				userID: userID,
 				party: Binding(
-					get: { party! },
-					set: { party = $0 }
+					get: { self.party ?? currentParty },
+					set: { self.party = $0 }
 				),
 				partyPlayer: partyPlayer,
 				shouldAutoShow: $shouldAutoShow,
@@ -146,29 +147,49 @@ struct LiveGameBox: View {
 	
 	@Sendable
 	func refresh(using client: ValorantClient) async throws {
-		async let activeMatchUpdate: Void = loadActiveMatch(using: client)
-		async let partyUpdate: Void = loadParty(using: client)
-		_ = try await (activeMatchUpdate, partyUpdate)
+		guard !isRefreshing else { return }
+		isRefreshing = true
+		defer { isRefreshing = false }
+		try await loadActiveMatch(using: client)
+		guard activeMatch == nil else { return }
+		try await loadParty(using: client)
 	}
 	
 	func loadActiveMatch(using client: ValorantClient) async throws {
-    	activeMatch = try await client.getActiveMatch()
+		let fetched = try await client.getActiveMatch()
+		if activeMatch != fetched {
+			activeMatch = fetched
+		}
 	}
 	
 	func loadParty(using client: ValorantClient) async throws {
-		async let fetchedParty = client.getPartyInfo()
-		async let fetchedPlayer = client.getPartyPlayer()
-		let loadedParty = try await fetchedParty
-		partyPlayer = try? await fetchedPlayer
-		party = loadedParty
+		let fetchedPlayer = try await client.getPartyPlayer()
+		if partyPlayer != fetchedPlayer {
+			partyPlayer = fetchedPlayer
+		}
+		let loadedParty: Party?
+		if let partyID = fetchedPlayer?.currentPartyID {
+			loadedParty = try await client.getPartyInfo(for: partyID)
+		} else {
+			loadedParty = nil
+		}
+		let identitiesChanged = loadedParty?.members.map(\.identity) != party?.members.map(\.identity)
+		if party != loadedParty {
+			party = loadedParty
+		}
 		if let loadedParty {
-			LocalDataProvider.dataFetched(loadedParty)
-			var ids = loadedParty.members.map(\.id)
-			ids.append(contentsOf: loadedParty.requests.map(\.requestedBy))
-			if let partyPlayer {
-				ids.append(contentsOf: partyPlayer.requests.map(\.requestedBy))
+			if identitiesChanged {
+				LocalDataProvider.dataFetched(loadedParty)
 			}
-			try await client.fetchUsers(for: Array(Set(ids)))
+			var ids = Set(loadedParty.members.map(\.id))
+			ids.formUnion(loadedParty.requests.map(\.requestedBy))
+			if let fetchedPlayer {
+				ids.formUnion(fetchedPlayer.requests.map(\.requestedBy))
+			}
+			let missingIDs = ids.filter { LocalDataProvider.shared.userManager.loadedObject(for: $0) == nil }
+			if !missingIDs.isEmpty {
+				try await client.fetchUsers(for: Array(missingIDs))
+			}
 		}
 	}
 	

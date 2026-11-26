@@ -18,6 +18,17 @@ struct BackupExportView: View {
 	@State private var exportError: String?
 	@State private var exportResult: BackupExportResult?
 	@State private var documentExportURL: URL?
+	@State private var exportTask: Task<Void, Never>?
+	
+	private struct ModuleStats {
+		let count: Int
+		let bytes: Int64?
+	}
+	
+	@State private var cachedModuleStats: [BackupModuleKind: ModuleStats] = [:]
+	@State private var cachedStatsPlayerSelection: Set<User.ID> = []
+	@State private var cachedEffectiveSelectedModulesCount = 0
+	@State private var cachedEstimatedSelectedDiskBytes: Int64 = 0
 	
 	private var passwordValidationError: String? {
 		guard encryptWithPassword else { return nil }
@@ -31,25 +42,50 @@ struct BackupExportView: View {
 	}
 	
 	private func effectiveItemCount(for kind: BackupModuleKind) -> Int {
-		guard let inventory else { return 0 }
-		return inventory.itemCount(for: kind, selectedPlayers: selectedPlayerIDs)
-	}
-	
-	private var effectiveSelectedModulesCount: Int {
-		selectedModules.count { effectiveItemCount(for: $0) > 0 }
-	}
-	
-	private var estimatedSelectedDiskBytes: Int64 {
-		guard let inventory else { return 0 }
-		return selectedModules.reduce(Int64(0)) { total, kind in
-			total + (inventory.estimatedBytes(for: kind, selectedPlayers: selectedPlayerIDs) ?? 0)
+		if let cached = cachedModuleStats[kind] {
+			return cached.count
 		}
+		return inventory?.itemCount(for: kind, selectedPlayers: selectedPlayerIDs) ?? 0
+	}
+	
+	private func recomputeModuleStats(force: Bool = false) {
+		guard let inventory else {
+			cachedModuleStats.removeAll()
+			cachedEffectiveSelectedModulesCount = 0
+			cachedEstimatedSelectedDiskBytes = 0
+			return
+		}
+		if force || cachedModuleStats.isEmpty || cachedStatsPlayerSelection != selectedPlayerIDs {
+			cachedStatsPlayerSelection = selectedPlayerIDs
+			var updated: [BackupModuleKind: ModuleStats] = [:]
+			updated.reserveCapacity(BackupModuleKind.allCases.count)
+			for kind in BackupModuleKind.allCases {
+				updated[kind] = ModuleStats(
+					count: inventory.itemCount(for: kind, selectedPlayers: selectedPlayerIDs),
+					bytes: inventory.estimatedBytes(for: kind, selectedPlayers: selectedPlayerIDs)
+				)
+			}
+			cachedModuleStats = updated
+		}
+		
+		var count = 0
+		var totalBytes: Int64 = 0
+		for kind in selectedModules {
+			if let stat = cachedModuleStats[kind] {
+				if stat.count > 0 {
+					count += 1
+				}
+				totalBytes += stat.bytes ?? 0
+			}
+		}
+		cachedEffectiveSelectedModulesCount = count
+		cachedEstimatedSelectedDiskBytes = totalBytes
 	}
 	
 	private var canExport: Bool {
 		!isLoadingInventory
 			&& !isExporting
-			&& effectiveSelectedModulesCount > 0
+			&& cachedEffectiveSelectedModulesCount > 0
 			&& passwordValidationError == nil
 	}
 	
@@ -96,7 +132,15 @@ struct BackupExportView: View {
 		.task {
 			await loadInventory()
 		}
+		.onChange(of: selectedPlayerIDs) { _ in
+			recomputeModuleStats()
+		}
+		.onChange(of: selectedModules) { _ in
+			recomputeModuleStats()
+		}
 		.onDisappear {
+			exportTask?.cancel()
+			exportTask = nil
 			cleanupTemporaryExport()
 		}
 		.sheet(item: $exportResult) { result in
@@ -216,8 +260,9 @@ struct BackupExportView: View {
 	}
 	
 	private func moduleRow(kind: BackupModuleKind, inventory: BackupInventory) -> some View {
-		let count = inventory.itemCount(for: kind, selectedPlayers: selectedPlayerIDs)
-		let bytes = inventory.estimatedBytes(for: kind, selectedPlayers: selectedPlayerIDs)
+		let stat = cachedModuleStats[kind]
+		let count = stat?.count ?? inventory.itemCount(for: kind, selectedPlayers: selectedPlayerIDs)
+		let bytes = stat?.bytes ?? inventory.estimatedBytes(for: kind, selectedPlayers: selectedPlayerIDs)
 		let isEmpty = count == 0
 		
 		return Toggle(isOn: Binding(
@@ -368,8 +413,8 @@ struct BackupExportView: View {
 			.buttonStyle(.plain)
 			.disabled(!canExport)
 			
-			if estimatedSelectedDiskBytes > 0 {
-				Text("Raw JSON on disk: \(estimatedSelectedDiskBytes, format: .byteCount(style: .file)) (compressed in archive)")
+			if cachedEstimatedSelectedDiskBytes > 0 {
+				Text("Raw JSON on disk: \(cachedEstimatedSelectedDiskBytes, format: .byteCount(style: .file)) (compressed in archive)")
 					.font(.caption.monospacedDigit())
 					.foregroundStyle(.secondary)
 			}
@@ -467,11 +512,13 @@ struct BackupExportView: View {
 		let built = await BackupService.buildInventory(stores: stores)
 		inventory = built
 		selectedPlayerIDs = built.allPlayerIDs
+		recomputeModuleStats(force: true)
 		isLoadingInventory = false
 	}
 	
 	private func runExport() {
 		guard let inventory else { return }
+		exportTask?.cancel()
 		cleanupTemporaryExport()
 		isExporting = true
 		
@@ -483,14 +530,24 @@ struct BackupExportView: View {
 			password: encryptWithPassword ? password : nil
 		)
 		
-		Task {
-			defer { isExporting = false }
+		exportTask = Task {
+			defer {
+				isExporting = false
+				exportTask = nil
+			}
 			do {
-				exportResult = try await BackupService.exportBackup(
+				let result = try await BackupService.exportBackup(
 					options: options,
 					inventory: inventory,
 					stores: stores
 				)
+				if Task.isCancelled {
+					try? FileManager.default.removeItem(at: result.fileURL)
+					return
+				}
+				exportResult = result
+			} catch is CancellationError {
+				return
 			} catch {
 				exportError = error.localizedDescription
 			}

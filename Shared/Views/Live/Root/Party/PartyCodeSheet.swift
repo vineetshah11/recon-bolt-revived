@@ -9,6 +9,7 @@ struct PartyCodeSheet: View {
 	
 	@State private var isUpdating = false
 	@State private var didCopyCode = false
+	@State private var copyResetTask: Task<Void, Never>?
 	@State private var isShowingJoinAlert = false
 	@State private var joinCodeInput = ""
 	
@@ -53,8 +54,10 @@ struct PartyCodeSheet: View {
 					Button {
 						UIPasteboard.general.string = party.inviteCode
 						didCopyCode = true
-						Task {
+						copyResetTask?.cancel()
+						copyResetTask = Task {
 							try? await Task.sleep(for: .seconds(1.5))
+							guard !Task.isCancelled else { return }
 							didCopyCode = false
 						}
 					} label: {
@@ -129,6 +132,10 @@ struct PartyCodeSheet: View {
 		.background(Color.groupedBackground)
 		.presentationDetents([.height(hasCode ? 260 : 220), .medium])
 		.presentationDragIndicator(.visible)
+		.onDisappear {
+			copyResetTask?.cancel()
+			copyResetTask = nil
+		}
 		.alert("Join Party", isPresented: $isShowingJoinAlert) {
 			TextField("Party Code", text: $joinCodeInput)
 				.textInputAutocapitalization(.characters)

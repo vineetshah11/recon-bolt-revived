@@ -7,17 +7,19 @@ enum LocalJSONStore {
 	
 	private static let ioQueue = DispatchQueue(label: "com.reconbolt.localjsonstore", qos: .utility)
 	
-	private static func makeDecoder() -> JSONDecoder {
+	private static let sharedDecoder: JSONDecoder = {
 		let decoder = JSONDecoder()
 		decoder.dateDecodingStrategy = .iso8601
 		return decoder
-	}
+	}()
 	
-	private static func makeEncoder() -> JSONEncoder {
+	private static let sharedEncoder: JSONEncoder = {
 		let encoder = JSONEncoder()
 		encoder.dateEncodingStrategy = .iso8601
 		return encoder
-	}
+	}()
+	
+	private static var didEnsureDirectory = false
 	
 	static func url(for filename: String) -> URL {
 		FolderLocations.localData.appendingPathComponent(filename, isDirectory: false)
@@ -62,11 +64,14 @@ enum LocalJSONStore {
 	
 	private static func writeOnQueue<T: Encodable>(_ value: T, to fileURL: URL, filename: String) {
 		do {
-			try FileManager.default.createDirectory(
-				at: fileURL.deletingLastPathComponent(),
-				withIntermediateDirectories: true
-			)
-			let data = try makeEncoder().encode(value)
+			if !didEnsureDirectory {
+				try FileManager.default.createDirectory(
+					at: fileURL.deletingLastPathComponent(),
+					withIntermediateDirectories: true
+				)
+				didEnsureDirectory = true
+			}
+			let data = try sharedEncoder.encode(value)
 			try data.write(to: fileURL, options: .atomic)
 		} catch {
 			print("Failed saving \(filename):", error)
@@ -75,6 +80,6 @@ enum LocalJSONStore {
 	
 	private static func decodeOnQueue<T: Decodable>(_ type: T.Type, from fileURL: URL) -> T? {
 		guard let data = try? Data(contentsOf: fileURL) else { return nil }
-		return try? makeDecoder().decode(T.self, from: data)
+		return try? sharedDecoder.decode(T.self, from: data)
 	}
 }

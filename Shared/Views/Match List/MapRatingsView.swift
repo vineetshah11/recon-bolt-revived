@@ -404,7 +404,7 @@ struct MapRatingSummaryBox: View {
 	private func compactMapRow(_ report: MapRatingReport) -> some View {
 		let mapName = assets?.maps[report.mapID]?.displayName ?? report.mapID.rawValue
 		return HStack(spacing: 10) {
-			MapImage.splash(report.mapID)
+			MapImage.splash(report.mapID, bucket: .icon)
 				.aspectRatio(contentMode: .fill)
 				.frame(width: 52, height: 34)
 				.clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -457,6 +457,7 @@ struct MapRatingsView: View {
 	@State private var isSyncingMatches = false
 	@State private var syncedProgress: (done: Int, total: Int)?
 	@State private var unavailableSyncIDs: Set<Match.ID> = []
+	@State private var syncTask: Task<Void, Never>?
 	
 	@Environment(\.valorantLoad) private var load
 	@Environment(\.assets) private var assets
@@ -582,13 +583,18 @@ struct MapRatingsView: View {
 			await loadCachedDetailsFromDisk()
 		}
 		.task(id: computeKey) {
-			recomputeReports()
+			await recomputeReports()
 		}
 		.onReceive(
 			LocalDataProvider.shared.matchDetailsManager.changePublisher
 				.debounce(for: .milliseconds(250), scheduler: RunLoop.main)
 		) { _ in
+			guard !isSyncingMatches else { return }
 			Task { await loadCachedDetailsFromDisk() }
+		}
+		.onDisappear {
+			syncTask?.cancel()
+			syncTask = nil
 		}
 	}
 	
@@ -699,7 +705,7 @@ struct MapRatingsView: View {
 	
 	private var mapSelectorCarousel: some View {
 		ScrollView(.horizontal, showsIndicators: false) {
-			HStack(spacing: 10) {
+			LazyHStack(spacing: 10) {
 				ForEach(reports) { report in
 					let isSelected = (report.mapID == selectedReport?.mapID)
 					let mapName = assets?.maps[report.mapID]?.displayName ?? report.mapID.rawValue
@@ -710,7 +716,7 @@ struct MapRatingsView: View {
 						}
 					} label: {
 						ZStack(alignment: .bottomLeading) {
-							MapImage.splash(report.mapID)
+							MapImage.splash(report.mapID, bucket: .icon)
 								.aspectRatio(contentMode: .fill)
 								.frame(width: 148, height: 74)
 								.clipped()
@@ -945,7 +951,7 @@ struct MapRatingsView: View {
 				zoomingMinimapID = report.mapID
 			} label: {
 				ZStack(alignment: .bottomTrailing) {
-					MapImage.minimap(report.mapID)
+					MapImage.minimap(report.mapID, bucket: .medium)
 						.scaledToFit()
 						.padding(10)
 						.frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1013,7 +1019,7 @@ struct MapRatingsView: View {
 	private func bestAgentCardContent(_ stat: MapAgentBestStat) -> some View {
 		let agentName = assets?.agents[stat.id]?.displayName ?? "Agent"
 		return ZStack(alignment: .bottomLeading) {
-			AgentImage.fullPortrait(stat.id)
+			AgentImage.fullPortrait(stat.id, bucket: .medium)
 				.scaledToFill()
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 				.offset(y: 6)
@@ -1133,7 +1139,7 @@ struct MapRatingsView: View {
 					.background(Color.tertiaryGroupedBackground, in: Capsule())
 			}
 			
-			VStack(spacing: 10) {
+			LazyVStack(spacing: 10) {
 				ForEach(orderedMatches) { entry in
 					matchHistoryRow(entry, isBestOfAct: entry.id == bestID)
 				}
@@ -1285,13 +1291,13 @@ struct MapRatingsView: View {
 	
 	private func loadCachedDetailsFromDisk() async {
 		var combined = loadedDetails
-		for d in initialDetails {
+		for d in initialDetails where combined[d.id] == nil {
 			combined[d.id] = d
 		}
 		
 		let ids = activeMatches.map(\.id)
 		let manager = LocalDataProvider.shared.matchDetailsManager
-		for id in ids {
+		for id in ids where combined[id] == nil {
 			if let obj = manager.loadedObject(for: id) {
 				combined[id] = obj
 			}
@@ -1305,10 +1311,12 @@ struct MapRatingsView: View {
 			}
 		}
 		
-		loadedDetails = combined
+		if combined.count != loadedDetails.count || Set(combined.keys) != Set(loadedDetails.keys) {
+			loadedDetails = combined
+		}
 	}
 	
-	private func recomputeReports() {
+	private func recomputeReports() async {
 		let allDetails = Array(loadedDetails.values)
 		let actFilter = selectedActID
 		let scope = queueScope
@@ -1316,50 +1324,92 @@ struct MapRatingsView: View {
 		let seasonsSnapshot = seasons
 		let assetsSnapshot = assets
 		
-		Task {
-			let result = await Task.detached(priority: .userInitiated) {
-				MapRatingCalculator.compute(
-					userID: uid,
-					matches: allDetails,
-					selectedActID: actFilter,
-					queueScope: scope,
-					seasons: seasonsSnapshot?.collection,
-					assets: assetsSnapshot
-				)
-			}.value
-			
-			reports = result
-			if selectedMapID == nil || !result.contains(where: { $0.mapID == selectedMapID }) {
-				selectedMapID = result.first?.mapID
-			}
+		let result = await Task.detached(priority: .userInitiated) {
+			MapRatingCalculator.compute(
+				userID: uid,
+				matches: allDetails,
+				selectedActID: actFilter,
+				queueScope: scope,
+				seasons: seasonsSnapshot?.collection,
+				assets: assetsSnapshot
+			)
+		}.value
+		
+		guard !Task.isCancelled else { return }
+		reports = result
+		if selectedMapID == nil || !result.contains(where: { $0.mapID == selectedMapID }) {
+			selectedMapID = result.first?.mapID
 		}
 	}
 	
 	private func syncUncachedMatches() {
 		let toFetch = Array(uncachedEligibleIDs.prefix(40))
-		guard !toFetch.isEmpty else { return }
+		guard !toFetch.isEmpty, !isSyncingMatches else { return }
 		
-		Task {
+		syncTask?.cancel()
+		syncTask = Task {
 			isSyncingMatches = true
 			syncedProgress = (0, toFetch.count)
 			defer {
 				isSyncingMatches = false
 				syncedProgress = nil
+				syncTask = nil
 			}
 			
 			await load { client in
-				for (idx, matchID) in toFetch.enumerated() {
-					if Task.isCancelled { break }
-					try? await client.fetchMatchDetails(for: matchID)
-					if let details = LocalDataProvider.shared.matchDetailsManager.loadedObject(for: matchID) {
-						loadedDetails[matchID] = details
-					} else {
-						unavailableSyncIDs.insert(matchID)
+				let maxConcurrent = 3
+				var pendingBatch: [Match.ID: MatchDetails] = [:]
+				var completedCount = 0
+				
+				await withTaskGroup(of: (Match.ID, MatchDetails?).self) { group in
+					var nextIndex = 0
+					
+					func enqueueNext() {
+						guard nextIndex < toFetch.count, !Task.isCancelled else { return }
+						let matchID = toFetch[nextIndex]
+						nextIndex += 1
+						group.addTask {
+							try? await client.fetchMatchDetails(for: matchID)
+							let loaded = await MainActor.run {
+								LocalDataProvider.shared.matchDetailsManager.loadedObject(for: matchID)
+							}
+							return (matchID, loaded)
+						}
 					}
-					syncedProgress = (idx + 1, toFetch.count)
+					
+					for _ in 0..<min(maxConcurrent, toFetch.count) {
+						enqueueNext()
+					}
+					
+					while let (matchID, details) = await group.next() {
+						completedCount += 1
+						if let details {
+							pendingBatch[matchID] = details
+						} else {
+							unavailableSyncIDs.insert(matchID)
+						}
+						syncedProgress = (completedCount, toFetch.count)
+						
+						if pendingBatch.count >= 8 {
+							for (id, item) in pendingBatch {
+								loadedDetails[id] = item
+							}
+							pendingBatch.removeAll(keepingCapacity: true)
+						}
+						
+						enqueueNext()
+					}
+				}
+				
+				if !pendingBatch.isEmpty {
+					for (id, item) in pendingBatch {
+						loadedDetails[id] = item
+					}
 				}
 			}
-			await loadCachedDetailsFromDisk()
+			if !Task.isCancelled {
+				await loadCachedDetailsFromDisk()
+			}
 		}
 	}
 }

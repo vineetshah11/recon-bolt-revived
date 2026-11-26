@@ -1,6 +1,9 @@
 import Foundation
 import CryptoKit
 import Security
+#if canImport(CommonCrypto)
+import CommonCrypto
+#endif
 
 enum BackupCrypto {
 	static let defaultPBKDF2Iterations = 100_000
@@ -64,6 +67,30 @@ enum BackupCrypto {
 			throw BackupError.invalidFormat("Invalid key derivation parameters.")
 		}
 		
+#if canImport(CommonCrypto)
+		var derivedKey = Data(count: keyByteCount)
+		let status = derivedKey.withUnsafeMutableBytes { derivedBytes in
+			salt.withUnsafeBytes { saltBytes in
+				passwordData.withUnsafeBytes { passwordBytes in
+					CCKeyDerivationPBKDF(
+						CCPBKDFAlgorithm(kCCPBKDF2),
+						passwordBytes.bindMemory(to: Int8.self).baseAddress,
+						passwordData.count,
+						saltBytes.bindMemory(to: UInt8.self).baseAddress,
+						salt.count,
+						CCPseudoRandomAlgorithm(kCCPRFHmacAlgSHA256),
+						UInt32(iterations),
+						derivedBytes.bindMemory(to: UInt8.self).baseAddress,
+						keyByteCount
+					)
+				}
+			}
+		}
+		guard status == kCCSuccess else {
+			throw BackupError.invalidFormat("Failed to derive encryption key.")
+		}
+		return SymmetricKey(data: derivedKey)
+#else
 		let prfKey = SymmetricKey(data: passwordData)
 		let hashLen = 32
 		let blockCount = (keyByteCount + hashLen - 1) / hashLen
@@ -102,6 +129,7 @@ enum BackupCrypto {
 		}
 		
 		return SymmetricKey(data: derived.prefix(keyByteCount))
+#endif
 	}
 	
 	static func deriveEncryptionAndAuthKeys(

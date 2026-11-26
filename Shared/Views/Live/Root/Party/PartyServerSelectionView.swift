@@ -36,9 +36,10 @@ struct PartyServerSelectionView: View {
 	}
 	
 	var body: some View {
+		let pings = sortedPings
 		ScrollView {
 			VStack(alignment: .leading, spacing: 14) {
-				if sortedPings.isEmpty {
+				if pings.isEmpty {
 					VStack(spacing: 8) {
 						Image(systemName: "server.rack")
 							.font(.title2)
@@ -55,7 +56,7 @@ struct PartyServerSelectionView: View {
 					)
 				} else {
 					VStack(spacing: 0) {
-						ForEach(Array(sortedPings.enumerated()), id: \.element.id) { index, ping in
+						ForEach(Array(pings.enumerated()), id: \.element.id) { index, ping in
 							let isSelected = selectedIDs.contains(ping.serverID)
 							Button {
 								toggleServer(ping.serverID)
@@ -85,7 +86,7 @@ struct PartyServerSelectionView: View {
 							.buttonStyle(.plain)
 							.disabled(!canEdit)
 							
-							if index < sortedPings.count - 1 {
+							if index < pings.count - 1 {
 								Divider()
 									.padding(.leading, 50)
 							}

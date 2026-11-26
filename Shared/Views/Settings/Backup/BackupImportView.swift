@@ -20,10 +20,20 @@ struct BackupImportView: View {
 		case completed(BackupImportSummary)
 	}
 	
+	private struct ReadySummary {
+		let knownDescriptors: [(BackupModuleDescriptor, BackupModuleKind)]
+		let allKnownModules: Set<BackupModuleKind>
+		let unknownModuleSummary: String?
+		let selectablePlayers: [BackupSelectablePlayer]
+	}
+	
 	@State private var stage: Stage = .verifying
 	@State private var isShowingFileImporter = false
 	@State private var passwordInput = ""
 	@State private var isUnlocking = false
+	@State private var cachedReadySummary: ReadySummary?
+	@State private var unlockTask: Task<Void, Never>?
+	@State private var importTask: Task<Void, Never>?
 	
 	@State private var selectedModules: Set<BackupModuleKind> = []
 	@State private var selectedPlayerIDs: Set<User.ID> = []
@@ -94,6 +104,12 @@ struct BackupImportView: View {
 				stage = .idle
 				isShowingFileImporter = true
 			}
+		}
+		.onDisappear {
+			unlockTask?.cancel()
+			unlockTask = nil
+			importTask?.cancel()
+			importTask = nil
 		}
 	}
 	
@@ -240,13 +256,15 @@ struct BackupImportView: View {
 		}
 	}
 	
-	private func readyView(archive: VerifiedBackupArchive, encryptionKey: SymmetricKey?) -> some View {
+	private func buildReadySummary(from archive: VerifiedBackupArchive) -> ReadySummary {
 		let manifest = archive.manifest
 		let knownDescriptors = manifest.modules.compactMap { descriptor -> (BackupModuleDescriptor, BackupModuleKind)? in
 			guard let kind = descriptor.knownKind else { return nil }
 			return (descriptor, kind)
 		}
 		let unknownModules = manifest.modules.filter { $0.knownKind == nil }
+		let unknownModuleSummary: String? = unknownModules.isEmpty ? nil :
+			"This archive contains \(unknownModules.count) newer module\(unknownModules.count == 1 ? "" : "s") (\(unknownModules.map(\.id).joined(separator: ", "))) not recognized by this version of Recon Bolt. They will be skipped."
 		let selectablePlayers = manifest.players.map {
 			BackupSelectablePlayer(
 				id: $0.id,
@@ -257,18 +275,30 @@ struct BackupImportView: View {
 				estimatedBytes: nil
 			)
 		}
+		return ReadySummary(
+			knownDescriptors: knownDescriptors,
+			allKnownModules: Set(knownDescriptors.map(\.1)),
+			unknownModuleSummary: unknownModuleSummary,
+			selectablePlayers: selectablePlayers
+		)
+	}
+	
+	private func readyView(archive: VerifiedBackupArchive, encryptionKey: SymmetricKey?) -> some View {
+		let summary = cachedReadySummary ?? buildReadySummary(from: archive)
+		let knownDescriptors = summary.knownDescriptors
+		let selectablePlayers = summary.selectablePlayers
 		let hasPlayerScopedModules = knownDescriptors.contains { $0.1.isPlayerScoped && selectedModules.contains($0.1) }
-		let canImport = !selectedModules.isEmpty && (!hasPlayerScopedModules || !selectedPlayerIDs.isEmpty || manifest.players.isEmpty)
+		let canImport = !selectedModules.isEmpty && (!hasPlayerScopedModules || !selectedPlayerIDs.isEmpty || archive.manifest.players.isEmpty)
 		
 		return VStack(spacing: 16) {
 			trustBanner(archive: archive)
 			
-			if !unknownModules.isEmpty {
+			if let unknownSummary = summary.unknownModuleSummary {
 				HStack(alignment: .top, spacing: 10) {
 					Image(systemName: "exclamationmark.triangle.fill")
 						.foregroundStyle(.orange)
 						.font(.subheadline)
-					Text("This archive contains \(unknownModules.count) newer module\(unknownModules.count == 1 ? "" : "s") (\(unknownModules.map(\.id).joined(separator: ", "))) not recognized by this version of Recon Bolt. They will be skipped.")
+					Text(unknownSummary)
 						.font(.footnote)
 						.foregroundStyle(.secondary)
 				}
@@ -360,7 +390,7 @@ struct BackupImportView: View {
 				HStack {
 					SettingsSectionHeader("Data in Archive")
 					Spacer()
-					let allKnown = Set(knownDescriptors.map(\.1))
+					let allKnown = summary.allKnownModules
 					Button(selectedModules == allKnown ? "Deselect All" : "Select All") {
 						if selectedModules == allKnown {
 							selectedModules.removeAll()
@@ -521,10 +551,15 @@ struct BackupImportView: View {
 	}
 	
 	private func inspect(url: URL) async {
+		unlockTask?.cancel()
+		importTask?.cancel()
 		stage = .verifying
 		do {
 			let archive = try await BackupService.inspectBackup(at: url)
-			selectedModules = Set(archive.manifest.modules.compactMap(\.knownKind))
+			guard !Task.isCancelled else { return }
+			let summary = buildReadySummary(from: archive)
+			cachedReadySummary = summary
+			selectedModules = summary.allKnownModules
 			selectedPlayerIDs = Set(archive.manifest.players.map(\.id))
 			if archive.isPasswordEncrypted {
 				passwordInput = ""
@@ -532,19 +567,31 @@ struct BackupImportView: View {
 			} else {
 				stage = .ready(archive, nil)
 			}
+		} catch is CancellationError {
+			return
 		} catch {
 			stage = .verificationFailed(error.localizedDescription)
 		}
 	}
 	
 	private func unlock(archive: VerifiedBackupArchive) {
+		unlockTask?.cancel()
 		isUnlocking = true
 		let candidate = passwordInput
-		Task {
-			defer { isUnlocking = false }
+		unlockTask = Task {
+			defer {
+				isUnlocking = false
+				unlockTask = nil
+			}
 			do {
 				let key = try await BackupService.unlockBackup(archive, password: candidate)
+				guard !Task.isCancelled else { return }
+				if cachedReadySummary == nil {
+					cachedReadySummary = buildReadySummary(from: archive)
+				}
 				stage = .ready(archive, key)
+			} catch is CancellationError {
+				return
 			} catch {
 				stage = .needsPassword(archive, error: error.localizedDescription)
 			}
@@ -552,6 +599,7 @@ struct BackupImportView: View {
 	}
 	
 	private func runImport(archive: VerifiedBackupArchive, encryptionKey: SymmetricKey?) {
+		importTask?.cancel()
 		let options = BackupImportOptions(
 			selectedModules: selectedModules,
 			selectedPlayerIDs: selectedPlayerIDs,
@@ -559,7 +607,8 @@ struct BackupImportView: View {
 			mode: importMode
 		)
 		stage = .importing
-		Task {
+		importTask = Task {
+			defer { importTask = nil }
 			do {
 				let summary = try await BackupService.importBackup(
 					archive: archive,
@@ -567,8 +616,11 @@ struct BackupImportView: View {
 					options: options,
 					stores: stores
 				)
+				guard !Task.isCancelled else { return }
 				onImportCompleted?()
 				stage = .completed(summary)
+			} catch is CancellationError {
+				return
 			} catch {
 				stage = .verificationFailed(error.localizedDescription)
 			}

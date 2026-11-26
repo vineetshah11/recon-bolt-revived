@@ -557,15 +557,12 @@ struct MasterySegmentedBar: View {
 			HStack(spacing: 4) {
 				ForEach(0..<10, id: \.self) { step in
 					let fill: Double = step < actLevel ? 1 : (step == actLevel ? inLevelProgress : 0)
-					GeometryReader { geo in
-						ZStack(alignment: .leading) {
-							Capsule()
-								.fill(Color.white.opacity(0.14))
-							if fill > 0 {
-								Capsule()
-									.fill(fillColor)
-									.frame(width: max(3, geo.size.width * CGFloat(min(1, max(0, fill)))))
-							}
+					ZStack(alignment: .leading) {
+						Capsule()
+							.fill(Color.white.opacity(0.14))
+						if fill > 0 {
+							HorizontalFillCapsuleShape(fraction: fill, minWidth: 3)
+								.fill(fillColor)
 						}
 					}
 					.frame(height: compact ? 4 : 5)

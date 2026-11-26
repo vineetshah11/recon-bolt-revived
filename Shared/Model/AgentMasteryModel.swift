@@ -185,8 +185,8 @@ enum AgentMasteryCalculator {
 			return fallback
 		}
 		
-		let fallbackByID = Dictionary(uniqueKeysWithValues: fallback.map { ($0.agentID, $0) })
-		let entryByID = Dictionary(uniqueKeysWithValues: mastery.bonsais.map { ($0.id, $0) })
+		let fallbackByID = Dictionary(fallback.map { ($0.agentID, $0) }, uniquingKeysWith: { _, latest in latest })
+		let entryByID = Dictionary(mastery.bonsais.map { ($0.id, $0) }, uniquingKeysWith: { _, latest in latest })
 		
 		let agentIDs: [Agent.ID] = {
 			if let assets {

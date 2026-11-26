@@ -226,15 +226,25 @@ enum AccoladesCalculator {
 		
 		let allSummaries = AccoladeType.allCases.map { type -> AccoladeSummary in
 			let rawAll = allHits[type] ?? []
-			let allRecords = buildRecords(from: rawAll)
+			let (allRecords, allTimeBest) = buildRecords(from: rawAll)
 			
-			let rawThisAct = rawAll.filter(belongsToThisAct)
-			let thisActRecords = buildRecords(from: rawThisAct)
-			
-			let activeRecords = (act != nil) ? thisActRecords : allRecords
-			let activeBest = activeRecords.map(\.value).max()
-			let thisActBest = thisActRecords.map(\.value).max()
-			let allTimeBest = allRecords.map(\.value).max()
+			let thisActRecords: [AccoladeMatchRecord]
+			let thisActBest: Int?
+			let activeRecords: [AccoladeMatchRecord]
+			let activeBest: Int?
+			if act != nil {
+				let rawThisAct = rawAll.filter(belongsToThisAct)
+				let builtAct = buildRecords(from: rawThisAct)
+				thisActRecords = builtAct.records
+				thisActBest = builtAct.bestValue
+				activeRecords = thisActRecords
+				activeBest = thisActBest
+			} else {
+				thisActRecords = []
+				thisActBest = nil
+				activeRecords = allRecords
+				activeBest = allTimeBest
+			}
 			let byAct = buildActBreakdowns(from: rawAll, seasons: seasons)
 			
 			return AccoladeSummary(
@@ -252,14 +262,16 @@ enum AccoladesCalculator {
 			)
 		}
 		
+		let recentPrefix = Array(scopedEntries.prefix(20))
+		let recentMatchIDs = Set(recentPrefix.map(\.matchID))
 		var recordsByMatch: [Match.ID: [AccoladeType: AccoladeMatchRecord]] = [:]
 		for summary in allSummaries {
-			for record in summary.records {
+			for record in summary.records where recentMatchIDs.contains(record.matchID) {
 				recordsByMatch[record.matchID, default: [:]][summary.type] = record
 			}
 		}
 		
-		let recentMatches = scopedEntries.prefix(20).map { entry in
+		let recentMatches = recentPrefix.map { entry in
 			let matchMap = recordsByMatch[entry.matchID] ?? [:]
 			let items = AccoladeType.allCases.compactMap { type -> AccoladeMatchItem? in
 				guard let record = matchMap[type] else { return nil }
@@ -302,16 +314,20 @@ enum AccoladesCalculator {
 		return buildReport(from: entries, act: act, seasons: seasons)
 	}
 	
-	private static func buildRecords(from raw: [RawMatchAccoladeHit]) -> [AccoladeMatchRecord] {
+	private static func buildRecords(from raw: [RawMatchAccoladeHit]) -> (records: [AccoladeMatchRecord], bestValue: Int?) {
 		// Walk chronologically oldest -> newest to mark every strict personal-best breakthrough.
 		let chronological = raw.sorted { $0.gameStart < $1.gameStart }
 		var runningBest = Int.min
+		var maxValue: Int?
 		var marked: [AccoladeMatchRecord] = []
 		marked.reserveCapacity(chronological.count)
 		
 		for hit in chronological {
 			let isNewBest = hit.value > runningBest
 			if isNewBest { runningBest = hit.value }
+			if maxValue == nil || hit.value > maxValue! {
+				maxValue = hit.value
+			}
 			marked.append(AccoladeMatchRecord(
 				matchID: hit.matchID,
 				mapID: hit.mapID,
@@ -321,7 +337,7 @@ enum AccoladesCalculator {
 				isNewBest: isNewBest
 			))
 		}
-		return marked.reversed()
+		return (marked.reversed(), maxValue)
 	}
 	
 	private static func buildActBreakdowns(
@@ -354,7 +370,7 @@ enum AccoladesCalculator {
 			  let stats = player.stats else { return [] }
 		
 		let roundsPlayed = max(1, stats.roundsPlayed)
-		let teamByPlayer = Dictionary(uniqueKeysWithValues: match.players.map { ($0.id, $0.teamID) })
+		let teamByPlayer = Dictionary(match.players.map { ($0.id, $0.teamID) }, uniquingKeysWith: { first, _ in first })
 		
 		var damageByPlayer: [Player.ID: Int] = [:]
 		var firstKillsByPlayer: [Player.ID: Int] = [:]
@@ -377,20 +393,12 @@ enum AccoladesCalculator {
 				firstKillsByPlayer[opener, default: 0] += 1
 			}
 			
+			// Single pass over roundKills for ace counts and 5000ms trade detection.
 			var killsInRound: [Player.ID: Int] = [:]
-			for kill in roundKills {
-				if let killer = kill.killer {
-					killsInRound[killer, default: 0] += 1
-				}
-			}
-			for (killerID, count) in killsInRound where count >= 5 {
-				acesByPlayer[killerID, default: 0] += 1
-			}
-			
-			// A trade is a kill within 5000ms against an opponent who just killed a teammate.
 			var lastVictimKillTimeByKiller: [Player.ID: (victimTeam: Team.ID, time: Int)] = [:]
 			for kill in roundKills {
 				guard let killer = kill.killer else { continue }
+				killsInRound[killer, default: 0] += 1
 				let victim = kill.victim
 				if let killerTeam = teamByPlayer[killer],
 				   let prior = lastVictimKillTimeByKiller[victim],
@@ -402,8 +410,11 @@ enum AccoladesCalculator {
 					lastVictimKillTimeByKiller[killer] = (victimTeam, kill.roundTimeMillis)
 				}
 			}
+			for (killerID, count) in killsInRound where count >= 5 {
+				acesByPlayer[killerID, default: 0] += 1
+			}
 			
-			if round.ceremony.lowercased().contains("clutch") {
+			if round.ceremony.range(of: "clutch", options: .caseInsensitive) != nil {
 				let deadPlayers = Set(roundKills.map(\.victim))
 				for p in match.players where p.teamID == round.winningTeam && !deadPlayers.contains(p.id) {
 					clutchesByPlayer[p.id, default: 0] += 1

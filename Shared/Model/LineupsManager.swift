@@ -119,9 +119,12 @@ struct LineupGuide: Identifiable, Codable, Equatable {
 		return URL(string: string, relativeTo: base)?.absoluteURL
 	}
 	
+	private static let isoFractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+	private static let isoStandard = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
+	
 	private static func date(from string: String) -> Date? {
-		(try? Date(string, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: true)))
-			?? (try? Date(string, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: false)))
+		(try? Date(string, strategy: isoFractional))
+			?? (try? Date(string, strategy: isoStandard))
 	}
 }
 
@@ -135,48 +138,112 @@ final class LineupsManager: ObservableObject {
 	private let favoritesFilename = "LineupFavorites.v2.json"
 	private let endpoint = URL(string: "https://tricks.gg/api/lineups")!
 	private var fetchGeneration = 0
+	private var activeFetchTask: Task<(Data, URLResponse), Error>?
+	private var favoriteIDs: Set<String> = []
+	private var hasLoadedFromDisk = false
+	private var initialLoadTask: Task<Void, Never>?
+	private var pendingRemovedIDs: Set<String> = []
+	private var pendingSaveTask: Task<Void, Never>?
 	
 	init() {
-		favorites = LocalJSONStore.load([LineupGuide].self, from: favoritesFilename) ?? []
+		initialLoadTask = Task { @MainActor [weak self] in
+			guard let self else { return }
+			let loaded = await LocalJSONStore.loadAsync([LineupGuide].self, from: self.favoritesFilename) ?? []
+			self.mergeDiskFavorites(loaded)
+		}
+	}
+	
+	func waitUntilLoaded() async {
+		if let initialLoadTask, !hasLoadedFromDisk {
+			await initialLoadTask.value
+		}
+	}
+	
+	private func mergeDiskFavorites(_ diskFavorites: [LineupGuide]) {
+		hasLoadedFromDisk = true
+		guard !diskFavorites.isEmpty else {
+			pendingRemovedIDs.removeAll()
+			return
+		}
+		if favorites.isEmpty && pendingRemovedIDs.isEmpty {
+			applyFavorites(diskFavorites)
+			return
+		}
+		var working = favorites
+		var seenIDs = Set(working.map(\.id))
+		for item in diskFavorites {
+			guard !pendingRemovedIDs.contains(item.id), seenIDs.insert(item.id).inserted else { continue }
+			working.append(item)
+		}
+		pendingRemovedIDs.removeAll()
+		applyFavorites(working)
+	}
+	
+	private func applyFavorites(_ newFavorites: [LineupGuide]) {
+		favorites = newFavorites
+		favoriteIDs = Set(newFavorites.map(\.id))
 	}
 	
 	func isFavorite(_ guide: LineupGuide) -> Bool {
-		favorites.contains { $0.id == guide.id }
+		favoriteIDs.contains(guide.id)
 	}
 	
 	func toggleFavorite(_ guide: LineupGuide) {
-		if isFavorite(guide) {
-			favorites.removeAll { $0.id == guide.id }
+		var working = favorites
+		if favoriteIDs.contains(guide.id) {
+			if !hasLoadedFromDisk {
+				pendingRemovedIDs.insert(guide.id)
+			}
+			working.removeAll { $0.id == guide.id }
 		} else {
-			favorites.insert(guide, at: 0)
+			pendingRemovedIDs.remove(guide.id)
+			working.insert(guide, at: 0)
 		}
-		LocalJSONStore.save(favorites, to: favoritesFilename)
+		applyFavorites(working)
+		persistFavorites()
 	}
 	
 	@discardableResult
 	func importFavorites(_ incoming: [LineupGuide], replaceAll: Bool) async -> Int {
+		await waitUntilLoaded()
+		pendingSaveTask?.cancel()
 		var working = replaceAll ? [] : favorites
+		var indexByID = Dictionary(working.enumerated().map { ($1.id, $0) }, uniquingKeysWith: { first, _ in first })
 		var changedCount = 0
 		
 		for guide in incoming {
-			if let idx = working.firstIndex(where: { $0.id == guide.id }) {
+			if let idx = indexByID[guide.id] {
 				if working[idx] != guide {
 					working[idx] = guide
 					changedCount += 1
 				}
 			} else {
+				indexByID[guide.id] = working.count
 				working.append(guide)
 				changedCount += 1
 			}
 		}
 		
-		favorites = working
+		applyFavorites(working)
 		await LocalJSONStore.saveAndWait(favorites, to: favoritesFilename)
 		return replaceAll ? working.count : changedCount
 	}
 	
+	private func persistFavorites() {
+		if hasLoadedFromDisk {
+			LocalJSONStore.save(favorites, to: favoritesFilename)
+		} else {
+			pendingSaveTask?.cancel()
+			pendingSaveTask = Task { @MainActor [weak self] in
+				await self?.waitUntilLoaded()
+				guard let self, !Task.isCancelled else { return }
+				LocalJSONStore.save(self.favorites, to: self.favoritesFilename)
+			}
+		}
+	}
+	
 	func sortGuides(by sort: LineupSort) {
-		guides = sorted(guides, by: sort)
+		guides = Self.sorted(guides, by: sort)
 	}
 	
 	func fetchGuides(
@@ -185,6 +252,7 @@ final class LineupsManager: ObservableObject {
 		side: LineupSide,
 		sort: LineupSort
 	) async {
+		activeFetchTask?.cancel()
 		fetchGeneration += 1
 		let gen = fetchGeneration
 		isLoading = true
@@ -220,8 +288,13 @@ final class LineupsManager: ObservableObject {
 		var request = URLRequest(url: url, timeoutInterval: 20)
 		request.setValue("application/json", forHTTPHeaderField: "Accept")
 		
+		let fetchTask = Task<(Data, URLResponse), Error> {
+			try await URLSession.shared.data(for: request)
+		}
+		activeFetchTask = fetchTask
+		
 		do {
-			let (data, response) = try await URLSession.shared.data(for: request)
+			let (data, response) = try await fetchTask.value
 			guard !Task.isCancelled, gen == fetchGeneration else { return }
 			if let http = response as? HTTPURLResponse {
 				if http.statusCode == 403 {
@@ -233,9 +306,12 @@ final class LineupsManager: ObservableObject {
 					return
 				}
 			}
-			let decoded = try JSONDecoder().decode(LineupResponse.self, from: data)
+			let sortedGuides = try await Task.detached(priority: .userInitiated) {
+				let decoded = try JSONDecoder().decode(LineupResponse.self, from: data)
+				return Self.sorted(decoded.lineups, by: sort)
+			}.value
 			guard !Task.isCancelled, gen == fetchGeneration else { return }
-			guides = sorted(decoded.lineups, by: sort)
+			guides = sortedGuides
 		} catch {
 			guard !Task.isCancelled, gen == fetchGeneration else { return }
 			if error is CancellationError || (error as? URLError)?.code == .cancelled {
@@ -245,7 +321,7 @@ final class LineupsManager: ObservableObject {
 		}
 	}
 	
-	private func sorted(_ lineups: [LineupGuide], by sort: LineupSort) -> [LineupGuide] {
+	private nonisolated static func sorted(_ lineups: [LineupGuide], by sort: LineupSort) -> [LineupGuide] {
 		switch sort {
 		case .top:
 			return lineups.sorted {

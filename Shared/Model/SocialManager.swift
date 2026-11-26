@@ -175,6 +175,8 @@ final class SocialManager: ObservableObject {
 	private var refreshResetTask: Task<Void, Never>?
 	private var pendingPresenceUpdates: [XMPPPresenceUpdate] = []
 	private var presenceFlushTask: Task<Void, Never>?
+	private var hydrateCardsTask: Task<Void, Never>?
+	private var historyTimeoutTasks: [String: Task<Void, Never>] = [:]
 	
 	private(set) var friends: [XMPPFriend] = []
 	private(set) var onlineCount: Int = 0
@@ -182,6 +184,7 @@ final class SocialManager: ObservableObject {
 	private(set) var outgoingRequestCount: Int = 0
 	private(set) var incomingRequestCount: Int = 0
 	private var puuidToJID: [String: String] = [:]
+	private var lowercaseJIDToCanonical: [String: String] = [:]
 	
 	init() {
 		LocalDataProvider.onIdentitiesStored = { [weak self] identities, updateTime in
@@ -211,6 +214,7 @@ final class SocialManager: ObservableObject {
 		var outgoing = 0
 		var incoming = 0
 		var index: [String: String] = Dictionary(minimumCapacity: updated.count)
+		var lowercaseToCanonical: [String: String] = Dictionary(minimumCapacity: updated.count * 2)
 		for friend in sorted {
 			if friend.isIncomingRequest {
 				incoming += 1
@@ -222,11 +226,22 @@ final class SocialManager: ObservableObject {
 					online += 1
 				}
 			}
+			lowercaseToCanonical[friend.jid.lowercased()] = friend.jid
+			let bare = Self.bareJID(friend.jid)
+			if bare.count != friend.jid.count {
+				let bareLower = bare.lowercased()
+				if lowercaseToCanonical[bareLower] == nil {
+					lowercaseToCanonical[bareLower] = friend.jid
+				}
+			}
 			if let puuidKey = friend.puuid?.description.lowercased() {
 				index[puuidKey] = friend.jid
 			}
-			if let node = friend.jid.split(separator: "@").first?.lowercased(), index[node] == nil {
-				index[node] = friend.jid
+			if let atIndex = friend.jid.firstIndex(of: "@") {
+				let node = friend.jid[..<atIndex].lowercased()
+				if index[node] == nil {
+					index[node] = friend.jid
+				}
 			}
 		}
 		self.friends = sorted
@@ -235,6 +250,7 @@ final class SocialManager: ObservableObject {
 		self.outgoingRequestCount = outgoing
 		self.incomingRequestCount = incoming
 		self.puuidToJID = index
+		self.lowercaseJIDToCanonical = lowercaseToCanonical
 		self.friendsByJID = updated
 		if onlineCountModel.count != online {
 			onlineCountModel.count = online
@@ -465,8 +481,16 @@ final class SocialManager: ObservableObject {
 		presenceFlushTask?.cancel()
 		presenceFlushTask = nil
 		pendingPresenceUpdates.removeAll()
+		hydrateCardsTask?.cancel()
+		hydrateCardsTask = nil
+		for task in historyTimeoutTasks.values {
+			task.cancel()
+		}
+		historyTimeoutTasks.removeAll()
 		refreshResetTask?.cancel()
+		refreshResetTask = nil
 		deferredSaveTask?.cancel()
+		deferredSaveTask = nil
 		await client.disconnect()
 		connectedUserID = nil
 		loadedCacheUserID = nil
@@ -478,6 +502,7 @@ final class SocialManager: ObservableObject {
 		ownResources = [:]
 		cachedCardByPUUID = [:]
 		cachedCardDateByPUUID = [:]
+		pinnedFriendJIDs = []
 		pendingHistoryJIDs = []
 		loadingHistoryJIDs = []
 		messagesByJID = [:]
@@ -525,13 +550,18 @@ final class SocialManager: ObservableObject {
 		}
 		pendingHistoryJIDs.remove(target)
 		loadingHistoryJIDs.insert(target)
-		Task { [weak self] in
+		historyTimeoutTasks[target]?.cancel()
+		historyTimeoutTasks[target] = Task { [weak self] in
 			try? await Task.sleep(for: .seconds(6))
+			guard !Task.isCancelled else { return }
 			self?.loadingHistoryJIDs.remove(target)
+			self?.historyTimeoutTasks.removeValue(forKey: target)
 		}
 		do {
 			try await client.requestArchive(with: target)
 		} catch {
+			historyTimeoutTasks[target]?.cancel()
+			historyTimeoutTasks.removeValue(forKey: target)
 			loadingHistoryJIDs.remove(target)
 		}
 	}
@@ -553,6 +583,8 @@ final class SocialManager: ObservableObject {
 		var updatedFriends: [String: XMPPFriend]?
 		for identity in identities {
 			let key = identity.id.description.lowercased()
+			guard let jid = puuidToJID[key],
+			      var friend = updatedFriends?[jid] ?? friendsByJID[jid] else { continue }
 			if let previousDate = cachedCardDateByPUUID[key], updateTime < previousDate {
 				continue
 			}
@@ -563,8 +595,6 @@ final class SocialManager: ObservableObject {
 					didUpdate = true
 				}
 			}
-			guard let jid = puuidToJID[key],
-			      var friend = updatedFriends?[jid] ?? friendsByJID[jid] else { continue }
 			
 			var changedFriend = false
 			if !identity.cardID.isPseudoNull, friend.playerCardID != identity.cardID {
@@ -593,17 +623,26 @@ final class SocialManager: ObservableObject {
 		}
 	}
 	
+	private func scheduleHydrateFriendCards() {
+		hydrateCardsTask?.cancel()
+		hydrateCardsTask = Task { @MainActor [weak self] in
+			await self?.hydrateFriendCardsFromLocalData()
+			self?.hydrateCardsTask = nil
+		}
+	}
+
 	private func hydrateFriendCardsFromLocalData() async {
 		let targetIDs: [User.ID] = friendsByJID.values.compactMap { friend in
 			guard friend.playerCardID == nil else { return nil }
 			if let puuid = friend.puuid { return puuid }
-			if let node = friend.jid.split(separator: "@").first {
-				return User.ID(String(node))
+			if let atIndex = friend.jid.firstIndex(of: "@") {
+				return User.ID(String(friend.jid[..<atIndex]))
 			}
 			return nil
 		}
-		guard !targetIDs.isEmpty else { return }
+		guard !targetIDs.isEmpty, !Task.isCancelled else { return }
 		let identities = await LocalDataProvider.shared.playerIdentityManager.cachedObjects(for: targetIDs)
+		guard !Task.isCancelled else { return }
 		if !identities.isEmpty {
 			cacheIdentities(identities, asOf: .distantPast)
 		}
@@ -634,8 +673,8 @@ final class SocialManager: ObservableObject {
 		resourcesByJID.removeValue(forKey: friend.jid)
 		snapshotSubscriptions.removeValue(forKey: friend.jid)
 		let canonical = canonicalJID(for: friend.jid)
-		pinnedFriendJIDs.remove(friend.jid)
-		pinnedFriendJIDs.remove(canonical)
+		pinnedFriendJIDs.remove(Self.normalizedPinnedJID(friend.jid))
+		pinnedFriendJIDs.remove(Self.normalizedPinnedJID(canonical))
 		scheduleCacheSave()
 	}
 	
@@ -645,26 +684,19 @@ final class SocialManager: ObservableObject {
 	
 	func isPinned(jid: String) -> Bool {
 		let canonical = canonicalJID(for: jid)
-		if pinnedFriendJIDs.contains(canonical) || pinnedFriendJIDs.contains(jid) {
-			return true
-		}
-		let bare = jid.components(separatedBy: "/").first ?? jid
-		return pinnedFriendJIDs.contains(bare)
-			|| pinnedFriendJIDs.contains { $0.caseInsensitiveCompare(canonical) == .orderedSame }
+		return pinnedFriendJIDs.contains(Self.normalizedPinnedJID(canonical))
+			|| pinnedFriendJIDs.contains(Self.normalizedPinnedJID(jid))
 	}
 	
 	func togglePinned(jid: String) {
 		let canonical = canonicalJID(for: jid)
-		let bare = jid.components(separatedBy: "/").first ?? jid
-		if isPinned(jid: jid) {
-			pinnedFriendJIDs = pinnedFriendJIDs.filter { existing in
-				existing != canonical
-					&& existing != jid
-					&& existing != bare
-					&& existing.caseInsensitiveCompare(canonical) != .orderedSame
-			}
+		let normalizedCanonical = Self.normalizedPinnedJID(canonical)
+		let normalizedRaw = Self.normalizedPinnedJID(jid)
+		if pinnedFriendJIDs.contains(normalizedCanonical) || pinnedFriendJIDs.contains(normalizedRaw) {
+			pinnedFriendJIDs.remove(normalizedCanonical)
+			pinnedFriendJIDs.remove(normalizedRaw)
 		} else {
-			pinnedFriendJIDs.insert(canonical)
+			pinnedFriendJIDs.insert(normalizedCanonical)
 		}
 		saveCacheNow()
 	}
@@ -675,17 +707,28 @@ final class SocialManager: ObservableObject {
 		if target != jid { unreadByJID[jid] = 0 }
 	}
 	
+	private static func bareJID(_ rawJID: String) -> String {
+		let prefix = rawJID.prefix { $0 != "/" }
+		return prefix.count == rawJID.count ? rawJID : String(prefix)
+	}
+	
+	private static func normalizedPinnedJID(_ rawJID: String) -> String {
+		bareJID(rawJID).lowercased()
+	}
+	
 	private func canonicalJID(for rawJID: String) -> String {
-		let bare = rawJID.components(separatedBy: "/").first ?? rawJID
+		let bare = Self.bareJID(rawJID)
 		if friendsByJID[bare] != nil {
 			return bare
 		}
-		if let exact = friendsByJID.keys.first(where: { $0.caseInsensitiveCompare(bare) == .orderedSame }) {
+		if let exact = lowercaseJIDToCanonical[bare.lowercased()] {
 			return exact
 		}
-		if let node = bare.split(separator: "@").first?.lowercased(),
-		   let byPUUID = puuidToJID[node] {
-			return byPUUID
+		if let atIndex = bare.firstIndex(of: "@") {
+			let node = bare[..<atIndex].lowercased()
+			if let byPUUID = puuidToJID[node] {
+				return byPUUID
+			}
 		}
 		return bare
 	}
@@ -783,13 +826,17 @@ final class SocialManager: ObservableObject {
 				}
 				
 				commitFriends(updated)
+				for cachedKey in cachedCardByPUUID.keys where puuidToJID[cachedKey] == nil {
+					cachedCardByPUUID.removeValue(forKey: cachedKey)
+					cachedCardDateByPUUID.removeValue(forKey: cachedKey)
+				}
 				snapshotSubscriptions = newSubs
 				locallyRemovedJIDs.removeAll()
 				lastSyncedAt = Date()
 				refreshResetTask?.cancel()
 				isRefreshing = false
 				saveCacheNow()
-				Task { await self.hydrateFriendCardsFromLocalData() }
+				scheduleHydrateFriendCards()
 			} else {
 				commitFriends(updated)
 				scheduleCacheSave()
@@ -831,6 +878,10 @@ final class SocialManager: ObservableObject {
 			
 		case let .archiveReceived(rawPeerJID, history):
 			let peer = canonicalJID(for: rawPeerJID)
+			historyTimeoutTasks[peer]?.cancel()
+			historyTimeoutTasks.removeValue(forKey: peer)
+			historyTimeoutTasks[rawPeerJID]?.cancel()
+			historyTimeoutTasks.removeValue(forKey: rawPeerJID)
 			loadingHistoryJIDs.remove(peer)
 			loadingHistoryJIDs.remove(rawPeerJID)
 			if !history.isEmpty {
@@ -858,11 +909,11 @@ final class SocialManager: ObservableObject {
 			}
 		}
 		
+		lastPresenceAt = now
 		if didChange {
 			commitFriends(updated)
+			scheduleCacheSave()
 		}
-		lastPresenceAt = now
-		scheduleCacheSave()
 	}
 	
 	private func applyPresenceUpdate(
@@ -1075,6 +1126,12 @@ final class SocialManager: ObservableObject {
 		presenceFlushTask?.cancel()
 		presenceFlushTask = nil
 		pendingPresenceUpdates.removeAll()
+		hydrateCardsTask?.cancel()
+		hydrateCardsTask = nil
+		for task in historyTimeoutTasks.values {
+			task.cancel()
+		}
+		historyTimeoutTasks.removeAll()
 		myPresence = nil
 		locallyRemovedJIDs = []
 		resourcesByJID = [:]
@@ -1130,10 +1187,10 @@ final class SocialManager: ObservableObject {
 		snapshotSubscriptions = cached.snapshotSubscriptions
 		changeEvents = cached.changeEvents
 		messagesByJID = cached.messagesByJID
-		pinnedFriendJIDs = cached.pinnedFriendJIDs
+		pinnedFriendJIDs = Set(cached.pinnedFriendJIDs.map(Self.normalizedPinnedJID))
 		lastSyncedAt = cached.lastSyncedAt
 		lastPresenceAt = cached.lastPresenceAt
-		Task { await self.hydrateFriendCardsFromLocalData() }
+		scheduleHydrateFriendCards()
 	}
 	
 	private func scheduleCacheSave() {
@@ -1145,22 +1202,19 @@ final class SocialManager: ObservableObject {
 		}
 	}
 	
+	private static func cappedMessages(in messagesByJID: [String: [XMPPChatMessage]]) -> [String: [XMPPChatMessage]] {
+		guard messagesByJID.values.contains(where: { $0.count > maxCachedMessagesPerConversation }) else {
+			return messagesByJID
+		}
+		return messagesByJID.mapValues { list in
+			list.count > maxCachedMessagesPerConversation ? Array(list.suffix(maxCachedMessagesPerConversation)) : list
+		}
+	}
+	
 	private func saveCacheNow() {
 		guard let userID = connectedUserID ?? loadedCacheUserID else { return }
-		let trimmedMessages = messagesByJID.mapValues { list in
-			Array(list.suffix(Self.maxCachedMessagesPerConversation))
-		}
 		let key = cacheKey(for: userID)
-		let snapshot = CachedSocialAccount(
-			friendsByJID: friendsByJID,
-			snapshotSubscriptions: snapshotSubscriptions,
-			changeEvents: changeEvents,
-			messagesByJID: trimmedMessages,
-			cachedCardByPUUID: cachedCardByPUUID,
-			pinnedFriendJIDs: pinnedFriendJIDs,
-			lastSyncedAt: lastSyncedAt,
-			lastPresenceAt: lastPresenceAt
-		)
+		let snapshot = currentAccountSnapshot()
 		if var allCaches = cachedAccountsByKey {
 			allCaches[key] = snapshot
 			cachedAccountsByKey = allCaches
@@ -1176,11 +1230,44 @@ final class SocialManager: ObservableObject {
 		}
 	}
 	
-	private func isDuplicateMessage(_ lhs: XMPPChatMessage, _ rhs: XMPPChatMessage) -> Bool {
-		lhs.id == rhs.id
-		|| (lhs.isOutgoing == rhs.isOutgoing
-			&& lhs.body == rhs.body
-			&& abs(lhs.timestamp.timeIntervalSince(rhs.timestamp)) < 15)
+	private struct MessageSignature: Hashable {
+		let isOutgoing: Bool
+		let body: String
+	}
+	
+	@discardableResult
+	private static func mergeMessages(
+		_ incoming: [XMPPChatMessage],
+		into existing: inout [XMPPChatMessage],
+		for peerJID: String
+	) -> Int {
+		guard !incoming.isEmpty else { return 0 }
+		var seenIDs = Set<String>(minimumCapacity: existing.count + incoming.count)
+		var timestampsBySig: [MessageSignature: [Date]] = Dictionary(minimumCapacity: existing.count)
+		for message in existing {
+			seenIDs.insert(message.id)
+			let sig = MessageSignature(isOutgoing: message.isOutgoing, body: message.body)
+			timestampsBySig[sig, default: []].append(message.timestamp)
+		}
+		var addedCount = 0
+		for item in incoming {
+			guard seenIDs.insert(item.id).inserted else { continue }
+			let sig = MessageSignature(isOutgoing: item.isOutgoing, body: item.body)
+			if timestampsBySig[sig]?.contains(where: { abs($0.timeIntervalSince(item.timestamp)) < 15 }) == true {
+				continue
+			}
+			var normalized = item
+			normalized.peerJID = peerJID
+			existing.append(normalized)
+			timestampsBySig[sig, default: []].append(item.timestamp)
+			addedCount += 1
+		}
+		guard addedCount > 0 else { return 0 }
+		existing.sort { $0.timestamp < $1.timestamp }
+		if existing.count > maxCachedMessagesPerConversation {
+			existing = Array(existing.suffix(maxCachedMessagesPerConversation))
+		}
+		return addedCount
 	}
 	
 	private func appendMessage(_ msg: XMPPChatMessage, for jid: String) {
@@ -1189,36 +1276,20 @@ final class SocialManager: ObservableObject {
 	
 	private func mergeArchive(_ history: [XMPPChatMessage], for peerJID: String) {
 		var merged = messagesByJID[peerJID] ?? []
-		var didChange = false
-		for item in history {
-			var normalized = item
-			normalized.peerJID = peerJID
-			if !merged.contains(where: { isDuplicateMessage($0, normalized) }) {
-				merged.append(normalized)
-				didChange = true
-			}
-		}
-		guard didChange else { return }
-		merged.sort { $0.timestamp < $1.timestamp }
-		if merged.count > Self.maxCachedMessagesPerConversation {
-			merged = Array(merged.suffix(Self.maxCachedMessagesPerConversation))
-		}
+		guard Self.mergeMessages(history, into: &merged, for: peerJID) > 0 else { return }
 		messagesByJID[peerJID] = merged
 	}
 	
 	// MARK: - Backup Export / Import
 	
 	private func currentAccountSnapshot() -> CachedSocialAccount {
-		let trimmedMessages = messagesByJID.mapValues { list in
-			Array(list.suffix(Self.maxCachedMessagesPerConversation))
-		}
-		return CachedSocialAccount(
+		CachedSocialAccount(
 			friendsByJID: friendsByJID,
 			snapshotSubscriptions: snapshotSubscriptions,
 			changeEvents: changeEvents,
-			messagesByJID: trimmedMessages,
+			messagesByJID: Self.cappedMessages(in: messagesByJID),
 			cachedCardByPUUID: cachedCardByPUUID,
-			pinnedFriendJIDs: pinnedFriendJIDs,
+			pinnedFriendJIDs: Set(pinnedFriendJIDs.map(Self.normalizedPinnedJID)),
 			lastSyncedAt: lastSyncedAt,
 			lastPresenceAt: lastPresenceAt
 		)
@@ -1239,8 +1310,10 @@ final class SocialManager: ObservableObject {
 	func exportSocialData(
 		for playerIDs: Set<User.ID>?
 	) async -> (friends: [String: SocialFriendsBackup], messages: [String: [String: [XMPPChatMessage]]]) {
-		await flushCurrentAccountCacheIfNeeded()
-		let allCaches = await ensureAllCachesLoaded()
+		var allCaches = await ensureAllCachesLoaded()
+		if let userID = connectedUserID ?? loadedCacheUserID {
+			allCaches[cacheKey(for: userID)] = currentAccountSnapshot()
+		}
 		let allowedKeys = playerIDs.map { Set($0.map { $0.description.lowercased() }) }
 		
 		var friendsBackup: [String: SocialFriendsBackup] = [:]
@@ -1339,7 +1412,12 @@ final class SocialManager: ObservableObject {
 				accountChanged = true
 			}
 			
-			let newPinned = backup.pinnedFriendJIDs.subtracting(account.pinnedFriendJIDs)
+			let normalizedExistingPinned = Set(account.pinnedFriendJIDs.map(Self.normalizedPinnedJID))
+			if normalizedExistingPinned != account.pinnedFriendJIDs {
+				account.pinnedFriendJIDs = normalizedExistingPinned
+			}
+			let normalizedIncomingPinned = Set(backup.pinnedFriendJIDs.map(Self.normalizedPinnedJID))
+			let newPinned = normalizedIncomingPinned.subtracting(account.pinnedFriendJIDs)
 			if !newPinned.isEmpty {
 				account.pinnedFriendJIDs.formUnion(newPinned)
 				accountChanged = true
@@ -1372,7 +1450,7 @@ final class SocialManager: ObservableObject {
 			snapshotSubscriptions = updated?.snapshotSubscriptions ?? [:]
 			changeEvents = updated?.changeEvents ?? []
 			cachedCardByPUUID = updated?.cachedCardByPUUID ?? [:]
-			pinnedFriendJIDs = updated?.pinnedFriendJIDs ?? []
+			pinnedFriendJIDs = Set((updated?.pinnedFriendJIDs ?? []).map(Self.normalizedPinnedJID))
 			lastSyncedAt = updated?.lastSyncedAt
 			lastPresenceAt = updated?.lastPresenceAt
 		}
@@ -1408,22 +1486,10 @@ final class SocialManager: ObservableObject {
 			
 			for (peerJID, messages) in conversations {
 				var merged = account.messagesByJID[peerJID] ?? []
-				var convChanged = false
-				for msg in messages {
-					var normalized = msg
-					normalized.peerJID = peerJID
-					if !merged.contains(where: { isDuplicateMessage($0, normalized) }) {
-						merged.append(normalized)
-						convChanged = true
-						importedMessageCount += 1
-					}
-				}
-				if convChanged {
-					merged.sort { $0.timestamp < $1.timestamp }
-					if merged.count > Self.maxCachedMessagesPerConversation {
-						merged = Array(merged.suffix(Self.maxCachedMessagesPerConversation))
-					}
+				let addedCount = Self.mergeMessages(messages, into: &merged, for: peerJID)
+				if addedCount > 0 {
 					account.messagesByJID[peerJID] = merged
+					importedMessageCount += addedCount
 					accountChanged = true
 				}
 			}

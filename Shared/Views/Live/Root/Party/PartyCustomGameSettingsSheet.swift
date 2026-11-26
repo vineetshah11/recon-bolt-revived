@@ -2,6 +2,24 @@ import SwiftUI
 import ValorantAPI
 
 struct PartyCustomGameSettingsSheet: View {
+	private struct MapOption: Identifiable, Equatable {
+		var id: String { path }
+		let path: String
+		let name: String
+	}
+	
+	private struct ModeOption: Identifiable, Equatable {
+		var id: String { path }
+		let path: String
+		let name: String
+	}
+	
+	private struct PingOption: Identifiable, Equatable {
+		var id: String { ping.serverID }
+		let ping: Party.Member.ServerPing
+		let name: String
+	}
+	
 	@Binding var party: Party
 	let userID: User.ID
 	var onPartyChanged: () async -> Void = {}
@@ -9,6 +27,9 @@ struct PartyCustomGameSettingsSheet: View {
 	@State private var settings: Party.CustomGameData.Settings
 	@State private var rules: Party.CustomGameData.GameRules
 	@State private var configs: CustomGameConfigs?
+	@State private var cachedMapOptions: [MapOption] = []
+	@State private var cachedModeOptions: [ModeOption] = []
+	@State private var cachedPingOptions: [PingOption] = []
 	@State private var isSaving = false
 	@State private var isReturningToStandard = false
 	
@@ -38,41 +59,7 @@ struct PartyCustomGameSettingsSheet: View {
 	}
 	
 	private var selfPings: [Party.Member.ServerPing] {
-		let member = party.members.firstElement(withID: userID) ?? party.members.first
-		return (member?.pings ?? []).sorted { lhs, rhs in
-			if lhs.ping != rhs.ping { return lhs.ping < rhs.ping }
-			return serverDisplayName(lhs.serverID) < serverDisplayName(rhs.serverID)
-		}
-	}
-	
-	private var currentModeCategory: CustomGameConfigs.ModeCategory {
-		CustomGameConfigs.ModeCategory(modePath: settings.mode)
-	}
-	
-	private var selectableMapPaths: [String] {
-		let category = currentModeCategory
-		var paths: [String] = []
-		
-		if let configs, !configs.enabledMaps.isEmpty {
-			paths = configs.validMaps(forMode: settings.mode)
-		}
-		
-		if paths.isEmpty, let assetMaps = assets?.maps.values {
-			paths = assetMaps
-				.map(\.id.rawValue)
-				.filter { category.accepts(mapPath: $0) }
-		}
-		
-		if paths.isEmpty, let configs, !configs.enabledMaps.isEmpty {
-			paths = configs.enabledMaps
-		}
-		
-		if !settings.map.isEmpty,
-		   !paths.contains(where: { $0.caseInsensitiveCompare(settings.map) == .orderedSame }) {
-			paths.insert(settings.map, at: 0)
-		}
-		
-		return paths.sorted { mapDisplayName($0) < mapDisplayName($1) }
+		(party.members.firstElement(withID: userID) ?? party.members.first)?.pings ?? []
 	}
 	
 	private static let fallbackModes: [String] = [
@@ -83,13 +70,51 @@ struct PartyCustomGameSettingsSheet: View {
 		"/Game/GameModes/HURM/HURM.HURM_C",
 	]
 	
-	private var selectableModePaths: [String] {
-		var modes = (configs?.enabledModes.isEmpty == false) ? configs!.enabledModes : Self.fallbackModes
-		modes = modes.filter { !$0.localizedCaseInsensitiveContains("NewPlayerExperience") && !$0.localizedCaseInsensitiveContains("NPE") }
-		if !settings.mode.isEmpty && !modes.contains(settings.mode) {
+	private func computeSelectableModePaths() -> [String] {
+		var modes = (configs?.selectableModes().isEmpty == false)
+			? configs!.selectableModes()
+			: Self.fallbackModes
+		if !settings.mode.isEmpty,
+		   !modes.contains(where: { $0.caseInsensitiveCompare(settings.mode) == .orderedSame }) {
 			modes.insert(settings.mode, at: 0)
 		}
 		return modes
+	}
+	
+	private func computeValidMapPaths(for modePath: String) -> [String] {
+		let nonTacticalKnown = assets?.knownNonTacticalMapPathsLowercased ?? []
+		if let configs, !configs.enabledMaps.isEmpty {
+			return configs.validMaps(forMode: modePath, knownNonTacticalMapPaths: nonTacticalKnown)
+		}
+		let category = CustomGameConfigs.ModeCategory(modePath: modePath)
+		guard let assetMaps = assets?.maps.values else { return [] }
+		return assetMaps
+			.map(\.id.rawValue)
+			.filter { path in
+				switch category {
+				case .standard:
+					return category.accepts(mapPath: path) && !nonTacticalKnown.contains(path.lowercased())
+				default:
+					return category.accepts(mapPath: path)
+				}
+			}
+	}
+	
+	private func rebuildCachedOptions() {
+		let validMaps = computeValidMapPaths(for: settings.mode)
+		cachedMapOptions = validMaps
+			.map { MapOption(path: $0, name: mapDisplayName($0)) }
+			.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+		
+		cachedModeOptions = computeSelectableModePaths()
+			.map { ModeOption(path: $0, name: modeDisplayName($0)) }
+		
+		cachedPingOptions = selfPings
+			.map { PingOption(ping: $0, name: serverDisplayName($0.serverID)) }
+			.sorted { lhs, rhs in
+				if lhs.ping.ping != rhs.ping.ping { return lhs.ping.ping < rhs.ping.ping }
+				return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+			}
 	}
 	
 	var body: some View {
@@ -134,16 +159,23 @@ struct PartyCustomGameSettingsSheet: View {
 					.disabled(!canEdit)
 				}
 			}
+			.onAppear {
+				rebuildCachedOptions()
+			}
+			.onChange(of: assets?.version) { _ in
+				rebuildCachedOptions()
+			}
+			.onChange(of: settings.mode) { _ in
+				rebuildCachedOptions()
+			}
+			.onChange(of: selfPings) { _ in
+				rebuildCachedOptions()
+			}
 			.valorantLoadTask { client in
-				do {
-					let fetched = try await client.getCustomGameConfigs()
-					configs = fetched
-					print("[CustomGame] enabledMaps:", fetched.enabledMaps)
-					print("[CustomGame] enabledModes:", fetched.enabledModes)
-					ensureValidMapForCurrentMode()
-				} catch {
-					print("[CustomGame] getCustomGameConfigs ERROR:", error)
-				}
+				let fetched = try await client.getCustomGameConfigs()
+				configs = fetched
+				ensureValidMapForCurrentMode()
+				rebuildCachedOptions()
 			}
 		}
 	}
@@ -151,7 +183,7 @@ struct PartyCustomGameSettingsSheet: View {
 	private var mapPreviewCard: some View {
 		let mapID = resolvedMapInfo(for: settings.map)?.id
 			?? MapID(settings.map.isEmpty ? MapID.ascent.rawValue : settings.map)
-			return ZStack(alignment: .bottomLeading) {
+		return ZStack(alignment: .bottomLeading) {
 			MapImage.splash(mapID)
 				.aspectRatio(contentMode: .fill)
 				.frame(height: 120)
@@ -197,13 +229,15 @@ struct PartyCustomGameSettingsSheet: View {
 				
 				// Menu Map
 				Menu {
-					ForEach(selectableMapPaths, id: \.self) { mapPath in
+					ForEach(cachedMapOptions) { option in
 						Button {
-							settings.map = mapPath
+							settings.map = option.path
 						} label: {
 							HStack {
-								Text(mapDisplayName(mapPath))
-								if mapPath == settings.map { Image(systemName: "checkmark") }
+								Text(option.name)
+								if option.path.caseInsensitiveCompare(settings.map) == .orderedSame {
+									Image(systemName: "checkmark")
+								}
 							}
 						}
 					}
@@ -215,7 +249,7 @@ struct PartyCustomGameSettingsSheet: View {
 					}
 					.foregroundStyle(Color.accentColor)
 				}
-				.disabled(!canEdit)
+				.disabled(!canEdit || cachedMapOptions.isEmpty)
 			}
 			.padding(.horizontal, 16)
 			.padding(.vertical, 14)
@@ -235,14 +269,16 @@ struct PartyCustomGameSettingsSheet: View {
 				
 				// Menu Mode
 				Menu {
-					ForEach(selectableModePaths, id: \.self) { modePath in
+					ForEach(cachedModeOptions) { option in
 						Button {
-							settings.mode = modePath
+							settings.mode = option.path
 							ensureValidMapForCurrentMode()
 						} label: {
 							HStack {
-								Text(modeDisplayName(modePath))
-								if modePath == settings.mode { Image(systemName: "checkmark") }
+								Text(option.name)
+								if option.path.caseInsensitiveCompare(settings.mode) == .orderedSame {
+									Image(systemName: "checkmark")
+								}
 							}
 						}
 					}
@@ -259,7 +295,7 @@ struct PartyCustomGameSettingsSheet: View {
 			.padding(.horizontal, 16)
 			.padding(.vertical, 14)
 			
-			if !selfPings.isEmpty {
+			if !cachedPingOptions.isEmpty {
 				Divider()
 					.padding(.leading, 54)
 				
@@ -274,13 +310,13 @@ struct PartyCustomGameSettingsSheet: View {
 					Spacer()
 					
 					Menu {
-						ForEach(selfPings) { ping in
+						ForEach(cachedPingOptions) { option in
 							Button {
-								settings.gamePod = ping.serverID
+								settings.gamePod = option.ping.serverID
 							} label: {
 								HStack {
-									Text("\(serverDisplayName(ping.serverID)) (\(ping.ping) ms)")
-									if ping.serverID == settings.gamePod { Image(systemName: "checkmark") }
+									Text("\(option.name) (\(option.ping.ping) ms)")
+									if option.ping.serverID == settings.gamePod { Image(systemName: "checkmark") }
 								}
 							}
 						}
@@ -363,11 +399,7 @@ struct PartyCustomGameSettingsSheet: View {
 	}
 	
 	private func resolvedMapInfo(for path: String) -> MapInfo? {
-		guard !path.isEmpty, let maps = assets?.maps else { return nil }
-		if let direct = maps[MapID(path)] {
-			return direct
-		}
-		return maps.values.first { $0.id.rawValue.caseInsensitiveCompare(path) == .orderedSame }
+		assets?.mapInfo(for: path)
 	}
 	
 	private func mapDisplayName(_ path: String) -> String {
@@ -379,20 +411,8 @@ struct PartyCustomGameSettingsSheet: View {
 	}
 	
 	private func modeDisplayName(_ path: String) -> String {
-		guard !path.isEmpty else { return String(localized: "Standard") }
-		let lower = path.lowercased()
-		if lower.contains("quickbomb") { return String(localized: "Spike Rush") }
-		if lower.contains("swiftplay") { return String(localized: "Swiftplay") }
-		if lower.contains("deathmatch") { return String(localized: "Deathmatch") }
-		if lower.contains("gungame") { return String(localized: "Escalation") }
-		if lower.contains("oneforall") { return String(localized: "Replication") }
-		if lower.contains("hurm") { return String(localized: "Team Deathmatch") }
-		if lower.contains("snowball") { return String(localized: "Snowball Fight") }
-		if lower.contains("shootingrange") { return String(localized: "Practice Range") }
-		if lower.contains("skirmishascension") { return "Skirmish: Ascension" }
-		if lower.contains("skirmish") { return "Skirmish" }
-		if lower.contains("bomb") { return String(localized: "Standard") }
-		return path.split(separator: "/").dropFirst(3).first.map(String.init) ?? path
+		assets?.customModeDisplayName(for: path)
+			?? AssetCollection.fallbackCustomModeDisplayName(for: path)
 	}
 	
 	private func serverDisplayName(_ podID: String) -> String {
@@ -403,12 +423,19 @@ struct PartyCustomGameSettingsSheet: View {
 	}
 
 	private func ensureValidMapForCurrentMode() {
-		let validMaps = selectableMapPaths
+		let modes = computeSelectableModePaths()
+		if settings.mode.isEmpty, let firstMode = modes.first {
+			settings.mode = firstMode
+		} else if let canonicalMode = modes.first(where: { $0.caseInsensitiveCompare(settings.mode) == .orderedSame }) {
+			settings.mode = canonicalMode
+		}
+		
+		let validMaps = computeValidMapPaths(for: settings.mode)
 		guard !validMaps.isEmpty else { return }
-		if !validMaps.contains(where: { $0.caseInsensitiveCompare(settings.map) == .orderedSame }) {
-			settings.map = validMaps[0]
-		} else if let exactMatch = validMaps.first(where: { $0.caseInsensitiveCompare(settings.map) == .orderedSame }) {
+		if let exactMatch = validMaps.first(where: { $0.caseInsensitiveCompare(settings.map) == .orderedSame }) {
 			settings.map = exactMatch
+		} else {
+			settings.map = validMaps[0]
 		}
 	}
 	
@@ -416,11 +443,14 @@ struct PartyCustomGameSettingsSheet: View {
 		var updated = settings
 		updated.gameRules = rules
 		
+		let modes = computeSelectableModePaths()
 		if updated.mode.isEmpty {
-			updated.mode = selectableModePaths.first ?? Self.fallbackModes[0]
+			updated.mode = modes.first ?? Self.fallbackModes[0]
+		} else if let canonicalMode = modes.first(where: { $0.caseInsensitiveCompare(updated.mode) == .orderedSame }) {
+			updated.mode = canonicalMode
 		}
 		
-		let validMaps = selectableMapPaths
+		let validMaps = computeValidMapPaths(for: updated.mode)
 		if let exactMap = validMaps.first(where: { $0.caseInsensitiveCompare(updated.map) == .orderedSame }) {
 			updated.map = exactMap
 		} else if let firstValid = validMaps.first {
@@ -430,17 +460,10 @@ struct PartyCustomGameSettingsSheet: View {
 		}
 		
 		if updated.gamePod.isEmpty {
-			updated.gamePod = selfPings.first?.serverID
+			updated.gamePod = cachedPingOptions.first?.ping.serverID
+				?? selfPings.first?.serverID
 				?? party.matchmakingData.preferredGamePods.first
 				?? ""
-		}
-
-		print("[CustomGame] Sending -> Map: \(updated.map) | Mode: \(updated.mode) | Pod: \(updated.gamePod)")
-		print("[CustomGame] Configs -> Maps: \(configs?.enabledMaps.count ?? -1) | Modes: \(configs?.enabledModes.count ?? -1)")
-		
-		if let data = try? JSONEncoder().encode(updated),
-		let json = String(data: data, encoding: .utf8) {
-			print("[CustomGame] POST payload:", json)
 		}
 
 		Task {
@@ -452,7 +475,6 @@ struct PartyCustomGameSettingsSheet: View {
 				saved = true
 			}
 			if saved {
-				await onPartyChanged()
 				dismiss()
 			}
 		}
@@ -468,7 +490,6 @@ struct PartyCustomGameSettingsSheet: View {
 				didReset = true
 			}
 			if didReset {
-				await onPartyChanged()
 				dismiss()
 			}
 		}

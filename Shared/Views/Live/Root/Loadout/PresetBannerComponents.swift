@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import ImageIO
 import ValorantAPI
 
 enum PresetBannerChoice: Equatable {
@@ -19,6 +20,25 @@ enum PresetBannerChoice: Equatable {
 	}
 }
 
+private final class PresetThumbnailImageCache: @unchecked Sendable {
+	static let shared = PresetThumbnailImageCache()
+	let cache: NSCache<NSString, UIImage> = {
+		let cache = NSCache<NSString, UIImage>()
+		cache.countLimit = 64
+		return cache
+	}()
+	
+	func image(for data: Data) -> UIImage? {
+		let key = "\(data.count):\(data.hashValue)" as NSString
+		if let cached = cache.object(forKey: key) {
+			return cached
+		}
+		guard let decoded = UIImage(data: data) else { return nil }
+		cache.setObject(decoded, forKey: key)
+		return decoded
+	}
+}
+
 struct PresetThumbnailView: View {
 	var bannerCardID: PlayerCard.ID?
 	var bannerImageData: Data?
@@ -28,7 +48,7 @@ struct PresetThumbnailView: View {
 	
 	var body: some View {
 		Group {
-			if let bannerImageData, let uiImage = UIImage(data: bannerImageData) {
+			if let bannerImageData, let uiImage = PresetThumbnailImageCache.shared.image(for: bannerImageData) {
 				Image(uiImage: uiImage)
 					.resizable()
 					.aspectRatio(contentMode: .fill)
@@ -74,12 +94,22 @@ struct PresetBannerPickerSheet: View {
 	@State private var pickedPhotoItem: PhotosPickerItem?
 	@State private var isProcessingPhoto = false
 	@State private var photoError: String?
+	@State private var cachedCards: [PlayerCardInfo] = []
+	
+	private struct FilterKey: Equatable {
+		let search: String
+		let filter: LoadoutItemFilter
+		let sort: BannerCardSort
+		let favCount: Int
+		let ownedCount: Int
+		let assetsVersion: AssetVersion?
+	}
 	
 	private var hasCustomControlsActive: Bool {
 		filter != .all || sort != .ownedFirst
 	}
 	
-	private var filteredCards: [PlayerCardInfo] {
+	private func computeFilteredCards() -> [PlayerCardInfo] {
 		guard let assets else { return [] }
 		let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
 		let allCards = Array(assets.playerCards.values)
@@ -111,6 +141,15 @@ struct PresetBannerPickerSheet: View {
 	}
 	
 	var body: some View {
+		let filterKey = FilterKey(
+			search: search,
+			filter: filter,
+			sort: sort,
+			favCount: favoritesManager.favorites(for: accountID)?.favoritedContent.count ?? 0,
+			ownedCount: inventory.cards.count,
+			assetsVersion: assets?.version
+		)
+		
 		NavigationStack {
 			ScrollView {
 				LazyVStack(alignment: .leading, spacing: 16) {
@@ -125,13 +164,13 @@ struct PresetBannerPickerSheet: View {
 									.font(.subheadline.weight(.medium))
 									.foregroundStyle(.secondary)
 								Spacer()
-								Text("\(filteredCards.count) shown")
+								Text("\(cachedCards.count) shown")
 									.font(.caption.monospacedDigit())
 									.foregroundStyle(.secondary)
 							}
 							.padding(.horizontal, 4)
 							
-							if filteredCards.isEmpty {
+							if cachedCards.isEmpty {
 								Text("No player cards match your search or filter.")
 									.font(.subheadline)
 									.foregroundStyle(.secondary)
@@ -146,7 +185,7 @@ struct PresetBannerPickerSheet: View {
 									],
 									spacing: 10
 								) {
-									ForEach(filteredCards, id: \.id) { card in
+									ForEach(cachedCards, id: \.id) { card in
 										let isSelected = (currentSelection == .card(card.id))
 										let isOwned = inventory.cards.contains(card.id)
 										let isFavorited = favoritesManager.isFavorited(card.id.rawID, for: accountID)
@@ -212,6 +251,9 @@ struct PresetBannerPickerSheet: View {
 				Task {
 					await loadCustomPhoto(from: newItem)
 				}
+			}
+			.task(id: filterKey) {
+				cachedCards = computeFilteredCards()
 			}
 			.alert(
 				"Could Not Load Image",
@@ -387,9 +429,14 @@ struct PresetBannerPickerSheet: View {
 			pickedPhotoItem = nil
 		}
 		do {
-			guard let rawData = try await item.loadTransferable(type: Data.self),
-				  let source = UIImage(data: rawData),
-				  let compressed = Self.downscaledJPEGData(from: source) else {
+			guard let rawData = try await item.loadTransferable(type: Data.self) else {
+				photoError = "Unsupported image format."
+				return
+			}
+			let compressed = await Task.detached(priority: .userInitiated) {
+				Self.downscaledJPEGData(from: rawData)
+			}.value
+			guard let compressed else {
 				photoError = "Unsupported image format."
 				return
 			}
@@ -400,17 +447,28 @@ struct PresetBannerPickerSheet: View {
 		}
 	}
 	
-	private static func downscaledJPEGData(from image: UIImage) -> Data? {
+	private nonisolated static func downscaledJPEGData(from rawData: Data) -> Data? {
 		let maxDimension: CGFloat = 256
+		let sourceOptions = [kCGImageSourceShouldCache: false] as CFDictionary
+		if let source = CGImageSourceCreateWithData(rawData as CFData, sourceOptions) {
+			let thumbOptions: [CFString: Any] = [
+				kCGImageSourceCreateThumbnailFromImageAlways: true,
+				kCGImageSourceThumbnailMaxPixelSize: maxDimension,
+				kCGImageSourceCreateThumbnailWithTransform: true,
+				kCGImageSourceShouldCacheImmediately: false,
+			]
+			if let cgThumb = CGImageSourceCreateThumbnailAtIndex(source, 0, thumbOptions as CFDictionary) {
+				return UIImage(cgImage: cgThumb).jpegData(compressionQuality: 0.78)
+			}
+		}
+		guard let image = UIImage(data: rawData) else { return nil }
 		let originalSize = image.size
 		guard originalSize.width > 0, originalSize.height > 0 else { return nil }
-		
 		let scale = min(1, maxDimension / max(originalSize.width, originalSize.height))
 		let targetSize = CGSize(
 			width: max(1, (originalSize.width * scale).rounded()),
 			height: max(1, (originalSize.height * scale).rounded())
 		)
-		
 		let format = UIGraphicsImageRendererFormat.default()
 		format.scale = 1
 		let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)

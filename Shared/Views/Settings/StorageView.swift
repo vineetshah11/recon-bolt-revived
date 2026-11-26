@@ -3,23 +3,17 @@ import UniformTypeIdentifiers
 
 struct StorageView: View {
 	@ObservedObject var accountManager: AccountManager
-	@ObservedObject var assetManager: AssetManager
+	let assetManager: AssetManager
 	@ObservedObject var settings: AppSettings
 	
 	@EnvironmentObject private var bookmarkList: BookmarkList
 	@EnvironmentObject private var presetManager: LoadoutPresetManager
-	@EnvironmentObject private var wishlistManager: WishlistManager
-	@EnvironmentObject private var shopHistoryStore: ShopHistoryStore
-	@EnvironmentObject private var usernameHistoryStore: UsernameHistoryStore
-	@EnvironmentObject private var playerSettingsSnapshotStore: PlayerSettingsSnapshotStore
-	@EnvironmentObject private var seasonGoalStore: SeasonGoalStore
-	@EnvironmentObject private var progressTimelineStore: ProgressTimelineStore
-	@EnvironmentObject private var socialManager: SocialManager
-	@EnvironmentObject private var lineupsManager: LineupsManager
+	@Environment(\.backupStores) private var backupStores
 	@StateObject private var storageManager = StorageManager()
 	
 	@State private var breakdown = StorageBreakdown()
 	@State private var isLoaded = false
+	@State private var reloadGeneration = 0
 	
 	@State private var isShowingImportPicker = false
 	@State private var pickedImportFile: ImportedBackupFile?
@@ -140,32 +134,34 @@ struct StorageView: View {
 					SettingsSectionHeader("Backup & Transfer")
 					
 					SettingsCard {
-						NavigationLink {
-							BackupExportView(stores: makeBackupStores())
-						} label: {
-							HStack(spacing: 14) {
-								Image(systemName: "square.and.arrow.up")
-									.font(.system(size: 18))
-									.foregroundStyle(.tint)
-									.frame(width: 24)
-								
-								Text("Export Cached Data")
-									.font(.body)
-									.foregroundStyle(.primary)
-								
-								Spacer()
-								
-								Image(systemName: "chevron.right")
-									.font(.caption.weight(.semibold))
-									.foregroundStyle(.secondary)
+						if let backupStores {
+							NavigationLink {
+								BackupExportView(stores: backupStores)
+							} label: {
+								HStack(spacing: 14) {
+									Image(systemName: "square.and.arrow.up")
+										.font(.system(size: 18))
+										.foregroundStyle(.tint)
+										.frame(width: 24)
+									
+									Text("Export Cached Data")
+										.font(.body)
+										.foregroundStyle(.primary)
+									
+									Spacer()
+									
+									Image(systemName: "chevron.right")
+										.font(.caption.weight(.semibold))
+										.foregroundStyle(.secondary)
+								}
+								.padding(.horizontal, 16)
+								.padding(.vertical, 14)
+								.contentShape(Rectangle())
 							}
-							.padding(.horizontal, 16)
-							.padding(.vertical, 14)
-							.contentShape(Rectangle())
+							.buttonStyle(.plain)
+							
+							SettingsRowDivider()
 						}
-						.buttonStyle(.plain)
-						
-						SettingsRowDivider()
 						
 						Button {
 							isShowingImportPicker = true
@@ -257,13 +253,13 @@ struct StorageView: View {
 		.background(Color.groupedBackground)
 		.navigationTitle("Storage and Data")
 		.navigationBarTitleDisplayMode(.inline)
-		.task {
+		.task(id: reloadGeneration) {
 			await reloadBreakdown()
 		}
 		.confirmationDialog("Remove All Accounts?", isPresented: $confirmRemoveAccounts, titleVisibility: .visible) {
 			Button("Remove All Accounts", role: .destructive) {
 				accountManager.clear()
-				Task { await reloadBreakdown() }
+				reloadGeneration &+= 1
 			}
 		} message: {
 			Text("Signs out of all Riot accounts stored on this device.")
@@ -271,7 +267,7 @@ struct StorageView: View {
 		.confirmationDialog("Delete All Bookmarks?", isPresented: $confirmDeleteBookmarks, titleVisibility: .visible) {
 			Button("Delete All Bookmarks", role: .destructive) {
 				bookmarkList.clearAll()
-				Task { await reloadBreakdown() }
+				reloadGeneration &+= 1
 			}
 		} message: {
 			Text("Removes all bookmarked players from your list.")
@@ -279,7 +275,7 @@ struct StorageView: View {
 		.confirmationDialog("Delete Loadout Presets?", isPresented: $confirmDeletePresets, titleVisibility: .visible) {
 			Button("Delete Loadout Presets", role: .destructive) {
 				presetManager.deleteAll()
-				Task { await reloadBreakdown() }
+				reloadGeneration &+= 1
 			}
 		} message: {
 			Text("Deletes all saved loadout presets from this device.")
@@ -303,9 +299,11 @@ struct StorageView: View {
 			}
 		}
 		.sheet(item: $pickedImportFile) { item in
-			NavigationStack {
-				BackupImportView(stores: makeBackupStores(), initialURL: item.url) {
-					Task { await reloadBreakdown() }
+			if let backupStores {
+				NavigationStack {
+					BackupImportView(stores: backupStores, initialURL: item.url) {
+						reloadGeneration &+= 1
+					}
 				}
 			}
 		}
@@ -319,23 +317,6 @@ struct StorageView: View {
 				Text(importPickerError)
 			}
 		}
-	}
-	
-	private func makeBackupStores() -> BackupStores {
-		BackupStores(
-			accountManager: accountManager,
-			bookmarkList: bookmarkList,
-			settings: settings,
-			loadoutPresetManager: presetManager,
-			wishlistManager: wishlistManager,
-			shopHistoryStore: shopHistoryStore,
-			usernameHistoryStore: usernameHistoryStore,
-			playerSettingsSnapshotStore: playerSettingsSnapshotStore,
-			seasonGoalStore: seasonGoalStore,
-			progressTimelineStore: progressTimelineStore,
-			socialManager: socialManager,
-			lineupsManager: lineupsManager
-		)
 	}
 	
 	private var summaryCard: some View {

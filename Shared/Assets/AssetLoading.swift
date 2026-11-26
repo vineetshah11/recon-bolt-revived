@@ -26,19 +26,21 @@ extension AssetClient {
 		
 		// this seems to be what skins are actually referred to by…
 		let skinsByLevelID = try await Dictionary(
-			uniqueKeysWithValues: weapons.lazy.flatMap { weapon in
+			weapons.lazy.flatMap { weapon in
 				weapon.skins.enumerated().lazy.flatMap { skinIndex, skin in
 					skin.levels.enumerated().map { levelIndex, level in
 						(level.id, WeaponSkin.Level.Path(weapon: weapon.id, skinIndex: skinIndex, levelIndex: levelIndex))
 					}
 				}
-			}
+			},
+			uniquingKeysWith: { first, _ in first }
 		)
 		
 		let buddiesByLevelID = try await Dictionary(
-			uniqueKeysWithValues: buddies.lazy.flatMap { buddy in
+			buddies.lazy.flatMap { buddy in
 				buddy.levels.map { ($0.id, buddy.id) }
-			}
+			},
+			uniquingKeysWith: { first, _ in first }
 		)
 		
 		return try await AssetCollection(

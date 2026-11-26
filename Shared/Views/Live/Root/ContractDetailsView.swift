@@ -24,6 +24,17 @@ struct ContractDetailsView: View {
 	
 	@State private var selectedTab: SectionTab = .missions
 	@State private var includeEpilogue = true
+	@State private var cachedMasterySummaries: [AgentMasterySummary] = []
+	@State private var cachedMasteryActEndDate: Date?
+	
+	private struct MasteryCacheKey: Equatable {
+		var isAgentsTab: Bool
+		var userID: User.ID?
+		var mastery: AgentMastery?
+		var assetVersion: AssetVersion?
+		var currentActID: Season.ID?
+		var contractCount: Int
+	}
 	
 	private var resolvedUserID: User.ID? {
 		userID ?? accountManager.activeAccount?.id
@@ -61,6 +72,19 @@ struct ContractDetailsView: View {
 			}
 		}
 		.padding(.top, 8)
+		.task(id: MasteryCacheKey(
+			isAgentsTab: selectedTab == .agents,
+			userID: resolvedUserID,
+			mastery: agentMastery,
+			assetVersion: assets?.version,
+			currentActID: seasons?.currentAct()?.id,
+			contractCount: contracts.details.contracts.count
+		)) {
+			guard selectedTab == .agents else { return }
+			let computed = buildMasterySummaries()
+			cachedMasterySummaries = computed.summaries
+			cachedMasteryActEndDate = computed.actEndDate
+		}
 	}
 	
 	private var tabPicker: some View {
@@ -194,14 +218,10 @@ struct ContractDetailsView: View {
 					}
 					
 					let ratio = Double(stats.levelXP) / Double(max(1, stats.levelTotalXP))
-					GeometryReader { geo in
-						ZStack(alignment: .leading) {
-							Capsule().fill(Color.secondary.opacity(0.2))
-							Capsule().fill(Color.accentColor)
-								.frame(width: max(6, geo.size.width * CGFloat(min(1, max(0, ratio)))))
-						}
-					}
-					.frame(height: 6)
+					HorizontalFillCapsuleShape(fraction: ratio, minWidth: 6)
+						.fill(Color.accentColor)
+						.background(Color.secondary.opacity(0.2), in: Capsule())
+						.frame(height: 6)
 					
 					HStack {
 						let pct = Int((ratio * Double(100)).rounded())
@@ -303,14 +323,10 @@ struct ContractDetailsView: View {
 						Spacer()
 					}
 					
-					GeometryReader { geo in
-						ZStack(alignment: .leading) {
-							Capsule().fill(Color.secondary.opacity(0.2))
-							Capsule().fill(Color.accentColor)
-								.frame(width: max(6, geo.size.width * CGFloat(pct)))
-						}
-					}
-					.frame(height: 6)
+					HorizontalFillCapsuleShape(fraction: pct, minWidth: 6)
+						.fill(Color.accentColor)
+						.background(Color.secondary.opacity(0.2), in: Capsule())
+						.frame(height: 6)
 					
 					HStack {
 						Text("\(Int((pct * Double(100)).rounded()))% — \(recruitment.earned.formatted()) / \(recruitment.threshold.formatted()) XP")
@@ -395,6 +411,13 @@ struct ContractDetailsView: View {
 	
 	@ViewBuilder
 	private var agentsMasteryView: some View {
+		AgentMasterySectionView(
+			summaries: cachedMasterySummaries,
+			actEndDate: cachedMasteryActEndDate
+		)
+	}
+	
+	private func buildMasterySummaries() -> (summaries: [AgentMasterySummary], actEndDate: Date?) {
 		let uid = resolvedUserID
 		let cachedMatches: [MatchDetails] = {
 			guard let uid,
@@ -414,11 +437,7 @@ struct ContractDetailsView: View {
 			currentAct: currentAct,
 			previousAct: prevAct
 		)
-		
-		AgentMasterySectionView(
-			summaries: summaries,
-			actEndDate: currentAct?.timeSpan.end
-		)
+		return (summaries, currentAct?.timeSpan.end)
 	}
 	
 	// MARK: - Helpers

@@ -6,6 +6,7 @@ struct FriendsView: View {
 	@EnvironmentObject private var accountManager: AccountManager
 	@EnvironmentObject private var settings: AppSettings
 	@Environment(\.assets) private var assets
+	@Environment(\.seasons) private var seasons
 	
 	@State private var search = ""
 	@State private var showingAddFriend = false
@@ -15,12 +16,39 @@ struct FriendsView: View {
 	@State private var showingChanges = false
 	@State private var contextChatFriend: XMPPFriend?
 	@State private var contextProfileUserID: User.ID?
+	@State private var cachedSections = FriendSectionsSnapshot()
+	
+	private struct SectionsKey: Equatable {
+		var friends: [XMPPFriend]
+		var pinnedJIDs: Set<String>
+		var ownPartyID: String?
+		var search: String
+		var sortOrder: AppSettings.FriendsSortOrder
+		var sortOfflineByLastSeen: Bool
+	}
+	
+	private struct OtherGameGroup: Identifiable {
+		var id: String { game }
+		var game: String
+		var members: [XMPPFriend]
+	}
+	
+	private struct FriendSectionsSnapshot {
+		var partyFriends: [XMPPFriend] = []
+		var pinned: [XMPPFriend] = []
+		var valorantPartyGroups: [PartyGroup] = []
+		var incoming: [XMPPFriend] = []
+		var outgoing: [XMPPFriend] = []
+		var otherGameGroups: [OtherGameGroup] = []
+		var offline: [XMPPFriend] = []
+	}
 	
 	private var client: ValorantClient? {
 		accountManager.activeAccount?.client
 	}
 	
 	var body: some View {
+		let currentAct = seasons?.currentAct()
 		ScrollView {
 			LazyVStack(alignment: .leading, spacing: 18) {
 				searchBar
@@ -28,18 +56,18 @@ struct FriendsView: View {
 				connectionBanner
 				
 				if let ownUserID = accountManager.activeAccount?.id, search.trimmingCharacters(in: .whitespaces).isEmpty {
-					ownPartySection(userID: ownUserID)
+					ownPartySection(userID: ownUserID, currentAct: currentAct)
 				}
 				
-				pinnedFriendsSection
+				pinnedFriendsSection(currentAct: currentAct)
 				
-				valorantPartiesSection
+				valorantPartiesSection(currentAct: currentAct)
 				
 				friendRequestsSection
 				
-				otherGamesSection
+				otherGamesSection(currentAct: currentAct)
 				
-				offlineFriendsSection
+				offlineFriendsSection(currentAct: currentAct)
 				
 				if socialManager.friends.isEmpty && socialManager.connectionState == .connected {
 					Text("No friends returned on your Riot roster yet.")
@@ -91,6 +119,16 @@ struct FriendsView: View {
 		}
 		.task {
 			await socialManager.connectIfNeeded(using: client)
+		}
+		.task(id: SectionsKey(
+			friends: socialManager.friends,
+			pinnedJIDs: socialManager.pinnedFriendJIDs,
+			ownPartyID: socialManager.myPresence?.partyID,
+			search: search,
+			sortOrder: settings.friendsSortOrder,
+			sortOfflineByLastSeen: settings.sortOfflineByLastSeen
+		)) {
+			recomputeSections()
 		}
 		.alert("Add Friend", isPresented: $showingAddFriend) {
 			TextField("Game Name", text: $friendName)
@@ -284,115 +322,69 @@ struct FriendsView: View {
 		}
 	}
 	
-	// MARK: - Your Party
+	// MARK: - Sections Snapshot
 	
-	@ViewBuilder
-	private func ownPartySection(userID: User.ID) -> some View {
-		let ownPartyID = socialManager.myPresence?.partyID
-		let partyFriends: [XMPPFriend] = {
-			guard let ownPartyID else { return [] }
-			return socialManager.friends.filter {
-				!$0.isIncomingRequest && !$0.isOutgoingRequest && $0.status != .offline && $0.partyID == ownPartyID
-			}
-		}()
-		let size = socialManager.myPresence?.partySize ?? (1 + partyFriends.count)
-		let maxSize = socialManager.myPresence?.maxPartySize ?? 5
+	private func recomputeSections() {
+		let query = trimmedSearch
+		let rawOwnPartyID = socialManager.myPresence?.partyID
+		let effectiveOwnPartyID = query.isEmpty ? rawOwnPartyID : nil
 		
-		VStack(alignment: .leading, spacing: 8) {
-			Text("Your Party — \(size)/\(maxSize)")
-				.font(.subheadline.weight(.medium))
-				.foregroundStyle(.secondary)
-				.padding(.horizontal, 4)
+		var partyFriends: [XMPPFriend] = []
+		var pinned: [XMPPFriend] = []
+		var valorantBuckets: [String: [XMPPFriend]] = [:]
+		var incoming: [XMPPFriend] = []
+		var outgoing: [XMPPFriend] = []
+		var otherBuckets: [String: [XMPPFriend]] = [:]
+		var offline: [XMPPFriend] = []
+		
+		for friend in socialManager.friends {
+			let matches = matchesSearch(friend, query: query)
+			if friend.isIncomingRequest {
+				if matches { incoming.append(friend) }
+				continue
+			}
+			if friend.isOutgoingRequest {
+				if matches { outgoing.append(friend) }
+				continue
+			}
 			
-			VStack(spacing: 0) {
-				OwnPartyMemberRow(userID: userID, presence: socialManager.myPresence, assets: assets)
-				
-				ForEach(partyFriends) { member in
-					Divider()
-						.opacity(0.22)
-						.padding(.leading, 72)
-					friendPartyRow(member)
-				}
+			let inEffectiveOwnParty = (effectiveOwnPartyID != nil && friend.status != .offline && friend.partyID == effectiveOwnPartyID)
+			if inEffectiveOwnParty {
+				partyFriends.append(friend)
 			}
-			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-		}
-	}
-	
-	// MARK: - Pinned Friends
-	
-	@ViewBuilder
-	private var pinnedFriendsSection: some View {
-		let query = trimmedSearch
-		let ownPartyID = query.isEmpty ? socialManager.myPresence?.partyID : nil
-		let pinned = socialManager.friends
-			.filter { friend in
-				guard !friend.isIncomingRequest && !friend.isOutgoingRequest else { return false }
-				guard socialManager.isPinned(friend) else { return false }
-				if let ownPartyID, friend.status != .offline && friend.partyID == ownPartyID {
-					return false
+			
+			guard matches else { continue }
+			
+			if socialManager.isPinned(friend) {
+				if !inEffectiveOwnParty {
+					pinned.append(friend)
 				}
-				return matchesSearch(friend, query: query)
+				continue
 			}
-			.sorted { lhs, rhs in
-				let lhsOffline = lhs.status == .offline
-				let rhsOffline = rhs.status == .offline
-				if lhsOffline != rhsOffline {
-					return !lhsOffline
+			
+			if friend.status == .offline {
+				offline.append(friend)
+			} else if friend.gameTitle == "VALORANT" {
+				if let rawOwnPartyID, friend.partyID == rawOwnPartyID {
+					continue
 				}
-				return compareFriends(lhs, rhs, isOffline: lhsOffline)
+				let key = friend.partyID ?? "solo:\(friend.jid)"
+				valorantBuckets[key, default: []].append(friend)
+			} else {
+				otherBuckets[friend.gameTitle ?? "Online", default: []].append(friend)
 			}
-		
-		if !pinned.isEmpty {
-			VStack(alignment: .leading, spacing: 8) {
-				Text("Pinned — \(pinned.count)")
-					.font(.subheadline.weight(.medium))
-					.foregroundStyle(.secondary)
-					.padding(.horizontal, 4)
-				
-				VStack(spacing: 0) {
-					ForEach(Array(pinned.enumerated()), id: \.element.id) { index, friend in
-						friendPartyRow(friend, isOfflineStyle: friend.status == .offline)
-						if index < pinned.count - 1 {
-							Divider()
-								.opacity(0.22)
-								.padding(.leading, friend.playerCardID == nil ? 14 : 72)
-						}
-					}
-				}
-				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-			}
-		}
-	}
-	
-	// MARK: - VALORANT Parties
-	
-	private struct PartyGroup: Identifiable {
-		var id: String
-		var headerTitle: String
-		var members: [XMPPFriend]
-		var totalSize: Int
-		var maxSize: Int
-		var topSortRank: XMPPFriendStatus
-		var leadName: String
-	}
-	
-	private var valorantPartyGroups: [PartyGroup] {
-		let ownPartyID = socialManager.myPresence?.partyID
-		let query = trimmedSearch
-		let activeValFriends = socialManager.friends.filter { friend in
-			guard !friend.isIncomingRequest && !friend.isOutgoingRequest && friend.status != .offline else { return false }
-			guard !socialManager.isPinned(friend) else { return false }
-			if let ownPartyID, friend.partyID == ownPartyID { return false }
-			return friend.gameTitle == "VALORANT" && matchesSearch(friend, query: query)
 		}
 		
-		var buckets: [String: [XMPPFriend]] = [:]
-		for friend in activeValFriends {
-			let key = friend.partyID ?? "solo:\(friend.jid)"
-			buckets[key, default: []].append(friend)
+		pinned.sort { lhs, rhs in
+			let lhsOffline = lhs.status == .offline
+			let rhsOffline = rhs.status == .offline
+			if lhsOffline != rhsOffline {
+				return !lhsOffline
+			}
+			return compareFriends(lhs, rhs, isOffline: lhsOffline)
 		}
 		
-		return buckets.map { key, members in
+		let partyGroups: [PartyGroup] = valorantBuckets.map { key, members in
 			let sortedMembers = members.sorted { lhs, rhs in
 				if settings.friendsSortOrder == .defaultOrder, lhs.isPartyOwner != rhs.isPartyOwner {
 					return lhs.isPartyOwner
@@ -447,20 +439,104 @@ struct FriendsView: View {
 			}
 			return lhs.leadName.localizedCaseInsensitiveCompare(rhs.leadName) == .orderedAscending
 		}
+		
+		let otherGameGroups: [OtherGameGroup] = otherBuckets.keys.sorted().map { game in
+			let sorted = (otherBuckets[game] ?? []).sorted { compareFriends($0, $1, isOffline: false) }
+			return OtherGameGroup(game: game, members: sorted)
+		}
+		
+		offline.sort { compareFriends($0, $1, isOffline: true) }
+		
+		cachedSections = FriendSectionsSnapshot(
+			partyFriends: partyFriends,
+			pinned: pinned,
+			valorantPartyGroups: partyGroups,
+			incoming: incoming,
+			outgoing: outgoing,
+			otherGameGroups: otherGameGroups,
+			offline: offline
+		)
+	}
+	
+	// MARK: - Your Party
+	
+	@ViewBuilder
+	private func ownPartySection(userID: User.ID, currentAct: Act?) -> some View {
+		let partyFriends = cachedSections.partyFriends
+		let size = socialManager.myPresence?.partySize ?? (1 + partyFriends.count)
+		let maxSize = socialManager.myPresence?.maxPartySize ?? 5
+		
+		VStack(alignment: .leading, spacing: 8) {
+			Text("Your Party — \(size)/\(maxSize)")
+				.font(.subheadline.weight(.medium))
+				.foregroundStyle(.secondary)
+				.padding(.horizontal, 4)
+			
+			LazyVStack(spacing: 0) {
+				OwnPartyMemberRow(userID: userID, presence: socialManager.myPresence, assets: assets)
+				
+				ForEach(partyFriends) { member in
+					Divider()
+						.opacity(0.22)
+						.padding(.leading, 72)
+					friendPartyRow(member, currentAct: currentAct)
+				}
+			}
+			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+		}
+	}
+	
+	// MARK: - Pinned Friends
+	
+	@ViewBuilder
+	private func pinnedFriendsSection(currentAct: Act?) -> some View {
+		let pinned = cachedSections.pinned
+		if !pinned.isEmpty {
+			VStack(alignment: .leading, spacing: 8) {
+				Text("Pinned — \(pinned.count)")
+					.font(.subheadline.weight(.medium))
+					.foregroundStyle(.secondary)
+					.padding(.horizontal, 4)
+				
+				LazyVStack(spacing: 0) {
+					ForEach(Array(pinned.enumerated()), id: \.element.id) { index, friend in
+						friendPartyRow(friend, isOfflineStyle: friend.status == .offline, currentAct: currentAct)
+						if index < pinned.count - 1 {
+							Divider()
+								.opacity(0.22)
+								.padding(.leading, friend.playerCardID == nil ? 14 : 72)
+						}
+					}
+				}
+				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+			}
+		}
+	}
+	
+	// MARK: - VALORANT Parties
+	
+	private struct PartyGroup: Identifiable {
+		var id: String
+		var headerTitle: String
+		var members: [XMPPFriend]
+		var totalSize: Int
+		var maxSize: Int
+		var topSortRank: XMPPFriendStatus
+		var leadName: String
 	}
 	
 	@ViewBuilder
-	private var valorantPartiesSection: some View {
-		ForEach(valorantPartyGroups) { group in
+	private func valorantPartiesSection(currentAct: Act?) -> some View {
+		ForEach(cachedSections.valorantPartyGroups) { group in
 			VStack(alignment: .leading, spacing: 8) {
 				Text(group.headerTitle)
 					.font(.subheadline.weight(.medium))
 					.foregroundStyle(.secondary)
 					.padding(.horizontal, 4)
 				
-				VStack(spacing: 0) {
+				LazyVStack(spacing: 0) {
 					ForEach(Array(group.members.enumerated()), id: \.element.id) { index, member in
-						friendPartyRow(member)
+						friendPartyRow(member, currentAct: currentAct)
 						
 						if index < group.members.count - 1 {
 							Divider()
@@ -493,9 +569,8 @@ struct FriendsView: View {
 	
 	@ViewBuilder
 	private var friendRequestsSection: some View {
-		let query = trimmedSearch
-		let incoming = socialManager.friends.filter { $0.isIncomingRequest && matchesSearch($0, query: query) }
-		let outgoing = socialManager.friends.filter { $0.isOutgoingRequest && matchesSearch($0, query: query) }
+		let incoming = cachedSections.incoming
+		let outgoing = cachedSections.outgoing
 		
 		if !incoming.isEmpty {
 			VStack(alignment: .leading, spacing: 8) {
@@ -504,7 +579,7 @@ struct FriendsView: View {
 					.foregroundStyle(.secondary)
 					.padding(.horizontal, 4)
 				
-				VStack(spacing: 0) {
+				LazyVStack(spacing: 0) {
 					ForEach(Array(incoming.enumerated()), id: \.element.id) { index, friend in
 						HStack(spacing: 12) {
 							if let cardID = friend.playerCardID {
@@ -566,7 +641,7 @@ struct FriendsView: View {
 					.foregroundStyle(.secondary)
 					.padding(.horizontal, 4)
 				
-				VStack(spacing: 0) {
+				LazyVStack(spacing: 0) {
 					ForEach(Array(outgoing.enumerated()), id: \.element.id) { index, friend in
 						HStack(spacing: 12) {
 							if let cardID = friend.playerCardID {
@@ -615,31 +690,18 @@ struct FriendsView: View {
 	// MARK: - Other Games
 	
 	@ViewBuilder
-	private var otherGamesSection: some View {
-		let query = trimmedSearch
-		let otherActive = socialManager.friends.filter { friend in
-			!friend.isIncomingRequest
-			&& !friend.isOutgoingRequest
-			&& friend.status != .offline
-			&& !socialManager.isPinned(friend)
-			&& friend.gameTitle != "VALORANT"
-			&& matchesSearch(friend, query: query)
-		}
-		let byGame = Dictionary(grouping: otherActive) { $0.gameTitle ?? "Online" }
-		let orderedGames = byGame.keys.sorted()
-		
-		ForEach(orderedGames, id: \.self) { game in
-			let list = (byGame[game] ?? []).sorted { compareFriends($0, $1, isOffline: false) }
+	private func otherGamesSection(currentAct: Act?) -> some View {
+		ForEach(cachedSections.otherGameGroups) { group in
 			VStack(alignment: .leading, spacing: 8) {
-				Text("\(game) — \(list.count)")
+				Text("\(group.game) — \(group.members.count)")
 					.font(.subheadline.weight(.medium))
 					.foregroundStyle(.secondary)
 					.padding(.horizontal, 4)
 				
-				VStack(spacing: 0) {
-					ForEach(Array(list.enumerated()), id: \.element.id) { index, friend in
-						friendPartyRow(friend)
-						if index < list.count - 1 {
+				LazyVStack(spacing: 0) {
+					ForEach(Array(group.members.enumerated()), id: \.element.id) { index, friend in
+						friendPartyRow(friend, currentAct: currentAct)
+						if index < group.members.count - 1 {
 							Divider().opacity(0.22).padding(.leading, friend.playerCardID == nil ? 14 : 72)
 						}
 					}
@@ -652,17 +714,8 @@ struct FriendsView: View {
 	// MARK: - Offline Friends
 	
 	@ViewBuilder
-	private var offlineFriendsSection: some View {
-		let query = trimmedSearch
-		let offline = socialManager.friends
-			.filter {
-				!$0.isIncomingRequest
-				&& !$0.isOutgoingRequest
-				&& $0.status == .offline
-				&& !socialManager.isPinned($0)
-				&& matchesSearch($0, query: query)
-			}
-			.sorted { compareFriends($0, $1, isOffline: true) }
+	private func offlineFriendsSection(currentAct: Act?) -> some View {
+		let offline = cachedSections.offline
 		if !offline.isEmpty {
 			VStack(alignment: .leading, spacing: 8) {
 				Text("Offline — \(offline.count)")
@@ -672,7 +725,7 @@ struct FriendsView: View {
 				
 				LazyVStack(spacing: 0) {
 					ForEach(Array(offline.enumerated()), id: \.element.id) { index, friend in
-						friendPartyRow(friend, isOfflineStyle: true)
+						friendPartyRow(friend, isOfflineStyle: true, currentAct: currentAct)
 						if index < offline.count - 1 {
 							Divider().opacity(0.22).padding(.leading, friend.playerCardID == nil ? 14 : 72)
 						}
@@ -739,7 +792,7 @@ struct FriendsView: View {
 	
 	// MARK: - Friend Card Row
 	
-	private func friendPartyRow(_ friend: XMPPFriend, isOfflineStyle: Bool = false) -> some View {
+	private func friendPartyRow(_ friend: XMPPFriend, isOfflineStyle: Bool = false, currentAct: Act?) -> some View {
 		let hasUnread = (socialManager.unreadByJID[friend.jid] ?? 0) > 0
 		let opensProfileDirectly = settings.openProfileDirectly && !hasUnread && friend.puuid != nil
 		
@@ -803,7 +856,7 @@ struct FriendsView: View {
 				}
 				
 				if let tier = friend.competitiveTier, tier >= 3 {
-					CompetitiveTierImage(tier: tier, time: .now)
+					CompetitiveTierImage(tier: tier, act: currentAct, time: currentAct == nil ? .now : nil)
 						.frame(width: 34, height: 34)
 				}
 				
@@ -947,13 +1000,7 @@ struct FriendsView: View {
 	}
 	
 	private func resolvedMapName(_ path: String) -> String {
-		if let match = assets?.maps[MapID(path)] {
-			return match.displayName
-		}
-		if let match = assets?.maps.values.first(where: {
-			$0.assetPath.caseInsensitiveCompare(path) == .orderedSame
-			|| $0.id.rawValue.caseInsensitiveCompare(path) == .orderedSame
-		}) {
+		if let match = assets?.mapInfo(for: path) {
 			return match.displayName
 		}
 		let segment = path.split(separator: "/").last.map(String.init) ?? path
@@ -1103,7 +1150,6 @@ struct ChatView: View {
 	@Environment(\.assets) private var assets
 	@Environment(\.dismiss) private var dismiss
 	
-	@State private var draft = ""
 	@State private var sendError: String?
 	@State private var showingProfile = false
 	
@@ -1220,7 +1266,9 @@ struct ChatView: View {
 			}
 		}
 		.safeAreaInset(edge: .bottom) {
-			composerPill
+			ChatComposerView(friendJID: friend.jid) { errorMessage in
+				sendError = errorMessage
+			}
 		}
 		.onAppear {
 			socialManager.activeChatJID = friend.jid
@@ -1330,51 +1378,12 @@ struct ChatView: View {
 			parts.append(assets?.queues[QueueID(q)]?.name ?? q.replacingOccurrences(of: "_", with: " ").capitalized)
 		}
 		if let path = liveFriend.mapPath, !path.isEmpty {
-			let name = assets?.maps[MapID(path)]?.displayName
-				?? assets?.maps.values.first(where: { $0.assetPath.caseInsensitiveCompare(path) == .orderedSame })?.displayName
+			let name = assets?.mapInfo(for: path)?.displayName
 				?? path.split(separator: "/").last.map(String.init)?.capitalized
 				?? path
 			parts.append(name)
 		}
 		return parts.isEmpty ? nil : parts.joined(separator: " · ")
-	}
-	
-	private var composerPill: some View {
-		HStack(spacing: 8) {
-			TextField("Message", text: $draft, axis: .vertical)
-				.lineLimit(1...4)
-				.padding(.leading, 14)
-				.padding(.vertical, 9)
-			
-			let canSend = !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-			Button {
-				let text = draft
-				draft = ""
-				Task {
-					do {
-						try await socialManager.sendMessage(to: friend.jid, body: text)
-					} catch {
-						draft = text
-						sendError = error.localizedDescription
-					}
-				}
-			} label: {
-				Image(systemName: "arrow.up")
-					.font(.subheadline.weight(.bold))
-					.foregroundStyle(.white)
-					.frame(width: 30, height: 30)
-					.background(canSend ? Color.accentColor : Color.white.opacity(0.18), in: Circle())
-			}
-			.disabled(!canSend)
-			.padding(.trailing, 5)
-		}
-		.background(.ultraThinMaterial, in: Capsule())
-		.overlay(
-			Capsule()
-				.stroke(Color.white.opacity(0.14), lineWidth: 1)
-		)
-		.padding(.horizontal, 14)
-		.padding(.vertical, 8)
 	}
 	
 	private func messageBubble(_ message: XMPPChatMessage) -> some View {
@@ -1401,6 +1410,57 @@ struct ChatView: View {
 	}
 }
 
+// MARK: - Isolated Chat Composer
+
+private struct ChatComposerView: View {
+	let friendJID: String
+	var onSendError: (String) -> Void
+	
+	@EnvironmentObject private var socialManager: SocialManager
+	@State private var draft = ""
+	
+	private var canSend: Bool {
+		!draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+	}
+	
+	var body: some View {
+		HStack(spacing: 8) {
+			TextField("Message", text: $draft, axis: .vertical)
+				.lineLimit(1...4)
+				.padding(.leading, 14)
+				.padding(.vertical, 9)
+			
+			Button {
+				let text = draft
+				draft = ""
+				Task {
+					do {
+						try await socialManager.sendMessage(to: friendJID, body: text)
+					} catch {
+						draft = text
+						onSendError(error.localizedDescription)
+					}
+				}
+			} label: {
+				Image(systemName: "arrow.up")
+					.font(.subheadline.weight(.bold))
+					.foregroundStyle(.white)
+					.frame(width: 30, height: 30)
+					.background(canSend ? Color.accentColor : Color.white.opacity(0.18), in: Circle())
+			}
+			.disabled(!canSend)
+			.padding(.trailing, 5)
+		}
+		.background(.ultraThinMaterial, in: Capsule())
+		.overlay(
+			Capsule()
+				.stroke(Color.white.opacity(0.14), lineWidth: 1)
+		)
+		.padding(.horizontal, 14)
+		.padding(.vertical, 8)
+	}
+}
+
 // MARK: - Friend List Changes View
 
 struct FriendListChangesView: View {
@@ -1409,19 +1469,18 @@ struct FriendListChangesView: View {
 	
 	private static let thirtyDays: TimeInterval = 30 * 24 * 60 * 60
 	
+	@State private var cachedLeftCount = 0
+	@State private var cachedAcceptedCount = 0
+	@State private var cachedNoLongerPendingCount = 0
+	@State private var cachedGroupedSections: [EventGroup] = []
+	
 	var body: some View {
-		let cutoff = Date().addingTimeInterval(-Self.thirtyDays)
-		let last30 = socialManager.changeEvents.filter { $0.timestamp >= cutoff }
-		let leftCount = last30.filter { $0.kind == .removedFriend }.count
-		let acceptedCount = last30.filter { $0.kind == .acceptedRequest }.count
-		let noLongerPendingCount = last30.filter { $0.kind == .requestNoLongerPending }.count
-		
 		ScrollView {
-			VStack(alignment: .leading, spacing: 20) {
+			LazyVStack(alignment: .leading, spacing: 20) {
 				summaryCard(
-					left: leftCount,
-					accepted: acceptedCount,
-					noLongerPending: noLongerPendingCount
+					left: cachedLeftCount,
+					accepted: cachedAcceptedCount,
+					noLongerPending: cachedNoLongerPendingCount
 				)
 				
 				if socialManager.changeEvents.isEmpty {
@@ -1440,7 +1499,7 @@ struct FriendListChangesView: View {
 					.padding(24)
 					.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 				} else {
-					ForEach(groupedSections, id: \.title) { section in
+					ForEach(cachedGroupedSections, id: \.title) { section in
 						VStack(alignment: .leading, spacing: 8) {
 							Text(section.title)
 								.font(.headline.weight(.bold))
@@ -1475,6 +1534,9 @@ struct FriendListChangesView: View {
 					}
 				}
 			}
+		}
+		.task(id: socialManager.changeEvents) {
+			recomputeChanges()
 		}
 	}
 	
@@ -1537,16 +1599,28 @@ struct FriendListChangesView: View {
 		var events: [FriendListChangeEvent]
 	}
 	
-	private var groupedSections: [EventGroup] {
+	private func recomputeChanges() {
 		let cal = Calendar.current
 		let now = Date()
+		let cutoff = now.addingTimeInterval(-Self.thirtyDays)
 		let weekAgo = now.addingTimeInterval(-7 * 24 * 60 * 60)
 		
+		var leftCount = 0
+		var acceptedCount = 0
+		var noLongerPendingCount = 0
 		var today: [FriendListChangeEvent] = []
 		var thisWeek: [FriendListChangeEvent] = []
 		var older: [FriendListChangeEvent] = []
 		
 		for event in socialManager.changeEvents.sorted(by: { $0.timestamp > $1.timestamp }) {
+			if event.timestamp >= cutoff {
+				switch event.kind {
+				case .removedFriend: leftCount += 1
+				case .acceptedRequest: acceptedCount += 1
+				case .requestNoLongerPending: noLongerPendingCount += 1
+				case .addedFriend: break
+				}
+			}
 			if cal.isDateInToday(event.timestamp) {
 				today.append(event)
 			} else if event.timestamp >= weekAgo {
@@ -1560,7 +1634,11 @@ struct FriendListChangesView: View {
 		if !today.isEmpty { groups.append(EventGroup(title: "Today", events: today)) }
 		if !thisWeek.isEmpty { groups.append(EventGroup(title: "This Week", events: thisWeek)) }
 		if !older.isEmpty { groups.append(EventGroup(title: "Older", events: older)) }
-		return groups
+		
+		cachedLeftCount = leftCount
+		cachedAcceptedCount = acceptedCount
+		cachedNoLongerPendingCount = noLongerPendingCount
+		cachedGroupedSections = groups
 	}
 	
 	@ViewBuilder

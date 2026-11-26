@@ -72,16 +72,74 @@ struct WishlistEntry: Identifiable, Codable, Equatable {
 
 @MainActor
 final class WishlistManager: ObservableObject {
+	private struct LookupKey: Hashable {
+		var kind: WishlistItemKind
+		var itemID: LowercaseUUID
+	}
+	
 	@Published var entries: [WishlistEntry] = []
 	
 	private let filename = "Wishlist.v1.json"
+	private var lookupIndex: Set<LookupKey> = []
+	private var cachedSkinIDs: Set<WeaponSkin.ID> = []
+	private var hasLoadedFromDisk = false
+	private var initialLoadTask: Task<Void, Never>?
+	private var pendingRemovedKeys: Set<LookupKey> = []
+	private var pendingSaveTask: Task<Void, Never>?
 	
 	init() {
-		entries = LocalJSONStore.load([WishlistEntry].self, from: filename) ?? []
+		initialLoadTask = Task { @MainActor [weak self] in
+			guard let self else { return }
+			let loaded = await LocalJSONStore.loadAsync([WishlistEntry].self, from: self.filename) ?? []
+			self.mergeDiskEntries(loaded)
+		}
+	}
+	
+	func waitUntilLoaded() async {
+		if let initialLoadTask, !hasLoadedFromDisk {
+			await initialLoadTask.value
+		}
+	}
+	
+	private func mergeDiskEntries(_ diskEntries: [WishlistEntry]) {
+		hasLoadedFromDisk = true
+		guard !diskEntries.isEmpty else {
+			pendingRemovedKeys.removeAll()
+			return
+		}
+		if entries.isEmpty && pendingRemovedKeys.isEmpty {
+			applyEntries(diskEntries)
+			return
+		}
+		var working = entries
+		var existingKeys = Set(working.map { LookupKey(kind: $0.kind, itemID: $0.itemID) })
+		for diskEntry in diskEntries {
+			let key = LookupKey(kind: diskEntry.kind, itemID: diskEntry.itemID)
+			guard !pendingRemovedKeys.contains(key), existingKeys.insert(key).inserted else { continue }
+			working.append(diskEntry)
+		}
+		working.sort { $0.addedAt > $1.addedAt }
+		pendingRemovedKeys.removeAll()
+		applyEntries(working)
+	}
+	
+	private func applyEntries(_ newEntries: [WishlistEntry]) {
+		entries = newEntries
+		var keys: Set<LookupKey> = []
+		var skins: Set<WeaponSkin.ID> = []
+		keys.reserveCapacity(newEntries.count)
+		for entry in newEntries {
+			keys.insert(LookupKey(kind: entry.kind, itemID: entry.itemID))
+			if entry.kind == .skin {
+				skins.insert(entry.skinID)
+			}
+		}
+		lookupIndex = keys
+		cachedSkinIDs = skins
 	}
 	
 	var skinIDs: Set<WeaponSkin.ID> {
-		Set(entries.lazy.filter { $0.kind == .skin }.map(\.skinID))
+		cachedSkinIDs
 	}
 	
 	func contains(_ skinID: WeaponSkin.ID) -> Bool {
@@ -89,7 +147,7 @@ final class WishlistManager: ObservableObject {
 	}
 	
 	func contains(kind: WishlistItemKind, itemID: LowercaseUUID) -> Bool {
-		entries.contains { $0.kind == kind && $0.itemID == itemID }
+		lookupIndex.contains(LookupKey(kind: kind, itemID: itemID))
 	}
 	
 	func toggle(_ skinID: WeaponSkin.ID) {
@@ -97,11 +155,18 @@ final class WishlistManager: ObservableObject {
 	}
 	
 	func toggle(kind: WishlistItemKind, itemID: LowercaseUUID) {
-		if contains(kind: kind, itemID: itemID) {
-			entries.removeAll { $0.kind == kind && $0.itemID == itemID }
+		let key = LookupKey(kind: kind, itemID: itemID)
+		var working = entries
+		if lookupIndex.contains(key) {
+			working.removeAll { $0.kind == kind && $0.itemID == itemID }
+			if !hasLoadedFromDisk {
+				pendingRemovedKeys.insert(key)
+			}
 		} else {
-			entries.insert(WishlistEntry(kind: kind, itemID: itemID), at: 0)
+			pendingRemovedKeys.remove(key)
+			working.insert(WishlistEntry(kind: kind, itemID: itemID), at: 0)
 		}
+		applyEntries(working)
 		persist()
 	}
 	
@@ -110,29 +175,47 @@ final class WishlistManager: ObservableObject {
 	}
 	
 	func remove(kind: WishlistItemKind, itemID: LowercaseUUID) {
-		entries.removeAll { $0.kind == kind && $0.itemID == itemID }
+		let key = LookupKey(kind: kind, itemID: itemID)
+		if !hasLoadedFromDisk {
+			pendingRemovedKeys.insert(key)
+		}
+		guard lookupIndex.contains(key) else { return }
+		var working = entries
+		working.removeAll { $0.kind == kind && $0.itemID == itemID }
+		applyEntries(working)
 		persist()
 	}
 	
 	@discardableResult
 	func importEntries(_ incoming: [WishlistEntry], replaceAll: Bool) async -> Int {
-		var working = replaceAll ? [] : entries
+		await waitUntilLoaded()
+		pendingSaveTask?.cancel()
+		var workingByKey: [LookupKey: WishlistEntry] = [:]
+		if !replaceAll {
+			workingByKey.reserveCapacity(entries.count + incoming.count)
+			for entry in entries {
+				workingByKey[LookupKey(kind: entry.kind, itemID: entry.itemID)] = entry
+			}
+		}
 		var changedCount = 0
 		
 		for entry in incoming {
-			if let idx = working.firstIndex(where: { $0.kind == entry.kind && $0.itemID == entry.itemID }) {
-				if entry.addedAt < working[idx].addedAt {
-					working[idx].addedAt = entry.addedAt
+			let key = LookupKey(kind: entry.kind, itemID: entry.itemID)
+			if let existing = workingByKey[key] {
+				if entry.addedAt < existing.addedAt {
+					var updated = existing
+					updated.addedAt = entry.addedAt
+					workingByKey[key] = updated
 					changedCount += 1
 				}
 			} else {
-				working.append(entry)
+				workingByKey[key] = entry
 				changedCount += 1
 			}
 		}
 		
-		working.sort { $0.addedAt > $1.addedAt }
-		entries = working
+		let working = workingByKey.values.sorted { $0.addedAt > $1.addedAt }
+		applyEntries(working)
 		await LocalJSONStore.saveAndWait(entries, to: filename)
 		return replaceAll ? working.count : changedCount
 	}
@@ -176,6 +259,15 @@ final class WishlistManager: ObservableObject {
 	}
 	
 	private func persist() {
-		LocalJSONStore.save(entries, to: filename)
+		if hasLoadedFromDisk {
+			LocalJSONStore.save(entries, to: filename)
+		} else {
+			pendingSaveTask?.cancel()
+			pendingSaveTask = Task { @MainActor [weak self] in
+				await self?.waitUntilLoaded()
+				guard let self, !Task.isCancelled else { return }
+				LocalJSONStore.save(self.entries, to: self.filename)
+			}
+		}
 	}
 }

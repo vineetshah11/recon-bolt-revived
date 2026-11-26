@@ -69,10 +69,7 @@ struct BackupInventory {
 	var socialMessageCountsByPlayer: [User.ID: Int] = [:]
 	var wishlistCount: Int = 0
 	var lineupsCount: Int = 0
-	
-	var allPlayerIDs: Set<User.ID> {
-		Set(players.map(\.id))
-	}
+	var allPlayerIDs: Set<User.ID> = []
 	
 	func itemCount(for kind: BackupModuleKind, selectedPlayers: Set<User.ID>) -> Int {
 		let allSelected = selectedPlayers == allPlayerIDs
@@ -230,37 +227,47 @@ enum BackupService {
 		(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "2.0"
 	}
 	
+	// MARK: - Store Readiness
+
+	@MainActor
+	private static func waitUntilStoresLoaded(_ stores: BackupStores) async {
+		async let wishlist: Void = stores.wishlistManager.waitUntilLoaded()
+		async let shop: Void = stores.shopHistoryStore.waitUntilLoaded()
+		async let timeline: Void = stores.progressTimelineStore.waitUntilLoaded()
+		async let presets: Void = stores.loadoutPresetManager.waitUntilLoaded()
+		async let goals: Void = stores.seasonGoalStore.waitUntilLoaded()
+		async let snapshots: Void = stores.playerSettingsSnapshotStore.waitUntilLoaded()
+		async let lineups: Void = stores.lineupsManager.waitUntilLoaded()
+		async let accolades: Void = AccoladesCacheStore.shared.waitUntilLoaded()
+		_ = await (wishlist, shop, timeline, presets, goals, snapshots, lineups, accolades)
+	}
+	
 	// MARK: - Inventory Discovery
 	
 	@MainActor
 	static func buildInventory(stores: BackupStores) async -> BackupInventory {
+		await waitUntilStoresLoaded(stores)
 		let provider = LocalDataProvider.shared
 		
-		async let matchListIDsTask = provider.matchListManager.allCachedIDs()
 		async let matchListSizesTask = provider.matchListManager.diskSizesByID()
-		async let matchDetailIDsTask = provider.matchDetailsManager.allCachedIDs()
 		async let matchDetailSizesTask = provider.matchDetailsManager.diskSizesByID()
-		async let careerIDsTask = provider.careerSummaryManager.allCachedIDs()
 		async let careerSizesTask = provider.careerSummaryManager.diskSizesByID()
-		async let userIDsTask = provider.userManager.allCachedIDs()
 		async let userSizesTask = provider.userManager.diskSizesByID()
-		async let identityIDsTask = provider.playerIdentityManager.allCachedIDs()
 		async let identitySizesTask = provider.playerIdentityManager.diskSizesByID()
 		async let usernameHistoryTask = stores.usernameHistoryStore.exportRecords(for: nil)
 		async let socialTask = stores.socialManager.exportSocialData(for: nil)
 		
-		let matchListIDs = await matchListIDsTask
-		let matchLists = await provider.matchListManager.loadEntriesFromDiskOnly(for: matchListIDs)
 		let matchListSizes = await matchListSizesTask
-		let matchDetailIDs = Set(await matchDetailIDsTask)
+		let matchListIDs = Array(matchListSizes.keys)
+		let matchLists = await provider.matchListManager.loadEntriesFromDiskOnly(for: matchListIDs)
 		let matchDetailSizes = await matchDetailSizesTask
-		let careerIDs = Set(await careerIDsTask)
+		let matchDetailIDs = Set(matchDetailSizes.keys)
 		let careerSizes = await careerSizesTask
-		let userIDs = Set(await userIDsTask)
-		let userEntries = await provider.userManager.loadEntriesFromDiskOnly(for: userIDs)
+		let careerIDs = Set(careerSizes.keys)
 		let userSizes = await userSizesTask
-		let identityIDs = Set(await identityIDsTask)
+		let userIDs = Set(userSizes.keys)
 		let identitySizes = await identitySizesTask
+		let identityIDs = Set(identitySizes.keys)
 		let usernameHistory = await usernameHistoryTask
 		let social = await socialTask
 		
@@ -307,8 +314,6 @@ enum BackupService {
 			}
 		}
 		
-		let usersByID = Dictionary(uniqueKeysWithValues: userEntries.map { ($0.id, $0.object) })
-		
 		var discoveredIDs = Set<User.ID>()
 		discoveredIDs.formUnion(ownAccounts)
 		discoveredIDs.formUnion(bookmarkedIDs)
@@ -324,6 +329,10 @@ enum BackupService {
 		discoveredIDs.formUnion(snapshots.compactMap(\.accountID))
 		discoveredIDs.formUnion(socialFriendPlayers)
 		discoveredIDs.formUnion(socialMessageCounts.keys)
+		
+		let targetUserIDs = discoveredIDs.intersection(userIDs)
+		let userEntries = await provider.userManager.loadEntriesFromDiskOnly(for: targetUserIDs)
+		let usersByID = Dictionary(userEntries.map { ($0.id, $0.object) }, uniquingKeysWith: { first, _ in first })
 		
 		var players: [BackupSelectablePlayer] = discoveredIDs.map { (id: User.ID) -> BackupSelectablePlayer in
 			let role: BackupPlayerSummary.Role
@@ -397,7 +406,8 @@ enum BackupService {
 			socialFriendPlayers: socialFriendPlayers,
 			socialMessageCountsByPlayer: socialMessageCounts,
 			wishlistCount: stores.wishlistManager.entries.count,
-			lineupsCount: stores.lineupsManager.favorites.count
+			lineupsCount: stores.lineupsManager.favorites.count,
+			allPlayerIDs: discoveredIDs
 		)
 	}
 	
@@ -412,20 +422,39 @@ enum BackupService {
 		guard !options.selectedModules.isEmpty else {
 			throw BackupError.emptySelection
 		}
+		await waitUntilStoresLoaded(stores)
 		
 		let provider = LocalDataProvider.shared
 		let playerFilter: Set<User.ID>? = options.allPlayersSelected ? nil : options.selectedPlayerIDs
 		let selectedSet = options.selectedPlayerIDs
 		
-		// Gather all required raw objects from MainActor stores & disk
-		var matchListEntries: [LocalDataManager<MatchList>.Entry] = []
-		if options.selectedModules.contains(.matchLists) || (options.selectedModules.contains(.matchDetails) && !options.allPlayersSelected) {
-			let listIDs = playerFilter.map { Array($0.intersection(Set(inventory.matchIDsByPlayer.keys))) }
-				?? Array(inventory.matchIDsByPlayer.keys)
-			matchListEntries = await provider.matchListManager.loadEntriesFromDiskOnly(for: listIDs)
-		}
+		let needMatchLists = options.selectedModules.contains(.matchLists)
+			|| (options.selectedModules.contains(.matchDetails) && !options.allPlayersSelected)
+		let matchListIDsToLoad: [User.ID] = needMatchLists
+			? (playerFilter.map { Array($0.intersection(Set(inventory.matchIDsByPlayer.keys))) }
+				?? Array(inventory.matchIDsByPlayer.keys))
+			: []
+		let careerIDsToLoad: Set<User.ID> = options.selectedModules.contains(.careerSummaries)
+			? (playerFilter.map { $0.intersection(inventory.careerIDs) } ?? inventory.careerIDs)
+			: []
 		
-		var matchDetailEntries: [LocalDataManager<MatchDetails>.Entry] = []
+		// Gather independent disk/store reads concurrently
+		async let matchListTask: [LocalDataManager<MatchList>.Entry] = needMatchLists
+			? provider.matchListManager.loadEntriesFromDiskOnly(for: matchListIDsToLoad)
+			: []
+		async let careerTask: [LocalDataManager<CareerSummary>.Entry] = options.selectedModules.contains(.careerSummaries)
+			? provider.careerSummaryManager.loadEntriesFromDiskOnly(for: careerIDsToLoad)
+			: []
+		async let usernameTask: [User.ID: [NameHistoryRecord]] = options.selectedModules.contains(.usernameHistory)
+			? stores.usernameHistoryStore.exportRecords(for: playerFilter)
+			: [:]
+		async let socialTask: (friends: [String: SocialFriendsBackup], messages: [String: [String: [XMPPChatMessage]]]) = (options.selectedModules.contains(.socialFriends) || options.selectedModules.contains(.socialMessages))
+			? stores.socialManager.exportSocialData(for: playerFilter)
+			: (friends: [:], messages: [:])
+		
+		let matchListEntries = await matchListTask
+		
+		let matchDetailEntries: [LocalDataManager<MatchDetails>.Entry]
 		if options.selectedModules.contains(.matchDetails) {
 			let targetMatchIDs: Set<Match.ID>
 			if options.allPlayersSelected {
@@ -436,47 +465,40 @@ enum BackupService {
 					.intersection(inventory.allCachedMatchDetailIDs)
 			}
 			matchDetailEntries = await provider.matchDetailsManager.loadEntriesFromDiskOnly(for: targetMatchIDs)
+		} else {
+			matchDetailEntries = []
 		}
 		
 		// Automatically bundle cached User records for incognito co-players in exported matches
 		var incognitoParticipantIDs: Set<User.ID> = []
-		for entry in matchDetailEntries {
-			for player in entry.object.players where player.gameName.isEmpty {
-				incognitoParticipantIDs.insert(player.id)
+		if (options.selectedModules.contains(.users) || options.selectedModules.contains(.playerIdentities)),
+		   playerFilter != nil {
+			for entry in matchDetailEntries {
+				for player in entry.object.players where player.gameName.isEmpty {
+					incognitoParticipantIDs.insert(player.id)
+				}
 			}
 		}
 		
-		var careerEntries: [LocalDataManager<CareerSummary>.Entry] = []
-		if options.selectedModules.contains(.careerSummaries) {
-			let ids = playerFilter.map { $0.intersection(inventory.careerIDs) } ?? inventory.careerIDs
-			careerEntries = await provider.careerSummaryManager.loadEntriesFromDiskOnly(for: ids)
-		}
+		let userIDsToLoad: Set<User.ID> = options.selectedModules.contains(.users)
+			? (playerFilter.map { $0.union(incognitoParticipantIDs).intersection(inventory.userIDs) } ?? inventory.userIDs)
+			: []
+		let identityIDsToLoad: Set<User.ID> = options.selectedModules.contains(.playerIdentities)
+			? (playerFilter.map { $0.union(incognitoParticipantIDs).intersection(inventory.identityIDs) } ?? inventory.identityIDs)
+			: []
 		
-		var userEntries: [LocalDataManager<User>.Entry] = []
-		if options.selectedModules.contains(.users) {
-			let ids: Set<User.ID>
-			if let playerFilter {
-				ids = playerFilter.union(incognitoParticipantIDs).intersection(inventory.userIDs)
-			} else {
-				ids = inventory.userIDs
-			}
-			userEntries = await provider.userManager.loadEntriesFromDiskOnly(for: ids)
-		}
+		async let userTask: [LocalDataManager<User>.Entry] = options.selectedModules.contains(.users)
+			? provider.userManager.loadEntriesFromDiskOnly(for: userIDsToLoad)
+			: []
+		async let identityTask: [LocalDataManager<Player.Identity>.Entry] = options.selectedModules.contains(.playerIdentities)
+			? provider.playerIdentityManager.loadEntriesFromDiskOnly(for: identityIDsToLoad)
+			: []
 		
-		var identityEntries: [LocalDataManager<Player.Identity>.Entry] = []
-		if options.selectedModules.contains(.playerIdentities) {
-			let ids: Set<User.ID>
-			if let playerFilter {
-				ids = playerFilter.union(incognitoParticipantIDs).intersection(inventory.identityIDs)
-			} else {
-				ids = inventory.identityIDs
-			}
-			identityEntries = await provider.playerIdentityManager.loadEntriesFromDiskOnly(for: ids)
-		}
-		
-		let usernameRecords: [User.ID: [NameHistoryRecord]] = options.selectedModules.contains(.usernameHistory)
-			? await stores.usernameHistoryStore.exportRecords(for: playerFilter)
-			: [:]
+		let careerEntries = await careerTask
+		let userEntries = await userTask
+		let identityEntries = await identityTask
+		let usernameRecords = await usernameTask
+		let socialExport = await socialTask
 		
 		let bookmarks = options.selectedModules.contains(.bookmarks)
 			? stores.bookmarkList.exportBookmarks(for: playerFilter)
@@ -510,10 +532,6 @@ enum BackupService {
 			? stores.playerSettingsSnapshotStore.exportSnapshots(for: playerFilter)
 			: []
 		
-		let socialExport = (options.selectedModules.contains(.socialFriends) || options.selectedModules.contains(.socialMessages))
-			? await stores.socialManager.exportSocialData(for: playerFilter)
-			: (friends: [:] as [String: SocialFriendsBackup], messages: [:] as [String: [String: [XMPPChatMessage]]])
-		
 		let wishlistEntries = options.selectedModules.contains(.wishlist)
 			? stores.wishlistManager.entries
 			: []
@@ -539,20 +557,25 @@ enum BackupService {
 		
 		return try await Task.detached(priority: .userInitiated) {
 			let encoder = BackupCoders.makeEncoder()
-			var rawModules: [BackupContainer.RawModuleInput] = []
+			var builder = try BackupContainer.StreamingBuilder(
+				appVersion: appVersion,
+				players: playerSummaries,
+				password: password,
+				expectedModuleCount: selectedModules.count
+			)
+			var moduleCount = 0
 			var totalItems = 0
 			
 			func appendModule<T: Encodable>(_ kind: BackupModuleKind, value: T, itemCount: Int) throws {
 				guard itemCount > 0 else { return }
 				let json = try encoder.encode(value)
-				rawModules.append(
-					BackupContainer.RawModuleInput(
-						kindID: kind.rawValue,
-						schemaVersion: BackupModuleKind.currentSchemaVersion,
-						itemCount: itemCount,
-						rawJSON: json
-					)
+				try builder.addModule(
+					kindID: kind.rawValue,
+					schemaVersion: BackupModuleKind.currentSchemaVersion,
+					itemCount: itemCount,
+					rawJSON: json
 				)
+				moduleCount += 1
 				totalItems += itemCount
 			}
 			
@@ -617,16 +640,11 @@ enum BackupService {
 				try appendModule(.appSettings, value: appSettingsSnapshot, itemCount: 1)
 			}
 			
-			guard !rawModules.isEmpty else {
+			guard moduleCount > 0 else {
 				throw BackupError.emptySelection
 			}
 			
-			let built = try BackupContainer.buildArchive(
-				appVersion: appVersion,
-				players: playerSummaries,
-				modules: rawModules,
-				password: password
-			)
+			let built = try builder.finalize()
 			
 			let formatter = DateFormatter()
 			formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -638,7 +656,7 @@ enum BackupService {
 			return BackupExportResult(
 				fileURL: tempURL,
 				byteCount: Int64(built.data.count),
-				moduleCount: rawModules.count,
+				moduleCount: moduleCount,
 				totalItems: totalItems,
 				playerCount: playerSummaries.count,
 				fingerprint: built.fingerprint,
@@ -921,6 +939,7 @@ enum BackupService {
 		}.value
 		
 		// Phase 2: Commit validated data into stores.
+		await waitUntilStoresLoaded(stores)
 		let replaceAll = (options.mode == .replace)
 		let provider = LocalDataProvider.shared
 		var counts: [BackupModuleKind: Int] = [:]
@@ -937,11 +956,9 @@ enum BackupService {
 		if let users = validated.users {
 			counts[.users] = try await provider.userManager.importEntries(users, replaceAll: replaceAll)
 		}
-		if let identities = validated.playerIdentities {
-			counts[.playerIdentities] = try await provider.playerIdentityManager.importEntries(identities, replaceAll: replaceAll)
-		}
+		let derivedIdentities: [LocalDataManager<Player.Identity>.Entry]
 		if let matchDetails = validated.matchDetails, !matchDetails.isEmpty {
-			let derivedIdentities = matchDetails.flatMap { entry in
+			derivedIdentities = matchDetails.flatMap { entry in
 				entry.object.players.map {
 					LocalDataManager<Player.Identity>.Entry(
 						lastUpdate: entry.object.matchInfo.gameStart,
@@ -949,8 +966,31 @@ enum BackupService {
 					)
 				}
 			}
-			if !derivedIdentities.isEmpty {
-				_ = try await provider.playerIdentityManager.importEntries(derivedIdentities, replaceAll: false)
+		} else {
+			derivedIdentities = []
+		}
+		if validated.playerIdentities != nil || !derivedIdentities.isEmpty {
+			var mergedByID: [User.ID: LocalDataManager<Player.Identity>.Entry] = Dictionary(
+				minimumCapacity: (validated.playerIdentities?.count ?? 0) + derivedIdentities.count
+			)
+			for entry in derivedIdentities {
+				if let existing = mergedByID[entry.id], existing.lastUpdate >= entry.lastUpdate {
+					continue
+				}
+				mergedByID[entry.id] = entry
+			}
+			for entry in validated.playerIdentities ?? [] {
+				if let existing = mergedByID[entry.id], existing.lastUpdate > entry.lastUpdate {
+					continue
+				}
+				mergedByID[entry.id] = entry
+			}
+			let importedCount = try await provider.playerIdentityManager.importEntries(
+				Array(mergedByID.values),
+				replaceAll: replaceAll && validated.playerIdentities != nil
+			)
+			if let identities = validated.playerIdentities {
+				counts[.playerIdentities] = min(importedCount, identities.count)
 			}
 		}
 		if let usernames = validated.usernameHistory {

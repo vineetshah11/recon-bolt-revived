@@ -15,6 +15,18 @@ struct SkinPicker: View {
 	@State private var search = ""
 	@State private var filter: LoadoutItemFilter = .favoritesAndOwned
 	@State private var detailSkin: WeaponSkin?
+	@State private var cachedAllSkins: [ResolvedLevel] = []
+	@State private var cachedVisibleSkins: [ResolvedLevel] = []
+	@State private var cachedStats: (total: Int, shown: Int, favs: Int, owned: Int) = (0, 0, 0, 0)
+	
+	private struct ListKey: Equatable {
+		let weaponID: Weapon.ID
+		let search: String
+		let filter: LoadoutItemFilter
+		let favCount: Int
+		let ownedCount: Int
+		let assetsVersion: AssetVersion?
+	}
 	
 	private var activeAccountID: User.ID? {
 		accountManager.activeAccount?.id
@@ -30,39 +42,25 @@ struct SkinPicker: View {
 	
 	@ViewBuilder
 	private func skinList(for weapon: WeaponInfo) -> some View {
-		let allSkins = orderedSkins(for: weapon)
-		let realSkins = allSkins.filter { $0.skin.themeID != .random }
-		let favCount = realSkins.count { isFavorited($0.skin) }
-		let ownedCount = realSkins.count { isOwned($0.skin) }
-		
-		let visibleSkins = allSkins.filter { resolved in
-			let isRandom = resolved.skin.themeID == .random
-			let isStandard = resolved.skin.themeID == .standard
-			let matchesFilter: Bool = {
-				if isRandom {
-					return filter != .onlyUnowned
-				}
-				return filter.matches(
-					isOwned: isOwned(resolved.skin),
-					isFavorited: isFavorited(resolved.skin),
-					isAlwaysShownFree: isStandard
-				)
-			}()
-			guard matchesFilter else { return false }
-			guard !search.isEmpty else { return true }
-			return resolved.skin.displayName.localizedCaseInsensitiveContains(search)
-				|| resolved.searchableText.localizedCaseInsensitiveContains(search)
-		}
+		let key = ListKey(
+			weaponID: weapon.id,
+			search: search,
+			filter: filter,
+			favCount: favoritesManager.favorites(for: activeAccountID)?.favoritedContent.count ?? 0,
+			ownedCount: inventory.skinLevels.count,
+			assetsVersion: assets?.version
+		)
+		let visibleSkins = cachedVisibleSkins
 		
 		ScrollView {
 			VStack(spacing: 14) {
 				LoadoutPickerSearchField(prompt: "Search", text: $search)
 				
 				LoadoutPickerStatsPill(
-					total: realSkins.count,
-					shown: visibleSkins.count { $0.skin.themeID != .random },
-					favorites: favCount,
-					owned: ownedCount
+					total: cachedStats.total,
+					shown: cachedStats.shown,
+					favorites: cachedStats.favs,
+					owned: cachedStats.owned
 				)
 				
 				if visibleSkins.isEmpty {
@@ -77,7 +75,7 @@ struct SkinPicker: View {
 					.padding(.vertical, 32)
 					.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
 				} else {
-					VStack(spacing: 0) {
+					LazyVStack(spacing: 0) {
 						ForEach(Array(visibleSkins.enumerated()), id: \.element.id) { index, item in
 							skinRow(item, weapon: weapon)
 							if index < visibleSkins.count - 1 {
@@ -108,6 +106,38 @@ struct SkinPicker: View {
 			if let detailSkin {
 				SkinDetailsView(skin: detailSkin, inventory: inventory)
 			}
+		}
+		.task(id: key) {
+			let allSkins = orderedSkins(for: weapon)
+			let realSkins = allSkins.filter { $0.skin.themeID != .random }
+			let favCount = realSkins.count { isFavorited($0.skin) }
+			let ownedCount = realSkins.count { isOwned($0.skin) }
+			let visible = allSkins.filter { resolved in
+				let isRandom = resolved.skin.themeID == .random
+				let isStandard = resolved.skin.themeID == .standard
+				let matchesFilter: Bool = {
+					if isRandom {
+						return filter != .onlyUnowned
+					}
+					return filter.matches(
+						isOwned: isOwned(resolved.skin),
+						isFavorited: isFavorited(resolved.skin),
+						isAlwaysShownFree: isStandard
+					)
+				}()
+				guard matchesFilter else { return false }
+				guard !search.isEmpty else { return true }
+				return resolved.skin.displayName.localizedCaseInsensitiveContains(search)
+					|| resolved.searchableText.localizedCaseInsensitiveContains(search)
+			}
+			cachedAllSkins = allSkins
+			cachedVisibleSkins = visible
+			cachedStats = (
+				total: realSkins.count,
+				shown: visible.count { $0.skin.themeID != .random },
+				favs: favCount,
+				owned: ownedCount
+			)
 		}
 		.valorantLoadTask(id: activeAccountID) { client in
 			await favoritesManager.refreshIfNeeded(using: client)

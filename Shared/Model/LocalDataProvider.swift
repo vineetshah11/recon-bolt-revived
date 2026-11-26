@@ -371,16 +371,26 @@ extension ValorantClient {
 	}
 	
 	func backfillMissingIdentities(for entries: [(userID: User.ID, location: Location)]) async {
-		for (userID, location) in entries {
-			guard !Task.isCancelled else { return }
-			guard await LocalDataProvider.shared.playerIdentityManager.cachedObject(for: userID) == nil else {
-				continue
-			}
-			let scoped = self.in(location)
-			if userID == self.userID {
-				try? await scoped.fetchIdentity(for: userID)
-			} else if let latestMatchID = try? await scoped.getMatchHistory(userID: userID).first?.matchID {
-				_ = await scoped.resolvePlayerIdentity(for: userID, latestMatchID: latestMatchID)
+		let maxConcurrent = 3
+		await withTaskGroup(of: Void.self) { group in
+			var index = 0
+			for (userID, location) in entries {
+				guard !Task.isCancelled else { break }
+				if index >= maxConcurrent {
+					await group.next()
+				}
+				index += 1
+				group.addTask {
+					guard await LocalDataProvider.shared.playerIdentityManager.cachedObject(for: userID) == nil else {
+						return
+					}
+					let scoped = self.in(location)
+					if userID == self.userID {
+						try? await scoped.fetchIdentity(for: userID)
+					} else if let latestMatchID = try? await scoped.getMatchHistory(userID: userID, count: 1).first?.matchID {
+						_ = await scoped.resolvePlayerIdentity(for: userID, latestMatchID: latestMatchID)
+					}
+				}
 			}
 		}
 	}

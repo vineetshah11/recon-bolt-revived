@@ -279,6 +279,9 @@ struct ShareLoadoutCardSheet: View {
 			clipCorners: false
 		)
 		
+		await Task.yield()
+		guard !Task.isCancelled else { return }
+		
 		renderedImage = ShareCardRenderer.render(snapshot)
 		isPreparing = false
 	}
@@ -445,9 +448,10 @@ struct ShareCollectionCardSheet: View {
 	@State private var renderedImage: UIImage?
 	@State private var isPreparing = true
 	@State private var didCopyImage = false
+	@State private var cachedSummary: CollectionCardSummary?
 	
 	private var summary: CollectionCardSummary {
-		CollectionCardSummary.build(inventory: inventory, assets: assets)
+		cachedSummary ?? CollectionCardSummary.build(inventory: inventory, assets: assets)
 	}
 	
 	var body: some View {
@@ -520,20 +524,34 @@ struct ShareCollectionCardSheet: View {
 					}
 				}
 			}
+			.task(id: assets?.version) {
+				cachedSummary = CollectionCardSummary.build(inventory: inventory, assets: assets)
+			}
 			.task(id: showRiotID) {
-				renderSnapshot()
+				await renderSnapshot()
 			}
 		}
 	}
 	
 	@MainActor
-	private func renderSnapshot() {
+	private func renderSnapshot() async {
 		isPreparing = true
+		let resolvedSummary: CollectionCardSummary
+		if let cachedSummary {
+			resolvedSummary = cachedSummary
+		} else {
+			let built = CollectionCardSummary.build(inventory: inventory, assets: assets)
+			cachedSummary = built
+			resolvedSummary = built
+		}
 		let snapshot = CollectionShareCardCanvas(
-			summary: summary,
+			summary: resolvedSummary,
 			riotID: showRiotID ? user.map { "\($0.gameName) #\($0.tagLine)" } : nil,
 			clipCorners: false
 		)
+		
+		await Task.yield()
+		guard !Task.isCancelled else { return }
 		
 		renderedImage = ShareCardRenderer.render(snapshot)
 		isPreparing = false
@@ -962,6 +980,9 @@ struct ShareProfileCardSheet: View {
 			cardImage: cardSmallImage.flatMap { loaded[$0] },
 			clipCorners: false
 		)
+		
+		await Task.yield()
+		guard !Task.isCancelled else { return }
 		
 		renderedImage = ShareCardRenderer.render(snapshot)
 		isPreparing = false

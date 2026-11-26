@@ -1,171 +1,18 @@
 import Foundation
 import ValorantAPI
 
-enum FavoriteSyncError: Error, LocalizedError {
-	case invalidURL
-	case httpError(Int, String?)
-	case unauthenticated
-	
-	var errorDescription: String? {
-		switch self {
-		case .invalidURL:
-			return "Invalid Riot Favorites URL."
-		case .httpError(let code, let message):
-			if let message, !message.isEmpty {
-				return "Could not update in-game favorites (\(code)): \(message)"
-			}
-			return "Could not update in-game favorites (HTTP \(code))."
-		case .unauthenticated:
-			return "Sign in to sync favorites with VALORANT."
-		}
-	}
-}
-
-private enum RiotFavoritesClient {
-	private static let urlSession: URLSession = {
-		let config = URLSessionConfiguration.ephemeral
-		config.httpAdditionalHeaders = ["User-Agent": ""]
-		config.timeoutIntervalForRequest = 20
-		config.timeoutIntervalForResource = 30
-		return URLSession(configuration: config)
-	}()
-	
-	private struct PlatformPayload: Encodable {
-		let platformType = "PC"
-		let platformOS = "Windows"
-		let platformOSVersion = "10.0.19042.1.256.64bit"
-		let platformChipset = "Unknown"
-	}
-	
-	private static let encodedPlatformInfo: String = {
-		(try? JSONEncoder().encode(PlatformPayload()).base64EncodedString()) ?? ""
-	}()
-	
-	private static let fallbackClientVersion = "release-13.10-shipping-18-5893614"
-	
-	private struct AddFavoriteBody: Encodable {
-		let itemID: String
-		
-		private enum CodingKeys: String, CodingKey {
-			case itemID = "ItemID"
-		}
-	}
-	
-	private struct RiotErrorBody: Decodable {
-		let message: String?
-		let errorCode: String?
-	}
-	
-	static func addFavorite(itemID: LowercaseUUID, using client: ValorantClient) async throws -> Favorites {
-		let body = try JSONEncoder().encode(AddFavoriteBody(itemID: itemID.description))
-		return try await sendFavoriteMutation(
-			method: "POST",
-			path: "/favorites/v1/players/\(client.userID)/favorites",
-			body: body,
-			using: client
-		)
-	}
-	
-	static func removeFavorite(
-		itemID: LowercaseUUID,
-		favoriteID: LowercaseUUID? = nil,
-		using client: ValorantClient
-	) async throws -> Favorites {
-		var candidates: [String] = [
-			itemID.description.replacingOccurrences(of: "-", with: ""),
-		]
-		if let favoriteID {
-			let favNoDash = favoriteID.description.replacingOccurrences(of: "-", with: "")
-			if !candidates.contains(favNoDash) {
-				candidates.append(favNoDash)
-			}
-			if !candidates.contains(favoriteID.description) {
-				candidates.append(favoriteID.description)
-			}
-		}
-		if !candidates.contains(itemID.description) {
-			candidates.append(itemID.description)
-		}
-		
-		var lastError: Error?
-		for candidate in candidates {
-			do {
-				return try await sendFavoriteMutation(
-					method: "DELETE",
-					path: "/favorites/v1/players/\(client.userID)/favorites/\(candidate)",
-					body: nil,
-					using: client
-				)
-			} catch let FavoriteSyncError.httpError(code, _) where code == 404 {
-				lastError = FavoriteSyncError.httpError(code, nil)
-				continue
-			} catch {
-				throw error
-			}
-		}
-		throw lastError ?? FavoriteSyncError.httpError(404, nil)
-	}
-	
-	private static func sendFavoriteMutation(
-		method: String,
-		path: String,
-		body: Data?,
-		using client: ValorantClient
-	) async throws -> Favorites {
-		let baseURL = URL(string: "https://pd.\(client.location.shard).a.pvp.net")
-		guard let url = baseURL?.appendingPathComponent(path) else {
-			throw FavoriteSyncError.invalidURL
-		}
-		
-		for attempt in 0..<2 {
-			let accessToken = try await client.getAccessToken()
-			let entitlements = await client.getEntitlementsToken()
-			let version = (client.clientVersion?.isEmpty == false)
-				? client.clientVersion!
-				: fallbackClientVersion
-			
-			var request = URLRequest(url: url)
-			request.httpMethod = method
-			request.httpBody = body
-			request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
-			request.setValue(entitlements, forHTTPHeaderField: "X-Riot-Entitlements-JWT")
-			request.setValue(version, forHTTPHeaderField: "X-Riot-ClientVersion")
-			request.setValue(encodedPlatformInfo, forHTTPHeaderField: "X-Riot-ClientPlatform")
-			request.setValue("application/json", forHTTPHeaderField: "Accept")
-			if body != nil {
-				request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-			}
-			
-			let (data, response) = try await urlSession.data(for: request)
-			let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-			
-			if code == 401, attempt == 0 {
-				// Trigger ValorantClient's internal token refresh via a lightweight read, then retry once.
-				_ = try? await client.getFavorites()
-				continue
-			}
-			
-			guard (200..<300).contains(code) else {
-				let decodedErr = try? JSONDecoder().decode(RiotErrorBody.self, from: data)
-				throw FavoriteSyncError.httpError(code, decodedErr?.message ?? decodedErr?.errorCode)
-			}
-			
-			if !data.isEmpty,
-			   let updated = try? ValorantClient.responseDecoder.decode(Favorites.self, from: data) {
-				return updated
-			}
-			return try await client.getFavorites()
-		}
-		
-		throw FavoriteSyncError.httpError(401, nil)
-	}
-}
-
 @MainActor
 final class FavoritesManager: ObservableObject {
 	@Published private(set) var favoritesByAccount: [User.ID: Favorites] = [:]
 	@Published private(set) var inFlightItemIDs: Set<LowercaseUUID> = []
 	@Published private(set) var isApplyingPreset = false
+	
+	private var itemIDsByAccount: [User.ID: Set<LowercaseUUID>] = [:]
+	
+	private func setFavorites(_ favorites: Favorites?, for accountID: User.ID) {
+		favoritesByAccount[accountID] = favorites
+		itemIDsByAccount[accountID] = favorites?.itemIDs
+	}
 	
 	func favorites(for accountID: User.ID?) -> Favorites? {
 		guard let accountID else { return nil }
@@ -173,17 +20,19 @@ final class FavoritesManager: ObservableObject {
 	}
 	
 	func itemIDs(for accountID: User.ID?) -> Set<LowercaseUUID> {
-		favorites(for: accountID)?.itemIDs ?? []
+		guard let accountID else { return [] }
+		return itemIDsByAccount[accountID] ?? []
 	}
 	
 	func isFavorited(_ itemID: LowercaseUUID, for accountID: User.ID?) -> Bool {
-		favorites(for: accountID)?.contains(itemID) ?? false
+		guard let accountID else { return false }
+		return itemIDsByAccount[accountID]?.contains(itemID) ?? false
 	}
 	
 	func isSkinFavorited(_ skin: WeaponSkin, for accountID: User.ID?) -> Bool {
-		guard let favs = favorites(for: accountID) else { return false }
-		if favs.contains(skin.id.rawID) { return true }
-		return skin.levels.contains { favs.contains($0.id.rawID) }
+		guard let accountID, let ids = itemIDsByAccount[accountID] else { return false }
+		if ids.contains(skin.id.rawID) { return true }
+		return skin.levels.contains { ids.contains($0.id.rawID) }
 	}
 	
 	func isLoading(_ itemID: LowercaseUUID) -> Bool {
@@ -197,7 +46,7 @@ final class FavoritesManager: ObservableObject {
 	
 	func refresh(using client: ValorantClient) async {
 		if let loaded = try? await client.getFavorites() {
-			favoritesByAccount[client.userID] = loaded
+			setFavorites(loaded, for: client.userID)
 		}
 	}
 	
@@ -236,6 +85,8 @@ final class FavoritesManager: ObservableObject {
 		let accountID = client.userID
 		let previous = favoritesByAccount[accountID]
 		let candidateIDs = [primaryID] + fallbackIDs
+		let candidateSet = Set(candidateIDs)
+		let candidateKeySet = Set(candidateIDs.map(\.description))
 		
 		var matchedEntry: Favorites.FavoriteEntry?
 		var matchedKey: String?
@@ -259,13 +110,8 @@ final class FavoritesManager: ObservableObject {
 		// Optimistic UI update
 		var optimistic = previous ?? Favorites(subject: accountID)
 		if isRemoving {
-			if let matchedKey {
-				optimistic.favoritedContent.removeValue(forKey: matchedKey)
-			}
-			for candidate in candidateIDs {
-				optimistic.favoritedContent = optimistic.favoritedContent.filter {
-					$0.value.itemID != candidate && $0.key != candidate.description
-				}
+			optimistic.favoritedContent = optimistic.favoritedContent.filter { key, entry in
+				key != matchedKey && !candidateKeySet.contains(key) && !candidateSet.contains(entry.itemID)
 			}
 		} else {
 			optimistic.favoritedContent[primaryID.description] = Favorites.FavoriteEntry(
@@ -273,15 +119,14 @@ final class FavoritesManager: ObservableObject {
 				itemID: primaryID
 			)
 		}
-		favoritesByAccount[accountID] = optimistic
+		setFavorites(optimistic, for: accountID)
 		
 		do {
 			let updated: Favorites
 			if isRemoving, let matchedEntry {
-				updated = try await RiotFavoritesClient.removeFavorite(
+				updated = try await client.removeFavorite(
 					itemID: matchedEntry.itemID,
-					favoriteID: matchedEntry.id,
-					using: client
+					favoriteID: matchedEntry.id
 				)
 			} else {
 				updated = try await addWithFallbacks(
@@ -290,10 +135,38 @@ final class FavoritesManager: ObservableObject {
 					using: client
 				)
 			}
-			favoritesByAccount[accountID] = updated
+			setFavorites(updated, for: accountID)
 		} catch {
-			favoritesByAccount[accountID] = previous
+			if isRemoving {
+				var rolledBack = favoritesByAccount[accountID] ?? Favorites(subject: accountID)
+				if let previous {
+					for (key, entry) in previous.favoritedContent where key == matchedKey || candidateKeySet.contains(key) || candidateSet.contains(entry.itemID) {
+						rolledBack.favoritedContent[key] = entry
+					}
+				}
+				setFavorites(rolledBack, for: accountID)
+			} else if var rolledBack = favoritesByAccount[accountID] {
+				rolledBack.favoritedContent.removeValue(forKey: primaryID.description)
+				if let previous {
+					setFavorites(previous.favoritedContent.isEmpty && rolledBack.favoritedContent.isEmpty ? previous : rolledBack, for: accountID)
+				} else {
+					setFavorites(rolledBack.favoritedContent.isEmpty ? nil : rolledBack, for: accountID)
+				}
+			} else {
+				setFavorites(previous, for: accountID)
+			}
 			throw error
+		}
+	}
+	
+	private static func isIgnorableFavoriteMutationError(_ error: Error) -> Bool {
+		switch error {
+		case APIError.resourceNotFound:
+			return true
+		case APIError.badResponseCode(let code, _, _):
+			return code == 400 || code == 404
+		default:
+			return false
 		}
 	}
 	
@@ -303,17 +176,17 @@ final class FavoritesManager: ObservableObject {
 		using client: ValorantClient
 	) async throws -> Favorites {
 		do {
-			return try await RiotFavoritesClient.addFavorite(itemID: primaryID, using: client)
-		} catch let FavoriteSyncError.httpError(code, _) where (code == 400 || code == 404) && !fallbackIDs.isEmpty {
-			var lastError: Error?
+			return try await client.addFavorite(primaryID)
+		} catch where Self.isIgnorableFavoriteMutationError(error) && !fallbackIDs.isEmpty {
+			var lastError: Error = error
 			for fallback in fallbackIDs where fallback != primaryID {
 				do {
-					return try await RiotFavoritesClient.addFavorite(itemID: fallback, using: client)
+					return try await client.addFavorite(fallback)
 				} catch {
 					lastError = error
 				}
 			}
-			throw lastError ?? FavoriteSyncError.httpError(code, nil)
+			throw lastError
 		}
 	}
 	
@@ -337,40 +210,49 @@ final class FavoritesManager: ObservableObject {
 		let toAdd = dedupedTarget.filter { !currentIDs.contains($0) }
 		let total = toRemove.count + toAdd.count
 		
-		favoritesByAccount[client.userID] = current
+		setFavorites(current, for: client.userID)
 		guard total > 0 else { return }
 		
 		var completed = 0
+		var latestFavorites: Favorites?
 		progress?(0, total)
 		
-		for entry in toRemove {
-			do {
-				let updated = try await RiotFavoritesClient.removeFavorite(
-					itemID: entry.itemID,
-					favoriteID: entry.id,
-					using: client
-				)
-				favoritesByAccount[client.userID] = updated
-			} catch let FavoriteSyncError.httpError(code, _) where code == 400 || code == 404 {
-				// Ignore stale/missing items on the server so remaining mutations complete.
+		do {
+			for entry in toRemove {
+				try Task.checkCancellation()
+				do {
+					latestFavorites = try await client.removeFavorite(
+						itemID: entry.itemID,
+						favoriteID: entry.id
+					)
+				} catch where Self.isIgnorableFavoriteMutationError(error) {
+					// Ignore stale/missing items on the server so remaining mutations complete.
+				}
+				completed += 1
+				progress?(completed, total)
 			}
-			completed += 1
-			progress?(completed, total)
+			
+			for id in toAdd {
+				try Task.checkCancellation()
+				do {
+					latestFavorites = try await client.addFavorite(id)
+				} catch where Self.isIgnorableFavoriteMutationError(error) {
+					// Ignore unowned items if applying across accounts.
+				}
+				completed += 1
+				progress?(completed, total)
+			}
+		} catch {
+			if let latestFavorites {
+				setFavorites(latestFavorites, for: client.userID)
+			}
+			throw error
 		}
 		
-		for id in toAdd {
-			do {
-				let updated = try await RiotFavoritesClient.addFavorite(itemID: id, using: client)
-				favoritesByAccount[client.userID] = updated
-			} catch let FavoriteSyncError.httpError(code, _) where code == 400 || code == 404 {
-				// Ignore unowned items if applying across accounts.
-			}
-			completed += 1
-			progress?(completed, total)
-		}
-		
-		if let finalFavs = try? await client.getFavorites() {
-			favoritesByAccount[client.userID] = finalFavs
+		if let latestFavorites {
+			setFavorites(latestFavorites, for: client.userID)
+		} else if let finalFavs = try? await client.getFavorites() {
+			setFavorites(finalFavs, for: client.userID)
 		}
 	}
 }

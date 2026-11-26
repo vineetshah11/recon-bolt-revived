@@ -46,7 +46,9 @@ final class UsernameHistoryStore: ObservableObject {
 		guard !diskRecords.isEmpty else { return }
 		
 		if recordsByPlayer.isEmpty {
-			recordsByPlayer = diskRecords
+			var normalized = diskRecords
+			Self.pruneIfNeeded(&normalized)
+			recordsByPlayer = normalized
 			return
 		}
 		
@@ -64,6 +66,7 @@ final class UsernameHistoryStore: ObservableObject {
 			list.sort { $0.firstSeen < $1.firstSeen }
 			merged[id] = list
 		}
+		Self.pruneIfNeeded(&merged)
 		recordsByPlayer = merged
 	}
 	
@@ -91,6 +94,7 @@ final class UsernameHistoryStore: ObservableObject {
 			}
 		}
 		if didChange {
+			Self.pruneIfNeeded(&working)
 			recordsByPlayer = working
 			schedulePersist()
 		}
@@ -101,6 +105,7 @@ final class UsernameHistoryStore: ObservableObject {
 		guard applyRecord(id: id, gameName: gameName, tagLine: tagLine, now: Date(), into: &working) else {
 			return
 		}
+		Self.pruneIfNeeded(&working)
 		recordsByPlayer = working
 		if persistImmediately {
 			schedulePersist()
@@ -138,11 +143,25 @@ final class UsernameHistoryStore: ObservableObject {
 		return true
 	}
 	
+	private static let maxTrackedPlayers = 3_000
+
+	private static func pruneIfNeeded(_ map: inout [User.ID: [NameHistoryRecord]]) {
+		guard map.count > maxTrackedPlayers else { return }
+		let excess = map.count - maxTrackedPlayers
+		let oldestKeys = map
+			.sorted { ($0.value.last?.lastSeen ?? .distantPast) < ($1.value.last?.lastSeen ?? .distantPast) }
+			.prefix(excess)
+			.map(\.key)
+		for key in oldestKeys {
+			map.removeValue(forKey: key)
+		}
+	}
+
 	func allTimelines() -> [PlayerNameTimeline] {
 		recordsByPlayer.map { id, records in
 			PlayerNameTimeline(id: id, records: records.sorted { $0.lastSeen > $1.lastSeen })
 		}
-		.sorted { ($0.latest?.lastSeen ?? .distantPast) > ($1.latest?.lastSeen ?? .distantPast) }
+		.sorted { ($0.records.first?.lastSeen ?? .distantPast) > ($1.records.first?.lastSeen ?? .distantPast) }
 	}
 	
 	func clearHistory(for id: User.ID) {

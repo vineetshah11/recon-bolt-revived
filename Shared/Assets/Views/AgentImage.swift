@@ -38,8 +38,8 @@ extension AgentImage {
 		}
 	}
 	
-	static func fullPortrait(_ id: Agent.ID) -> Self {
-		Self(id: id, aspectRatio: 2048/1860, preferFullResolution: true, getImage: \.fullPortrait)
+	static func fullPortrait(_ id: Agent.ID, bucket: ImageBucket? = nil) -> Self {
+		Self(id: id, aspectRatio: 2048/1860, preferFullResolution: bucket == nil, bucket: bucket, getImage: \.fullPortrait)
 	}
 	
 	static func killfeedPortrait(_ id: Agent.ID) -> Self {

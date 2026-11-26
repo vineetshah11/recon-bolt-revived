@@ -9,8 +9,7 @@ struct LoadoutDetailsView: View {
 	@LocalData private var summary: CareerSummary?
 	@LocalData private var user: User?
 	@LocalData private var identity: Player.Identity?
-	@EnvironmentObject private var presetManager: LoadoutPresetManager
-	@EnvironmentObject private var favoritesManager: FavoritesManager
+	@Environment(\.favoritesManagerRef) private var favoritesManager
 	@Environment(\.valorantLoad) private var load
 	@Environment(\.assets) private var assets
 	
@@ -155,7 +154,7 @@ struct LoadoutDetailsView: View {
 		}
 		.task(id: loadout.subject) {
 			await load { client in
-				await favoritesManager.refreshIfNeeded(using: client)
+				await favoritesManager?.refreshIfNeeded(using: client)
 				if resolvedAccountLevel == 0, client.userID == loadout.subject {
 					fetchedAccountLevel = try? await client.getAccountLevel()
 				}
@@ -369,7 +368,17 @@ struct LoadoutDetailsView: View {
 			var generated: UpdatableLoadout?
 			if favoritesOnly {
 				await load { client in
-					let favs = try? await client.getFavorites()
+					let favs: Favorites?
+					if let cached = favoritesManager?.favorites(for: client.userID) {
+						favs = cached
+					} else {
+						await favoritesManager?.refreshIfNeeded(using: client)
+						if let refreshed = favoritesManager?.favorites(for: client.userID) {
+							favs = refreshed
+						} else {
+							favs = try? await client.getFavorites()
+						}
+					}
 					generated = LoadoutPresetManager.randomizedLoadout(
 						from: loadout,
 						inventory: inventory,

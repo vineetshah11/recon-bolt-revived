@@ -48,6 +48,153 @@ enum BackupContainer {
 		Data("RBBK:v1:\(exportID.uuidString):\(moduleID):\(plaintextSHA256)".utf8)
 	}
 	
+	struct StreamingBuilder {
+		let exportID: UUID
+		let createdAt: Date
+		let appVersion: String
+		let players: [BackupPlayerSummary]
+		
+		private let encryptionMetadata: BackupEncryptionMetadata?
+		private let encKey: SymmetricKey?
+		private let authKey: SymmetricKey?
+		private var descriptors: [BackupModuleDescriptor] = []
+		private var wireChunks: [(idBytes: Data, data: Data)] = []
+		private var totalWirePayloadBytes = 0
+		
+		init(
+			exportID: UUID = UUID(),
+			createdAt: Date = Date(),
+			appVersion: String,
+			players: [BackupPlayerSummary],
+			password: String?,
+			expectedModuleCount: Int = 0
+		) throws {
+			self.exportID = exportID
+			self.createdAt = createdAt
+			self.appVersion = appVersion
+			self.players = players
+			
+			let trimmedPassword = (password?.isEmpty == false) ? password : nil
+			if let trimmedPassword {
+				let salt = try BackupCrypto.randomBytes(count: 32)
+				let iterations = BackupCrypto.defaultPBKDF2Iterations
+				let masterKey = try BackupCrypto.derivePBKDF2Key(
+					password: trimmedPassword,
+					salt: salt,
+					iterations: iterations
+				)
+				let derived = BackupCrypto.deriveEncryptionAndAuthKeys(masterKey: masterKey, salt: salt)
+				self.encKey = derived.encKey
+				self.authKey = derived.authKey
+				self.encryptionMetadata = BackupEncryptionMetadata(
+					algorithm: "AES-256-GCM",
+					kdf: "PBKDF2-HMAC-SHA256",
+					iterations: iterations,
+					saltBase64: salt.base64EncodedString()
+				)
+			} else {
+				self.encKey = nil
+				self.authKey = nil
+				self.encryptionMetadata = nil
+			}
+			
+			if expectedModuleCount > 0 {
+				self.descriptors.reserveCapacity(expectedModuleCount)
+				self.wireChunks.reserveCapacity(expectedModuleCount)
+			}
+		}
+		
+		mutating func addModule(
+			kindID: String,
+			schemaVersion: Int,
+			itemCount: Int,
+			rawJSON: Data
+		) throws {
+			let plaintextSHA = BackupCrypto.sha256Hex(rawJSON)
+			let compressed = try BackupCrypto.compressLZFSE(rawJSON)
+			let wireData: Data
+			if let encKey {
+				let aad = BackupContainer.moduleAAD(exportID: exportID, moduleID: kindID, plaintextSHA256: plaintextSHA)
+				wireData = try BackupCrypto.encryptModule(compressed, using: encKey, aad: aad)
+			} else {
+				wireData = compressed
+			}
+			let wireSHA = BackupCrypto.sha256Hex(wireData)
+			let idBytes = Data(kindID.utf8)
+			
+			descriptors.append(
+				BackupModuleDescriptor(
+					id: kindID,
+					schemaVersion: schemaVersion,
+					compression: "lzfse",
+					itemCount: itemCount,
+					uncompressedBytes: rawJSON.count,
+					wireBytes: wireData.count,
+					wireSHA256: wireSHA,
+					plaintextSHA256: plaintextSHA
+				)
+			)
+			totalWirePayloadBytes += 8 + idBytes.count + wireData.count
+			wireChunks.append((idBytes: idBytes, data: wireData))
+		}
+		
+		func finalize() throws -> (data: Data, manifest: BackupManifest, fingerprint: String) {
+			guard !descriptors.isEmpty else {
+				throw BackupError.emptySelection
+			}
+			
+			let manifest = BackupManifest(
+				formatVersion: Int(BackupContainer.currentFormatVersion),
+				exportID: exportID,
+				createdAt: createdAt,
+				appVersion: appVersion,
+				encryption: encryptionMetadata,
+				players: players,
+				modules: descriptors
+			)
+			
+			let encoder = BackupCoders.makeEncoder()
+			let manifestBytes = try encoder.encode(manifest)
+			let flags: UInt16 = (encKey != nil) ? Flag.passwordEncrypted : 0
+			let authInput = BackupContainer.signedInput(flags: flags, manifestBytes: manifestBytes)
+			
+			let appHMAC = BackupCrypto.computeAppHMAC(for: authInput)
+			let signed = try DeviceSigningKeyStore.sign(authInput)
+			let passwordHMAC = authKey.map { BackupCrypto.computePasswordHMAC(for: authInput, using: $0) }
+			
+			let integrity = BackupIntegrityBlock(
+				hmacAlgorithm: "HMAC-SHA256",
+				appHMACBase64: appHMAC.base64EncodedString(),
+				signatureAlgorithm: "ECDSA-P256-SHA256",
+				signerPublicKeyBase64: signed.publicKeyX963.base64EncodedString(),
+				signerFingerprint: signed.fingerprint,
+				deviceSignatureBase64: signed.signatureDER.base64EncodedString(),
+				passwordHMACBase64: passwordHMAC?.base64EncodedString()
+			)
+			let integrityBytes = try encoder.encode(integrity)
+			
+			var output = Data()
+			let totalCapacity = BackupContainer.magic.count
+				+ 2 + 2
+				+ 4 + manifestBytes.count
+				+ 4 + totalWirePayloadBytes
+				+ 4 + integrityBytes.count
+			output.reserveCapacity(totalCapacity)
+			output.append(BackupContainer.magic)
+			BackupContainer.appendUInt16(BackupContainer.currentFormatVersion, to: &output)
+			BackupContainer.appendUInt16(flags, to: &output)
+			BackupContainer.appendLengthPrefixed(manifestBytes, to: &output)
+			BackupContainer.appendUInt32(UInt32(wireChunks.count), to: &output)
+			for chunk in wireChunks {
+				BackupContainer.appendLengthPrefixed(chunk.idBytes, to: &output)
+				BackupContainer.appendLengthPrefixed(chunk.data, to: &output)
+			}
+			BackupContainer.appendLengthPrefixed(integrityBytes, to: &output)
+			
+			return (output, manifest, signed.fingerprint)
+		}
+	}
+	
 	static func buildArchive(
 		exportID: UUID = UUID(),
 		createdAt: Date = Date(),
@@ -56,115 +203,23 @@ enum BackupContainer {
 		modules: [RawModuleInput],
 		password: String?
 	) throws -> (data: Data, manifest: BackupManifest, fingerprint: String) {
-		guard !modules.isEmpty else {
-			throw BackupError.emptySelection
-		}
-		
-		let trimmedPassword: String?
-		if let password, !password.isEmpty {
-			trimmedPassword = password
-		} else {
-			trimmedPassword = nil
-		}
-		
-		var encryptionMetadata: BackupEncryptionMetadata?
-		var encKey: SymmetricKey?
-		var authKey: SymmetricKey?
-		
-		if let trimmedPassword {
-			let salt = try BackupCrypto.randomBytes(count: 32)
-			let iterations = BackupCrypto.defaultPBKDF2Iterations
-			let masterKey = try BackupCrypto.derivePBKDF2Key(
-				password: trimmedPassword,
-				salt: salt,
-				iterations: iterations
-			)
-			let derived = BackupCrypto.deriveEncryptionAndAuthKeys(masterKey: masterKey, salt: salt)
-			encKey = derived.encKey
-			authKey = derived.authKey
-			encryptionMetadata = BackupEncryptionMetadata(
-				algorithm: "AES-256-GCM",
-				kdf: "PBKDF2-HMAC-SHA256",
-				iterations: iterations,
-				saltBase64: salt.base64EncodedString()
-			)
-		}
-		
-		var descriptors: [BackupModuleDescriptor] = []
-		var wireChunks: [(id: String, data: Data)] = []
-		descriptors.reserveCapacity(modules.count)
-		wireChunks.reserveCapacity(modules.count)
-		
-		for module in modules {
-			let plaintextSHA = BackupCrypto.sha256Hex(module.rawJSON)
-			let compressed = try BackupCrypto.compressLZFSE(module.rawJSON)
-			let wireData: Data
-			if let encKey {
-				let aad = moduleAAD(exportID: exportID, moduleID: module.kindID, plaintextSHA256: plaintextSHA)
-				wireData = try BackupCrypto.encryptModule(compressed, using: encKey, aad: aad)
-			} else {
-				wireData = compressed
-			}
-			let wireSHA = BackupCrypto.sha256Hex(wireData)
-			
-			descriptors.append(
-				BackupModuleDescriptor(
-					id: module.kindID,
-					schemaVersion: module.schemaVersion,
-					compression: "lzfse",
-					itemCount: module.itemCount,
-					uncompressedBytes: module.rawJSON.count,
-					wireBytes: wireData.count,
-					wireSHA256: wireSHA,
-					plaintextSHA256: plaintextSHA
-				)
-			)
-			wireChunks.append((id: module.kindID, data: wireData))
-		}
-		
-		let manifest = BackupManifest(
-			formatVersion: Int(currentFormatVersion),
+		var builder = try StreamingBuilder(
 			exportID: exportID,
 			createdAt: createdAt,
 			appVersion: appVersion,
-			encryption: encryptionMetadata,
 			players: players,
-			modules: descriptors
+			password: password,
+			expectedModuleCount: modules.count
 		)
-		
-		let encoder = BackupCoders.makeEncoder()
-		let manifestBytes = try encoder.encode(manifest)
-		let flags: UInt16 = (encKey != nil) ? Flag.passwordEncrypted : 0
-		let authInput = signedInput(flags: flags, manifestBytes: manifestBytes)
-		
-		let appHMAC = BackupCrypto.computeAppHMAC(for: authInput)
-		let signed = try DeviceSigningKeyStore.sign(authInput)
-		let passwordHMAC = authKey.map { BackupCrypto.computePasswordHMAC(for: authInput, using: $0) }
-		
-		let integrity = BackupIntegrityBlock(
-			hmacAlgorithm: "HMAC-SHA256",
-			appHMACBase64: appHMAC.base64EncodedString(),
-			signatureAlgorithm: "ECDSA-P256-SHA256",
-			signerPublicKeyBase64: signed.publicKeyX963.base64EncodedString(),
-			signerFingerprint: signed.fingerprint,
-			deviceSignatureBase64: signed.signatureDER.base64EncodedString(),
-			passwordHMACBase64: passwordHMAC?.base64EncodedString()
-		)
-		let integrityBytes = try encoder.encode(integrity)
-		
-		var output = Data()
-		output.append(magic)
-		appendUInt16(currentFormatVersion, to: &output)
-		appendUInt16(flags, to: &output)
-		appendLengthPrefixed(manifestBytes, to: &output)
-		appendUInt32(UInt32(wireChunks.count), to: &output)
-		for chunk in wireChunks {
-			appendLengthPrefixed(Data(chunk.id.utf8), to: &output)
-			appendLengthPrefixed(chunk.data, to: &output)
+		for module in modules {
+			try builder.addModule(
+				kindID: module.kindID,
+				schemaVersion: module.schemaVersion,
+				itemCount: module.itemCount,
+				rawJSON: module.rawJSON
+			)
 		}
-		appendLengthPrefixed(integrityBytes, to: &output)
-		
-		return (output, manifest, signed.fingerprint)
+		return try builder.finalize()
 	}
 	
 	static func inspectArchive(_ data: Data) throws -> VerifiedBackupArchive {
@@ -381,22 +436,36 @@ enum BackupContainer {
 			guard count >= 0, count <= data.count - offset else {
 				throw BackupError.invalidFormat("Unexpected end of backup file.")
 			}
-			let slice = data[offset..<(offset + count)]
+			let start = data.index(data.startIndex, offsetBy: offset)
+			let end = data.index(start, offsetBy: count)
 			offset += count
-			return Data(slice)
+			return data[start..<end]
 		}
 		
 		mutating func readUInt16() throws -> UInt16 {
-			let bytes = try readBytes(2)
-			return (UInt16(bytes[0]) << 8) | UInt16(bytes[1])
+			guard data.count - offset >= 2 else {
+				throw BackupError.invalidFormat("Unexpected end of backup file.")
+			}
+			let base = data.index(data.startIndex, offsetBy: offset)
+			let b0 = UInt16(data[base])
+			let b1 = UInt16(data[data.index(after: base)])
+			offset += 2
+			return (b0 << 8) | b1
 		}
 		
 		mutating func readUInt32() throws -> UInt32 {
-			let bytes = try readBytes(4)
-			return (UInt32(bytes[0]) << 24)
-				| (UInt32(bytes[1]) << 16)
-				| (UInt32(bytes[2]) << 8)
-				| UInt32(bytes[3])
+			guard data.count - offset >= 4 else {
+				throw BackupError.invalidFormat("Unexpected end of backup file.")
+			}
+			let i0 = data.index(data.startIndex, offsetBy: offset)
+			let i1 = data.index(after: i0)
+			let i2 = data.index(after: i1)
+			let i3 = data.index(after: i2)
+			offset += 4
+			return (UInt32(data[i0]) << 24)
+				| (UInt32(data[i1]) << 16)
+				| (UInt32(data[i2]) << 8)
+				| UInt32(data[i3])
 		}
 		
 		mutating func readLengthPrefixed(maxBytes: Int) throws -> Data {

@@ -20,7 +20,6 @@ struct MatchListView: View {
 	@State private var computedLatestSession: SessionRecapBuilder.LatestSessionPreview? = nil
 	@State private var computedGoalTrajectory: SeasonGoalTrajectory? = nil
 	@State private var computedMapRatings: [MapRatingReport] = []
-	@ObservedObject private var accoladesCache = AccoladesCacheStore.shared
 	@ObservedObject private var filterStore = MatchListFilterStore.shared
 	
 	private struct AccoladesSyncKey: Equatable {
@@ -28,16 +27,16 @@ struct MatchListView: View {
 		var matchIDs: [Match.ID]
 	}
 	
+	@AppStorage("MatchList.isCompact")
+	private var isCompactListStyle = false
+	
 	@Environment(\.valorantLoad) private var load
 	@Environment(\.shouldAnonymize) private var shouldAnonymize
-	@Environment(\.location) private var location
 	@Environment(\.assets) private var assets
 	@Environment(\.seasons) private var seasons
-	@EnvironmentObject private var bookmarkList: BookmarkList
+	@Environment(\.progressTimelineStoreRef) private var progressTimelineStore
 	@EnvironmentObject private var goalStore: SeasonGoalStore
-	@EnvironmentObject private var progressTimelineStore: ProgressTimelineStore
 	@EnvironmentObject private var accountManager: AccountManager
-	@EnvironmentObject private var settings: AppSettings
 	
 	private var shownMatches: [CompetitiveUpdate] {
 		matchList?.matches ?? []
@@ -86,7 +85,7 @@ struct MatchListView: View {
 		)
 		
 		ScrollView {
-			LazyVStack(spacing: settings.isCompactListStyle ? 4 : 12) {
+			LazyVStack(spacing: isCompactListStyle ? 4 : 12) {
 				VStack(spacing: 14) {
 					VStack(spacing: 0) {
 						PlayerIdentityCell(user: user, identity: identity)
@@ -103,8 +102,7 @@ struct MatchListView: View {
 					
 					AccoladesSummaryBox(
 						userID: userID,
-						knownMatchIDs: shownMatches.map(\.id),
-						report: accoladesCache.report(for: userID, act: currentAct, seasons: seasons)
+						knownMatchIDs: shownMatches.map(\.id)
 					)
 					
 					MapRatingSummaryBox(
@@ -123,7 +121,7 @@ struct MatchListView: View {
 							SessionRecapView(
 								userID: userID,
 								matches: shownMatches,
-								detailsByID: Dictionary(uniqueKeysWithValues: cachedDetailsSnapshot.map { ($0.id, $0) })
+								detailsByID: Dictionary(cachedDetailsSnapshot.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 							)
 						} label: {
 							VStack(alignment: .leading, spacing: 6) {
@@ -198,7 +196,7 @@ struct MatchListView: View {
 						userID: userID,
 						filter: filterStore.filter,
 						inList: false,
-						isCompact: settings.isCompactListStyle
+						isCompact: isCompactListStyle
 					)
 				}
 				
@@ -225,21 +223,7 @@ struct MatchListView: View {
 		.toolbar {
 			ToolbarItemGroup(placement: .navigationBarTrailing) {
 				if !shouldAnonymize(userID) {
-					Button {
-						bookmarkList.toggleBookmark(for: userID, location: location!)
-					} label: {
-						if bookmarkList.hasBookmark(for: userID) {
-							Label(
-								String(localized: "Remove Bookmark", comment: "Match List: accessibility label"),
-								systemImage: "bookmark.fill"
-							)
-						} else {
-							Label(
-								String(localized: "Add Bookmark", comment: "Match List: accessibility label"),
-								systemImage: "bookmark"
-							)
-						}
-					}
+					BookmarkToolbarButton(userID: userID)
 				}
 				
 				Button {
@@ -287,17 +271,35 @@ struct MatchListView: View {
 			LocalDataProvider.shared.matchDetailsManager.changePublisher
 				.debounce(for: .milliseconds(250), scheduler: RunLoop.main)
 		) { _ in
+			let topIDs = shownMatches.prefix(40).map(\.id)
+			let existingIDs = Set(cachedDetailsSnapshot.map(\.id))
+			let manager = LocalDataProvider.shared.matchDetailsManager
+			let hasNewRelevantDetails = topIDs.contains { id in
+				!existingIDs.contains(id) && manager.loadedObject(for: id) != nil
+			}
+			guard hasNewRelevantDetails else { return }
 			matchCacheTick += 1
-			accoladesCache.ingestLoadedMatches(
-				for: userID,
-				matchIDs: shownMatches.prefix(40).map(\.id)
-			)
+			AccoladesCacheStore.shared.ingestLoadedMatches(for: userID, matchIDs: topIDs)
 		}
 		.task(id: computeKey) {
+			let topIDs = shownMatches.prefix(40).map(\.id)
 			let manager = LocalDataProvider.shared.matchDetailsManager
-			let details = shownMatches.prefix(40).compactMap {
-				manager.loadedObject(for: $0.id)
+			var detailsByID: [Match.ID: MatchDetails] = Dictionary(minimumCapacity: topIDs.count)
+			var missingDiskIDs: [Match.ID] = []
+			for id in topIDs {
+				if let loaded = manager.loadedObject(for: id) {
+					detailsByID[id] = loaded
+				} else {
+					missingDiskIDs.append(id)
+				}
 			}
+			if !missingDiskIDs.isEmpty {
+				let diskLoaded = await manager.loadFromDiskOnly(for: missingDiskIDs)
+				for item in diskLoaded {
+					detailsByID[item.id] = item
+				}
+			}
+			let details = topIDs.compactMap { detailsByID[$0] }
 			let uid = userID
 			let allUpdates = shownMatches
 			let masterySnapshot = agentMastery
@@ -311,7 +313,7 @@ struct MatchListView: View {
 			
 			let computed = await Task.detached(priority: .userInitiated) {
 				PerfMonitor.measure("CareerModules.compute", warnOverMs: 2.0) {
-					let detailsMap = Dictionary(uniqueKeysWithValues: details.map { ($0.id, $0) })
+					let detailsMap = Dictionary(details.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 					let mastery = AgentMasteryCalculator.buildFromRiot(
 						masterySnapshot,
 						userID: uid,
@@ -353,7 +355,7 @@ struct MatchListView: View {
 			computedMapRatings = computed.3
 		}
 		.task(id: AccoladesSyncKey(userID: userID, matchIDs: shownMatches.map(\.id))) {
-			await accoladesCache.syncMissingMatches(for: userID, matchIDs: shownMatches.map(\.id))
+			await AccoladesCacheStore.shared.syncMissingMatches(for: userID, matchIDs: shownMatches.map(\.id))
 		}
 		.onAppear {
 			cacheLoadedIdentityToSocial()
@@ -382,10 +384,10 @@ struct MatchListView: View {
 	private func recordProgressIfOwnAccount() {
 		guard accountManager.storedAccounts.contains(userID) else { return }
 		if let summary {
-			progressTimelineStore.record(summary: summary, seasons: seasons, for: userID)
+			progressTimelineStore?.record(summary: summary, seasons: seasons, for: userID)
 		}
 		if let identity {
-			progressTimelineStore.record(identity: identity, for: userID)
+			progressTimelineStore?.record(identity: identity, for: userID)
 		}
 	}
 	
@@ -444,6 +446,31 @@ extension MatchListView {
 
 extension MatchListFilter: DefaultsValueConvertible {}
 
+private struct BookmarkToolbarButton: View {
+	let userID: User.ID
+	
+	@Environment(\.location) private var location
+	@EnvironmentObject private var bookmarkList: BookmarkList
+	
+	var body: some View {
+		Button {
+			bookmarkList.toggleBookmark(for: userID, location: location!)
+		} label: {
+			if bookmarkList.hasBookmark(for: userID) {
+				Label(
+					String(localized: "Remove Bookmark", comment: "Match List: accessibility label"),
+					systemImage: "bookmark.fill"
+				)
+			} else {
+				Label(
+					String(localized: "Add Bookmark", comment: "Match List: accessibility label"),
+					systemImage: "bookmark"
+				)
+			}
+		}
+	}
+}
+
 private struct CareerSummaryCollapsibleCard: View {
 	let summary: CareerSummary?
 	
@@ -454,28 +481,11 @@ private struct CareerSummaryCollapsibleCard: View {
 	var body: some View {
 		let bySeason = summary?.competitiveInfo?.bySeason ?? [:]
 		let currentAct = seasons?.currentAct()
-		let pastOrCurrentActs: [Act] = (assets?.seasons.actsInOrder ?? [])
-			.filter { act in
-				if let current = currentAct {
-					return act.timeSpan.start <= current.timeSpan.start
-				}
-				return act.timeSpan.start <= Date()
-			}
-			.reversed()
-		let previewActs = Array(pastOrCurrentActs.prefix(3))
-		let chartActs = Array(pastOrCurrentActs.prefix(8).reversed())
-		let playedActsCount = bySeason.values.filter { $0.gameCount > 0 || $0.competitiveTier > 0 }.count
-		let lifetimePeak = summary?.peakRank(seasons: seasons)
-		let maxPlottedTier = chartActs.compactMap { bySeason[$0.id]?.competitiveTier }.filter { $0 >= 3 }.max() ?? 0
-		let peakTier = max(lifetimePeak?.rank ?? 0, maxPlottedTier)
+		let playedActsCount = bySeason.values.count(where: { $0.gameCount > 0 || $0.competitiveTier > 0 })
 		
 		let thisActInfo = currentAct.flatMap { bySeason[$0.id] }
 		let thisActWins = thisActInfo?.winCountIncludingPlacements ?? 0
 		let thisActGames = thisActInfo?.gameCount ?? 0
-		
-		let allTotals = bySeason.values.reduce((wins: 0, games: 0)) { acc, item in
-			(acc.wins + item.winCountIncludingPlacements, acc.games + item.gameCount)
-		}
 		
 		VStack(alignment: .leading, spacing: 14) {
 			HStack {
@@ -520,6 +530,16 @@ private struct CareerSummaryCollapsibleCard: View {
 			}
 			
 			if !isExpanded {
+				let previewActs: [Act] = (assets?.seasons.actsInOrder ?? [])
+					.reversed()
+					.filter { act in
+						if let current = currentAct {
+							return act.timeSpan.start <= current.timeSpan.start
+						}
+						return act.timeSpan.start <= Date()
+					}
+					.prefix(3)
+					.map { $0 }
 				if !previewActs.isEmpty {
 					HStack(spacing: 12) {
 						ForEach(previewActs) { act in
@@ -545,6 +565,25 @@ private struct CareerSummaryCollapsibleCard: View {
 					}
 				}
 			} else {
+				let chartActs: [Act] = Array(
+					(assets?.seasons.actsInOrder ?? [])
+						.reversed()
+						.filter { act in
+							if let current = currentAct {
+								return act.timeSpan.start <= current.timeSpan.start
+							}
+							return act.timeSpan.start <= Date()
+						}
+						.prefix(8)
+						.reversed()
+				)
+				let lifetimePeak = summary?.peakRank(seasons: seasons)
+				let maxPlottedTier = chartActs.compactMap { bySeason[$0.id]?.competitiveTier }.filter { $0 >= 3 }.max() ?? 0
+				let peakTier = max(lifetimePeak?.rank ?? 0, maxPlottedTier)
+				let allTotals = bySeason.values.reduce((wins: 0, games: 0)) { acc, item in
+					(acc.wins + item.winCountIncludingPlacements, acc.games + item.gameCount)
+				}
+				
 				Divider()
 					.opacity(0.35)
 				

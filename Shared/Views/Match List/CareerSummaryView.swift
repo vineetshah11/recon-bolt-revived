@@ -11,6 +11,17 @@ struct CareerSummaryView: View {
 	@State private var hasInitializedQueue = false
 	@State private var expandedPreviousActs: Set<Act.ID> = []
 	@State private var isCurrentTriangleExpanded = false
+	@State private var cachedQueues: [QueueID] = []
+	@State private var cachedEarnedRanks: [EarnedRankEntry] = []
+	@State private var cachedPreviousActs: [(act: Act, info: CareerSummary.SeasonInfo)] = []
+	@State private var cachedAllTime: (wins: Int, games: Int, acts: Int)? = nil
+	
+	private struct CacheKey: Equatable {
+		let selectedQueue: QueueID
+		let assetsVersion: AssetVersion?
+		let currentActID: Act.ID?
+		let seasonCount: Int
+	}
 	
 	private static let queueOrder: [QueueID] = [
 		.competitive,
@@ -70,10 +81,19 @@ struct CareerSummaryView: View {
 	}
 	
 	var body: some View {
-		let queues = availableQueues
+		let queues = cachedQueues.isEmpty ? availableQueues : cachedQueues
 		let activeQueue = queues.contains(selectedQueue) ? selectedQueue : (queues.first ?? .competitive)
 		let queueInfo = summary.infoByQueue[activeQueue]
 		let currentAct = seasons?.currentAct()
+		let cacheKey = CacheKey(
+			selectedQueue: activeQueue,
+			assetsVersion: assets?.version,
+			currentActID: currentAct?.id,
+			seasonCount: summary.infoByQueue.count
+		)
+		let earnedRanks = cachedEarnedRanks
+		let allTime = cachedAllTime ?? allTimeTotals(for: queueInfo)
+		let prevActs = cachedPreviousActs
 		
 		VStack(spacing: 0) {
 			if !queues.isEmpty {
@@ -89,10 +109,11 @@ struct CareerSummaryView: View {
 					currentActSection(
 						activeQueue: activeQueue,
 						queueInfo: queueInfo,
-						currentAct: currentAct
+						currentAct: currentAct,
+						earnedRanks: earnedRanks
 					)
 					
-					if let allTime = allTimeTotals(for: queueInfo), allTime.games > 0 {
+					if let allTime, allTime.games > 0 {
 						allTimeStatsCard(
 							wins: allTime.wins,
 							games: allTime.games,
@@ -100,7 +121,6 @@ struct CareerSummaryView: View {
 						)
 					}
 					
-					let prevActs = previousActsList(for: queueInfo, excluding: currentAct?.id)
 					if !prevActs.isEmpty {
 						previousActsCard(
 							activeQueue: activeQueue,
@@ -133,6 +153,15 @@ struct CareerSummaryView: View {
 			} else if let first = queues.first {
 				selectedQueue = first
 			}
+		}
+		.task(id: cacheKey) {
+			let resolvedQueues = availableQueues
+			cachedQueues = resolvedQueues
+			let resolvedActive = resolvedQueues.contains(selectedQueue) ? selectedQueue : (resolvedQueues.first ?? .competitive)
+			let resolvedInfo = summary.infoByQueue[resolvedActive]
+			cachedEarnedRanks = (resolvedActive == .competitive) ? computeTotalRanksEarned() : []
+			cachedAllTime = allTimeTotals(for: resolvedInfo)
+			cachedPreviousActs = previousActsList(for: resolvedInfo, excluding: currentAct?.id)
 		}
 	}
 	
@@ -241,7 +270,8 @@ struct CareerSummaryView: View {
 	private func currentActSection(
 		activeQueue: QueueID,
 		queueInfo: CareerSummary.QueueInfo?,
-		currentAct: Act?
+		currentAct: Act?,
+		earnedRanks: [EarnedRankEntry]
 	) -> some View {
 		let currentInfo = currentAct.flatMap { queueInfo?.inSeason($0.id) }
 		let isCompetitive = (activeQueue == .competitive)
@@ -253,7 +283,6 @@ struct CareerSummaryView: View {
 				if isCompetitive {
 					competitiveRankBlock(for: currentInfo, in: currentAct, isCurrentAct: true)
 					
-					let earnedRanks = computeTotalRanksEarned()
 					if !earnedRanks.isEmpty {
 						totalRanksEarnedBlock(earnedRanks)
 					}
@@ -561,7 +590,7 @@ struct CareerSummaryView: View {
 			}
 			.padding(.horizontal, 2)
 			
-			VStack(spacing: 10) {
+			LazyVStack(spacing: 10) {
 				ForEach(items, id: \.act.id) { item in
 					let isExpanded = expandedPreviousActs.contains(item.act.id)
 					let pct = winPercentage(wins: item.info.winCountIncludingPlacements, games: item.info.gameCount)

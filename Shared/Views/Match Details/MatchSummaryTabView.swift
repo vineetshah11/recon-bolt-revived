@@ -121,8 +121,6 @@ struct MatchSummaryTabView: View {
 	let focusedPlayer: Player
 	var resolvedUsers: [Player.ID: User] = [:]
 	
-	@LocalData var focusedSummary: CareerSummary?
-	
 	@Environment(\.assets) private var assets
 	@Environment(\.seasons) private var seasons
 	@State private var showScoreInfo = false
@@ -139,7 +137,6 @@ struct MatchSummaryTabView: View {
 		self.analytics = analytics
 		self.focusedPlayer = focusedPlayer
 		self.resolvedUsers = resolvedUsers
-		self._focusedSummary = .init(id: focusedPlayer.id)
 	}
 	
 	var body: some View {
@@ -160,11 +157,7 @@ struct MatchSummaryTabView: View {
 					halvesSection(stats: stats)
 				}
 				
-				let matchAccolades = AccoladesCalculator.accolades(
-					for: focusedPlayer.id,
-					in: data.details,
-					analytics: analytics
-				)
+				let matchAccolades = analytics.accolades(for: focusedPlayer.id)
 				if !matchAccolades.isEmpty {
 					accoladesSection(accolades: matchAccolades)
 				}
@@ -174,7 +167,6 @@ struct MatchSummaryTabView: View {
 				}
 			}
 		}
-		.withLocalData($focusedSummary, id: focusedPlayer.id)
 		.alert("Performance Score", isPresented: $showScoreInfo) {
 			Button("OK", role: .cancel) {}
 		} message: {
@@ -185,20 +177,6 @@ struct MatchSummaryTabView: View {
 	// MARK: - Focused Player Card
 	
 	private var focusedPlayerCard: some View {
-		let resolvedTier: Int = {
-			if focusedPlayer.competitiveTier >= 3 { return focusedPlayer.competitiveTier }
-			let currentAct = seasons?.currentAct()?.id
-			if let tier = currentAct.flatMap({ focusedSummary?.competitiveInfo?.bySeason?[$0]?.competitiveTier }), tier >= 3 {
-				return tier
-			}
-			if let latest = focusedSummary?.latestUpdate?.tierAfterUpdate, latest >= 3 {
-				return latest
-			}
-			return focusedPlayer.competitiveTier
-		}()
-		let tierName = seasons?.currentTierInfo(number: resolvedTier)?.name
-			?? (resolvedTier == 0 ? "UNRANKED" : "TIER \(resolvedTier)")
-		
 		let ownTeam = data.details.teams.first(where: { $0.id == focusedPlayer.teamID })
 		let enemyTeam = data.details.teams.first(where: { $0.id != focusedPlayer.teamID })
 		let isMatchMVP = analytics.matchMVPID == focusedPlayer.id
@@ -236,12 +214,22 @@ struct MatchSummaryTabView: View {
 					}
 				}
 				
-				HStack(spacing: 5) {
-					CompetitiveTierImage(tier: resolvedTier, time: data.details.matchInfo.gameStart)
-						.frame(width: 16, height: 16)
-					Text(tierName.uppercased())
-						.font(.caption.weight(.semibold))
-						.foregroundStyle(.secondary)
+				if focusedPlayer.competitiveTier >= 3 {
+					let tierName = seasons?.currentTierInfo(number: focusedPlayer.competitiveTier)?.name
+						?? "TIER \(focusedPlayer.competitiveTier)"
+					HStack(spacing: 5) {
+						CompetitiveTierImage(tier: focusedPlayer.competitiveTier, time: data.details.matchInfo.gameStart)
+							.frame(width: 16, height: 16)
+						Text(tierName.uppercased())
+							.font(.caption.weight(.semibold))
+							.foregroundStyle(.secondary)
+					}
+				} else {
+					UnrankedPlayerTierLabel(
+						playerID: focusedPlayer.id,
+						fallbackTier: focusedPlayer.competitiveTier,
+						matchStart: data.details.matchInfo.gameStart
+					)
 				}
 			}
 			
@@ -838,5 +826,45 @@ struct HighlightFlowLayout: Layout {
 			lineHeight = max(lineHeight, size.height)
 			x += size.width + spacing
 		}
+	}
+}
+
+private struct UnrankedPlayerTierLabel: View {
+	let playerID: Player.ID
+	let fallbackTier: Int
+	let matchStart: Date
+	
+	@LocalData private var summary: CareerSummary?
+	@Environment(\.seasons) private var seasons
+	
+	init(playerID: Player.ID, fallbackTier: Int, matchStart: Date) {
+		self.playerID = playerID
+		self.fallbackTier = fallbackTier
+		self.matchStart = matchStart
+		self._summary = .init(id: playerID)
+	}
+	
+	var body: some View {
+		let resolvedTier: Int = {
+			let currentAct = seasons?.currentAct()?.id
+			if let tier = currentAct.flatMap({ summary?.competitiveInfo?.bySeason?[$0]?.competitiveTier }), tier >= 3 {
+				return tier
+			}
+			if let latest = summary?.latestUpdate?.tierAfterUpdate, latest >= 3 {
+				return latest
+			}
+			return fallbackTier
+		}()
+		let tierName = seasons?.currentTierInfo(number: resolvedTier)?.name
+			?? (resolvedTier == 0 ? "UNRANKED" : "TIER \(resolvedTier)")
+		
+		HStack(spacing: 5) {
+			CompetitiveTierImage(tier: resolvedTier, time: matchStart)
+				.frame(width: 16, height: 16)
+			Text(tierName.uppercased())
+				.font(.caption.weight(.semibold))
+				.foregroundStyle(.secondary)
+		}
+		.withLocalData($summary, id: playerID)
 	}
 }

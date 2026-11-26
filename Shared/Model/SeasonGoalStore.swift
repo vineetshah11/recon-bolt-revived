@@ -76,9 +76,54 @@ final class SeasonGoalStore: ObservableObject {
 	@Published var goals: [SeasonGoal] = []
 	
 	private let filename = "SeasonGoals.v2.json"
+	private var hasLoadedFromDisk = false
+	private var initialLoadTask: Task<Void, Never>?
+	private var pendingRemovedIDs: Set<UUID> = []
+	private var pendingReplacedKeys: Set<String> = []
+	private var pendingSaveTask: Task<Void, Never>?
 	
 	init() {
-		goals = LocalJSONStore.load([SeasonGoal].self, from: filename) ?? []
+		initialLoadTask = Task { @MainActor [weak self] in
+			guard let self else { return }
+			let loaded = await LocalJSONStore.loadAsync([SeasonGoal].self, from: self.filename) ?? []
+			self.mergeDiskGoals(loaded)
+		}
+	}
+	
+	func waitUntilLoaded() async {
+		if let initialLoadTask, !hasLoadedFromDisk {
+			await initialLoadTask.value
+		}
+	}
+	
+	private static func scopeKey(accountID: User.ID?, actID: Season.ID?) -> String {
+		"\(accountID?.description ?? "*")_\(actID?.description ?? "*")"
+	}
+	
+	private func mergeDiskGoals(_ diskGoals: [SeasonGoal]) {
+		hasLoadedFromDisk = true
+		guard !diskGoals.isEmpty else {
+			pendingRemovedIDs.removeAll()
+			pendingReplacedKeys.removeAll()
+			return
+		}
+		if goals.isEmpty && pendingRemovedIDs.isEmpty && pendingReplacedKeys.isEmpty {
+			goals = diskGoals
+			return
+		}
+		var working = goals
+		var seenIDs = Set(working.map(\.id))
+		for diskGoal in diskGoals {
+			let key = Self.scopeKey(accountID: diskGoal.accountID, actID: diskGoal.actID)
+			guard !pendingRemovedIDs.contains(diskGoal.id),
+				  !pendingReplacedKeys.contains(key),
+				  seenIDs.insert(diskGoal.id).inserted else { continue }
+			working.append(diskGoal)
+		}
+		working.sort { $0.createdAt > $1.createdAt }
+		pendingRemovedIDs.removeAll()
+		pendingReplacedKeys.removeAll()
+		goals = working
 	}
 	
 	func goal(for accountID: User.ID?, actID: Season.ID?) -> SeasonGoal? {
@@ -88,7 +133,7 @@ final class SeasonGoalStore: ObservableObject {
 		if let actID, let exact = matchingAccount.first(where: { $0.actID == actID }) {
 			return exact
 		}
-		return matchingAccount.sorted { $0.createdAt > $1.createdAt }.first
+		return matchingAccount.max { $0.createdAt < $1.createdAt }
 	}
 	
 	func setGoal(
@@ -105,6 +150,9 @@ final class SeasonGoalStore: ObservableObject {
 		let baselineElo = Self.elo(tier: baselineTier, rr: baselineRR, tiers: tiers)
 		let existingProfilePref = goal(for: accountID, actID: actID)?.showsOnProfile ?? true
 		
+		if !hasLoadedFromDisk {
+			pendingReplacedKeys.insert(Self.scopeKey(accountID: accountID, actID: actID))
+		}
 		goals.removeAll { g in
 			(g.accountID == accountID || accountID == nil)
 				&& (actID == nil || g.actID == nil || g.actID == actID)
@@ -130,7 +178,12 @@ final class SeasonGoalStore: ObservableObject {
 	}
 	
 	func removeGoal(id: UUID) {
+		if !hasLoadedFromDisk {
+			pendingRemovedIDs.insert(id)
+		}
+		let before = goals.count
 		goals.removeAll { $0.id == id }
+		guard goals.count != before else { return }
 		persist()
 	}
 	
@@ -144,22 +197,38 @@ final class SeasonGoalStore: ObservableObject {
 	
 	@discardableResult
 	func importGoals(_ incoming: [SeasonGoal], replaceAll: Bool) async -> Int {
+		await waitUntilLoaded()
+		pendingSaveTask?.cancel()
 		var working = replaceAll ? [] : goals
+		var indexByID: [UUID: Int] = Dictionary(uniqueKeysWithValues: working.enumerated().map { ($1.id, $0) })
+		var indexByScope: [String: Int] = [:]
+		for (idx, existing) in working.enumerated() {
+			let key = Self.scopeKey(accountID: existing.accountID, actID: existing.actID)
+			if indexByScope[key] == nil {
+				indexByScope[key] = idx
+			}
+		}
 		var changedCount = 0
 		
 		for goal in incoming {
-			if let idx = working.firstIndex(where: { $0.id == goal.id }) {
+			let scope = Self.scopeKey(accountID: goal.accountID, actID: goal.actID)
+			if let idx = indexByID[goal.id] {
 				if goal.createdAt > working[idx].createdAt {
 					working[idx] = goal
 					changedCount += 1
 				}
-			} else if let idx = working.firstIndex(where: { $0.accountID == goal.accountID && $0.actID == goal.actID }) {
+			} else if let idx = indexByScope[scope] {
 				if goal.createdAt > working[idx].createdAt {
+					indexByID.removeValue(forKey: working[idx].id)
 					working[idx] = goal
+					indexByID[goal.id] = idx
 					changedCount += 1
 				}
 			} else {
+				let idx = working.count
 				working.append(goal)
+				indexByID[goal.id] = idx
+				indexByScope[scope] = idx
 				changedCount += 1
 			}
 		}
@@ -171,7 +240,16 @@ final class SeasonGoalStore: ObservableObject {
 	}
 	
 	private func persist() {
-		LocalJSONStore.save(goals, to: filename)
+		if hasLoadedFromDisk {
+			LocalJSONStore.save(goals, to: filename)
+		} else {
+			pendingSaveTask?.cancel()
+			pendingSaveTask = Task { @MainActor [weak self] in
+				await self?.waitUntilLoaded()
+				guard let self, !Task.isCancelled else { return }
+				LocalJSONStore.save(self.goals, to: self.filename)
+			}
+		}
 	}
 	
 	// MARK: - Elo & Trajectory Calculation
@@ -288,16 +366,27 @@ final class SeasonGoalStore: ObservableObject {
 		}()
 		
 		let matchesPlayed = actRanked.count
-		let gainList = actRanked.map(\.ratingEarned).filter { $0 > 0 }
-		let lossList = actRanked.map(\.ratingEarned).filter { $0 < 0 }
-		let wins = gainList.count
-		let losses = lossList.count
+		var wins = 0
+		var losses = 0
+		var totalRR = 0
+		var totalGain = 0
+		var totalLossAbs = 0
+		for match in actRanked {
+			let rr = match.ratingEarned
+			totalRR += rr
+			if rr > 0 {
+				wins += 1
+				totalGain += rr
+			} else if rr < 0 {
+				losses += 1
+				totalLossAbs += -rr
+			}
+		}
 		let decided = wins + losses
 		let winRate: Double = decided > 0 ? (Double(wins) / Double(decided)) : Double(0)
-		let totalRR = actRanked.reduce(0) { $0 + $1.ratingEarned }
 		let avgRR: Double = matchesPlayed > 0 ? Double(totalRR) / Double(matchesPlayed) : Double(0)
-		let avgGain: Double = gainList.isEmpty ? Double(20) : Double(gainList.reduce(0, +)) / Double(gainList.count)
-		let avgLoss: Double = lossList.isEmpty ? Double(18) : Double(abs(lossList.reduce(0, +))) / Double(lossList.count)
+		let avgGain: Double = wins == 0 ? Double(20) : Double(totalGain) / Double(wins)
+		let avgLoss: Double = losses == 0 ? Double(18) : Double(totalLossAbs) / Double(losses)
 		
 		let firstMatchDate = actRanked.last?.startTime ?? actStart
 		let spanStart = max(actStart, firstMatchDate)

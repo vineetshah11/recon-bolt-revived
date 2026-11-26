@@ -918,6 +918,10 @@ private struct NewFavoritesPresetSheet: View {
 		return set.sorted { $0.description < $1.description }
 	}
 	
+	private var currentFavoriteCount: Int {
+		favoritesManager.itemIDs(for: accountID).count
+	}
+	
 	var body: some View {
 		NavigationStack {
 			Form {
@@ -972,7 +976,7 @@ private struct NewFavoritesPresetSheet: View {
 							ProgressView()
 								.controlSize(.small)
 						} else {
-							Text("\(currentFavoriteIDs.count) items")
+							Text("\(currentFavoriteCount) items")
 								.foregroundStyle(.secondary)
 								.monospacedDigit()
 						}
@@ -1081,6 +1085,7 @@ struct FavoritesPresetInspectorView: View {
 	@State private var showingBannerPicker = false
 	@State private var applyProgress: (completed: Int, total: Int)?
 	@State private var applyError: String?
+	@State private var cachedResolvedItems: [ResolvedFavoriteRow] = []
 	
 	private struct ResolvedFavoriteRow: Identifiable {
 		let id: LowercaseUUID
@@ -1089,8 +1094,13 @@ struct FavoritesPresetInspectorView: View {
 		let icon: AssetImage?
 	}
 	
+	private struct ItemsKey: Equatable {
+		let itemIDs: [LowercaseUUID]
+		let version: AssetVersion?
+	}
+	
 	var body: some View {
-		let resolved = resolvedItems()
+		let resolved = cachedResolvedItems
 		
 		List {
 			Section {
@@ -1236,6 +1246,9 @@ struct FavoritesPresetInspectorView: View {
 		}
 		.navigationTitle(preset.name)
 		.navigationBarTitleDisplayMode(.inline)
+		.task(id: ItemsKey(itemIDs: preset.itemIDs, version: assets?.version)) {
+			cachedResolvedItems = resolvedItems()
+		}
 		.sheet(isPresented: $showingBannerPicker) {
 			PresetBannerPickerSheet(
 				currentSelection: PresetBannerChoice(
@@ -1293,9 +1306,7 @@ struct FavoritesPresetInspectorView: View {
 					itemIDs: preset.itemIDs,
 					using: client
 				) { completed, total in
-					Task { @MainActor in
-						applyProgress = (completed, total)
-					}
+					applyProgress = (completed, total)
 				}
 			} catch {
 				applyError = error.localizedDescription

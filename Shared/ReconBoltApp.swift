@@ -61,6 +61,22 @@ struct ReconBoltApp: App {
 					.environment(\.assets, assetManager.assets)
 					.environment(\.location, accountManager.activeAccount?.location)
 					.environment(\.ownsProVersion, store.ownsProVersion)
+					.environment(\.backupStores, BackupStores(
+						accountManager: accountManager,
+						bookmarkList: services.bookmarkList,
+						settings: settings,
+						loadoutPresetManager: services.loadoutPresetManager,
+						wishlistManager: services.wishlistManager,
+						shopHistoryStore: services.shopHistoryStore,
+						usernameHistoryStore: .shared,
+						playerSettingsSnapshotStore: services.playerSettingsSnapshotStore,
+						seasonGoalStore: services.seasonGoalStore,
+						progressTimelineStore: services.progressTimelineStore,
+						socialManager: services.socialManager,
+						lineupsManager: services.lineupsManager
+					))
+					.environment(\.favoritesManagerRef, services.favoritesManager)
+					.environment(\.progressTimelineStoreRef, services.progressTimelineStore)
 					.preferredColorScheme(settings.theme.colorScheme)
 					.tint(settings.effectiveAccentColor)
 					.accentColor(settings.effectiveAccentColor)
@@ -147,7 +163,34 @@ extension EnvironmentValues {
 		set { self[OwnsProVersionKey.self] = newValue }
 	}
 	
+	var backupStores: BackupStores? {
+		get { self[BackupStoresKey.self] }
+		set { self[BackupStoresKey.self] = newValue }
+	}
+	
+	var favoritesManagerRef: FavoritesManager? {
+		get { self[FavoritesManagerRefKey.self] }
+		set { self[FavoritesManagerRefKey.self] = newValue }
+	}
+	
+	var progressTimelineStoreRef: ProgressTimelineStore? {
+		get { self[ProgressTimelineStoreRefKey.self] }
+		set { self[ProgressTimelineStoreRefKey.self] = newValue }
+	}
+	
 	private enum OwnsProVersionKey: EnvironmentKey {
 		static let defaultValue = true
+	}
+	
+	private enum BackupStoresKey: EnvironmentKey {
+		static let defaultValue: BackupStores? = nil
+	}
+	
+	private enum FavoritesManagerRefKey: EnvironmentKey {
+		static let defaultValue: FavoritesManager? = nil
+	}
+	
+	private enum ProgressTimelineStoreRefKey: EnvironmentKey {
+		static let defaultValue: ProgressTimelineStore? = nil
 	}
 }

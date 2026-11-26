@@ -44,9 +44,33 @@ struct MatchDetailsView: View {
 		var version: AssetVersion?
 	}
 	
+	@MainActor
+	private final class AnalyticsCache {
+		static let shared = AnalyticsCache()
+		private var entries: [Match.ID: (roundCount: Int, playerCount: Int, analytics: MatchAnalytics)] = [:]
+		private var order: [Match.ID] = []
+		
+		func analytics(for details: MatchDetails) -> MatchAnalytics {
+			let rCount = details.roundResults.count
+			let pCount = details.players.count
+			if let cached = entries[details.id], cached.roundCount == rCount, cached.playerCount == pCount {
+				return cached.analytics
+			}
+			let built = MatchAnalytics(details: details)
+			entries[details.id] = (rCount, pCount, built)
+			order.removeAll { $0 == details.id }
+			order.append(details.id)
+			while order.count > 6 {
+				let oldest = order.removeFirst()
+				entries.removeValue(forKey: oldest)
+			}
+			return built
+		}
+	}
+	
 	init(data: MatchViewData) {
 		self.data = data
-		self.analytics = MatchAnalytics(details: data.details)
+		self.analytics = AnalyticsCache.shared.analytics(for: data.details)
 		let initialFocus = data.myself?.id
 			?? data.details.players.first(where: { $0.teamID != .neutral })?.id
 			?? data.details.players.first?.id
@@ -60,9 +84,9 @@ struct MatchDetailsView: View {
 			?? data.details.players.first
 	}
 	
-	private var focusedData: MatchViewData {
-		if focusedPlayer?.id == data.myself?.id { return data }
-		return MatchViewData(details: data.details, userID: focusedPlayer?.id)
+	private func resolvedFocusedData(for focusedPlayer: Player) -> MatchViewData {
+		if focusedPlayer.id == data.myself?.id { return data }
+		return MatchViewData(details: data.details, userID: focusedPlayer.id)
 	}
 	
 	private var availableTabs: [Tab] {
@@ -88,6 +112,7 @@ struct MatchDetailsView: View {
 	
 	@ViewBuilder
 	private func mainContent(for focusedPlayer: Player) -> some View {
+		let focusedData = resolvedFocusedData(for: focusedPlayer)
 		ScrollView {
 			LazyVStack(spacing: 12, pinnedViews: [.sectionHeaders]) {
 				if activeTab == .summary {
@@ -126,7 +151,7 @@ struct MatchDetailsView: View {
 							)
 							
 						case .rounds:
-							roundsTab
+							roundsTab(focusedData: focusedData)
 							
 						case .duels:
 							MatchDuelsTabView(
@@ -187,7 +212,7 @@ struct MatchDetailsView: View {
 		}
 		.sheet(isPresented: $isShowingShareSheet) {
 			MatchShareSheet(
-				data: focusedData,
+				data: resolvedFocusedData(for: focusedPlayer),
 				analytics: analytics,
 				focusedPlayer: focusedPlayer,
 				resolvedUsers: resolvedUsers
@@ -278,7 +303,7 @@ struct MatchDetailsView: View {
 	// MARK: - Rounds Tab
 	
 	@ViewBuilder
-	private var roundsTab: some View {
+	private func roundsTab(focusedData: MatchViewData) -> some View {
 		VStack(spacing: 16) {
 			if KillBreakdownView.canDisplay(for: focusedData) {
 				KillBreakdownView(data: focusedData, highlight: $highlight)
@@ -549,15 +574,15 @@ struct MatchDetailsView: View {
 	}
 	
 	private func syncCachedUsers() async {
+		let incognitoIDs = data.details.players.filter(\.gameName.isEmpty).map(\.id)
+		guard !incognitoIDs.isEmpty else { return }
+		let cachedUsers = await LocalDataProvider.shared.userManager.cachedObjects(for: incognitoIDs)
 		var updated = resolvedUsers
 		var changed = false
-		let manager = LocalDataProvider.shared.userManager
-		for player in data.details.players where player.gameName.isEmpty {
-			if let cached = await manager.cachedObject(for: player.id), !cached.gameName.isEmpty {
-				if updated[player.id]?.gameName != cached.gameName || updated[player.id]?.tagLine != cached.tagLine {
-					updated[player.id] = cached
-					changed = true
-				}
+		for cached in cachedUsers where !cached.gameName.isEmpty {
+			if updated[cached.id]?.gameName != cached.gameName || updated[cached.id]?.tagLine != cached.tagLine {
+				updated[cached.id] = cached
+				changed = true
 			}
 		}
 		if changed {
@@ -628,6 +653,8 @@ private struct MatchShareSheet: View {
 	
 	@Environment(\.assets) private var assets
 	@Environment(\.seasons) private var seasons
+	@Environment(\.configs) private var configs
+	@Environment(\.location) private var location
 	@Environment(\.dismiss) private var dismiss
 	@Environment(\.imageManager) private var imageManager
 	
@@ -652,6 +679,23 @@ private struct MatchShareSheet: View {
 	
 	private var agentAsset: AssetImage? {
 		focusedPlayer.agentID.flatMap { assets?.agents[$0]?.displayIcon }
+	}
+	
+	private var tierIconAsset: AssetImage? {
+		guard let summary else { return nil }
+		let act = seasons?.currentAct()
+		let info = summary.competitiveInfo?.inSeason(act?.id)
+		let tier = info?.competitiveTier ?? 0
+		if tier == 0, let peak = summary.peakRankInfo(seasons: seasons) {
+			return peak.icon
+		}
+		return seasons?.tierInfo(number: tier, in: act)?.icon
+	}
+	
+	private struct RenderKey: Equatable {
+		let showRiotID: Bool
+		let hasSummary: Bool
+		let version: AssetVersion?
 	}
 	
 	var body: some View {
@@ -693,7 +737,7 @@ private struct MatchShareSheet: View {
 				}
 			}
 			.withLocalData($summary, id: focusedPlayer.id)
-			.task(id: showRiotID) {
+			.task(id: RenderKey(showRiotID: showRiotID, hasSummary: summary != nil, version: assets?.version)) {
 				await prepareAndRender()
 			}
 		}
@@ -951,17 +995,29 @@ private struct MatchShareSheet: View {
 	private func prepareAndRender() async {
 		isRendering = true
 		var loaded = preloadedImages
+		var toPreload: [AssetImage] = []
 		if let agentAsset, loaded[agentAsset] == nil {
-			if let cached = imageManager.cachedImage(for: agentAsset, bucket: .icon) {
-				loaded[agentAsset] = cached
-			} else if let downloaded = await imageManager.awaitImage(for: agentAsset, bucket: .icon) {
-				loaded[agentAsset] = downloaded
+			toPreload.append(agentAsset)
+		}
+		if let tierIconAsset, loaded[tierIconAsset] == nil {
+			toPreload.append(tierIconAsset)
+		}
+		for asset in toPreload {
+			if let cached = imageManager.cachedImage(for: asset, bucket: .icon) {
+				loaded[asset] = cached
+			} else if let downloaded = await imageManager.awaitImage(for: asset, bucket: .icon) {
+				loaded[asset] = downloaded
 			}
 		}
 		preloadedImages = loaded
 		
+		await Task.yield()
+		guard !Task.isCancelled else { return }
+		
 		let snapshot = matchCardCanvas(images: loaded, clipCorners: false)
 			.environment(\.assets, assets)
+			.environment(\.configs, configs)
+			.environment(\.location, location)
 			.environment(\.imageManager, imageManager)
 		
 		renderedImage = ShareCardRenderer.render(snapshot)

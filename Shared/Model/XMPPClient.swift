@@ -769,8 +769,7 @@ actor XMPPClient {
 	}
 	
 	private func popNextStanza() -> String? {
-		let trimmed = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
-		if trimmed.isEmpty {
+		if buffer.allSatisfy(\.isWhitespace) {
 			buffer = ""
 			return nil
 		}

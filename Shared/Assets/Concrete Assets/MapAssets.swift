@@ -19,6 +19,7 @@ struct MapInfo: AssetItem, Codable, Identifiable {
 	private var mapUrl: MapID
 	var id: MapID { mapUrl } // lazy rename
 	var displayName: String
+	var tacticalDescription: String?
 	var coordinates: String?
 	/// the minimap (also used for game event visualization)
 	var displayIcon: AssetImage?

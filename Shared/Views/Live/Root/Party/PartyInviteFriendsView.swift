@@ -7,7 +7,7 @@ struct PartyInviteFriendsView: View {
 	
 	@State private var searchText = ""
 	@State private var invitedJIDs: Set<String> = []
-	@State private var invitingJID: String?
+	@State private var invitingJIDs: Set<String> = []
 	
 	@EnvironmentObject private var socialManager: SocialManager
 	@Environment(\.valorantLoad) private var load
@@ -20,9 +20,8 @@ struct PartyInviteFriendsView: View {
 		(isSelfOwner || party.accessibility == .open) && party.state != .inMatchmaking
 	}
 	
-	private var playingValorantFriends: [XMPPFriend] {
-		let memberIDs = Set(party.members.map(\.id))
-		return socialManager.friends.filter { friend in
+	private func playingValorantFriends(memberIDs: Set<Player.ID>) -> [XMPPFriend] {
+		socialManager.friends.filter { friend in
 			guard friend.status != .offline,
 				  friend.gameTitle == "VALORANT",
 				  !friend.gameName.isEmpty else {
@@ -35,18 +34,23 @@ struct PartyInviteFriendsView: View {
 		}
 	}
 	
-	private var filteredFriends: [XMPPFriend] {
+	private func filteredFriends(from playing: [XMPPFriend]) -> [XMPPFriend] {
 		let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-		guard !query.isEmpty else { return playingValorantFriends }
-		return playingValorantFriends.filter { friend in
+		guard !query.isEmpty else { return playing }
+		return playing.filter { friend in
 			friend.gameName.localizedCaseInsensitiveContains(query)
 			|| friend.tagLine.localizedCaseInsensitiveContains(query)
 		}
 	}
 	
 	var body: some View {
+		let memberIDs = Set(party.members.map(\.id))
+		let playing = playingValorantFriends(memberIDs: memberIDs)
+		let friends = filteredFriends(from: playing)
+		let invitedPlayerIDs = Set(party.invites.map(\.playerID))
+		
 		Group {
-			if playingValorantFriends.isEmpty {
+			if playing.isEmpty {
 				VStack(spacing: 12) {
 					Spacer()
 					Image(systemName: "person.2.slash")
@@ -62,7 +66,7 @@ struct PartyInviteFriendsView: View {
 					Spacer()
 				}
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
-			} else if filteredFriends.isEmpty {
+			} else if friends.isEmpty {
 				VStack(spacing: 10) {
 					Spacer()
 					Image(systemName: "magnifyingglass")
@@ -80,10 +84,10 @@ struct PartyInviteFriendsView: View {
 				.frame(maxWidth: .infinity, maxHeight: .infinity)
 			} else {
 				ScrollView {
-					VStack(spacing: 0) {
-						ForEach(Array(filteredFriends.enumerated()), id: \.element.id) { index, friend in
-							friendRow(friend)
-							if index < filteredFriends.count - 1 {
+					LazyVStack(spacing: 0) {
+						ForEach(Array(friends.enumerated()), id: \.element.id) { index, friend in
+							friendRow(friend, invitedPlayerIDs: invitedPlayerIDs)
+							if index < friends.count - 1 {
 								Divider()
 									.padding(.leading, 68)
 							}
@@ -133,18 +137,18 @@ struct PartyInviteFriendsView: View {
 		.navigationBarTitleDisplayMode(.inline)
 	}
 	
-	private func isAlreadyInvited(_ friend: XMPPFriend) -> Bool {
+	private func isAlreadyInvited(_ friend: XMPPFriend, invitedPlayerIDs: Set<User.ID>) -> Bool {
 		if invitedJIDs.contains(friend.jid) { return true }
-		if let puuid = friend.puuid, party.invites.contains(where: { $0.playerID == puuid }) {
+		if let puuid = friend.puuid, invitedPlayerIDs.contains(puuid) {
 			return true
 		}
 		return false
 	}
 	
 	@ViewBuilder
-	private func friendRow(_ friend: XMPPFriend) -> some View {
-		let invited = isAlreadyInvited(friend)
-		let isInviting = invitingJID == friend.jid
+	private func friendRow(_ friend: XMPPFriend, invitedPlayerIDs: Set<User.ID>) -> some View {
+		let invited = isAlreadyInvited(friend, invitedPlayerIDs: invitedPlayerIDs)
+		let isInviting = invitingJIDs.contains(friend.jid)
 		
 		HStack(spacing: 12) {
 			PlayerCardImage.small(friend.playerCardID)
@@ -200,9 +204,10 @@ struct PartyInviteFriendsView: View {
 	
 	private func invite(_ friend: XMPPFriend) {
 		guard !friend.gameName.isEmpty, !friend.tagLine.isEmpty else { return }
+		guard !invitingJIDs.contains(friend.jid) else { return }
 		Task {
-			invitingJID = friend.jid
-			defer { invitingJID = nil }
+			invitingJIDs.insert(friend.jid)
+			defer { invitingJIDs.remove(friend.jid) }
 			await load {
 				party = try await $0.inviteToParty(name: friend.gameName, tag: friend.tagLine, in: party.id)
 				invitedJIDs.insert(friend.jid)

@@ -549,11 +549,8 @@ struct PartySettingsView: View {
 				}
 				switched = true
 			}
-			if switched {
-				await onPartyChanged()
-				if enabled {
-					showingCustomSettings = true
-				}
+			if switched, enabled {
+				showingCustomSettings = true
 			}
 		}
 	}

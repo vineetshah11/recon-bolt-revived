@@ -17,7 +17,7 @@ struct PartyInfoBox: View {
 	@State private var isRunningCustomAction = false
 	@State private var isExitingCustomGame = false
 	@State private var selectedProfileMemberID: Player.ID?
-	@State private var processingRequestID: String?
+	@State private var processingRequestIDs: Set<String> = []
 	@State private var isStartingRange = false
 
 
@@ -118,7 +118,7 @@ struct PartyInfoBox: View {
 		let membership = customData.membership
 		let settings = customData.settings
 		let rules = settings.gameRules
-		let membersByID = Dictionary(uniqueKeysWithValues: party.members.map { ($0.id, $0) })
+		let membersByID = Dictionary(party.members.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
 		let assignedIDs = Set(
 			membership.teamOne.map(\.subject)
 			+ membership.teamTwo.map(\.subject)
@@ -206,9 +206,11 @@ struct PartyInfoBox: View {
 	
 	private func customGameSummaryBanner(settings: Party.CustomGameData.Settings) -> some View {
 		let mapPath = settings.map.isEmpty ? MapID.ascent.rawValue : settings.map
-		let mapID = MapID(mapPath)
-		let mapName = assets?.maps[mapID]?.displayName ?? mapPath.split(separator: "/").last.map(String.init) ?? "Custom Map"
-		let modeName = customModeLabel(for: settings.mode)
+		let resolvedMap = assets?.mapInfo(for: mapPath)
+		let mapID = resolvedMap?.id ?? MapID(mapPath)
+		let mapName = resolvedMap?.displayName ?? mapPath.split(separator: "/").last.map(String.init) ?? "Custom Map"
+		let modeName = assets?.customModeDisplayName(for: settings.mode)
+			?? AssetCollection.fallbackCustomModeDisplayName(for: settings.mode)
 		let serverName: String = {
 			guard !settings.gamePod.isEmpty else { return String(localized: "Auto Server") }
 			return assets?.serverDisplayName(for: settings.gamePod)
@@ -390,18 +392,6 @@ struct PartyInfoBox: View {
 				.disabled(isRunningCustomAction)
 			}
 		}
-	}
-	
-	private func customModeLabel(for path: String) -> String {
-		let lower = path.lowercased()
-		if lower.contains("quickbomb") { return String(localized: "Spike Rush") }
-		if lower.contains("swiftplay") { return String(localized: "Swiftplay") }
-		if lower.contains("deathmatch") { return String(localized: "Deathmatch") }
-		if lower.contains("gungame") { return String(localized: "Escalation") }
-		if lower.contains("oneforall") { return String(localized: "Replication") }
-		if lower.contains("hurm") { return String(localized: "Team Deathmatch") }
-		if lower.contains("shootingrange") { return String(localized: "Practice Range") }
-		return String(localized: "Standard")
 	}
 	
 	// MARK: - Bottom Bar
@@ -596,7 +586,7 @@ struct PartyInfoBox: View {
 			ForEach(party.requests) { request in
 				RequestPlayerRow(
 					request: request,
-					isProcessing: processingRequestID == request.id,
+					isProcessing: processingRequestIDs.contains(request.id),
 					onDecline: { declineJoinRequest(request) }
 				)
 			}
@@ -613,7 +603,7 @@ struct PartyInfoBox: View {
 			ForEach(requests) { request in
 				IncomingInviteRow(
 					request: request,
-					isProcessing: processingRequestID == request.id,
+					isProcessing: processingRequestIDs.contains(request.id),
 					onAccept: { acceptPartyInvite(request) },
 					onDecline: { declinePartyInvite(request) }
 				)
@@ -684,21 +674,16 @@ struct PartyInfoBox: View {
 			let targetQueue = party.eligibleQueues?.first(where: { $0 == .unrated })
 				?? party.eligibleQueues?.first
 				?? .unrated
-			var exited = false
 			await load {
 				party = try await $0.makeDefaultQueue(targetQueue, in: party.id)
-				exited = true
-			}
-			if exited {
-				await onPartyChanged()
 			}
 		}
 	}
 	
 	private func declineJoinRequest(_ request: Party.JoinRequest) {
 		Task {
-			processingRequestID = request.id
-			defer { processingRequestID = nil }
+			processingRequestIDs.insert(request.id)
+			defer { processingRequestIDs.remove(request.id) }
 			await load {
 				party = try await $0.declinePartyRequest(request.id, in: party.id)
 			}
@@ -707,19 +692,18 @@ struct PartyInfoBox: View {
 	
 	private func acceptPartyInvite(_ request: Party.JoinRequest) {
 		Task {
-			processingRequestID = request.id
-			defer { processingRequestID = nil }
+			processingRequestIDs.insert(request.id)
+			defer { processingRequestIDs.remove(request.id) }
 			await load {
 				party = try await $0.joinParty(request.partyID)
 			}
-			await onPartyChanged()
 		}
 	}
 	
 	private func declinePartyInvite(_ request: Party.JoinRequest) {
 		Task {
-			processingRequestID = request.id
-			defer { processingRequestID = nil }
+			processingRequestIDs.insert(request.id)
+			defer { processingRequestIDs.remove(request.id) }
 			await load {
 				try await $0.declinePartyInvite(for: request.partyID)
 			}
@@ -921,8 +905,8 @@ struct PartyInfoBox: View {
 					}
 				}
 			}
-			.withLocalData($memberUser, id: member.id, shouldAutoUpdate: true)
-			.withLocalData($summary, id: member.id, shouldAutoUpdate: true)
+			.withLocalData($memberUser, id: member.id, shouldAutoUpdate: false)
+			.withLocalData($summary, id: member.id, shouldAutoUpdate: member.id != userID)
 		}
 		
 		private var customRoleSubtitle: LocalizedStringKey {
@@ -1049,7 +1033,7 @@ struct PartyInfoBox: View {
 			.padding(.horizontal, 12)
 			.padding(.vertical, 8)
 			.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-			.withLocalData($requesterUser, id: request.requestedBy, shouldAutoUpdate: true)
+			.withLocalData($requesterUser, id: request.requestedBy, shouldAutoUpdate: false)
 		}
 	}
 	
@@ -1121,7 +1105,7 @@ struct PartyInfoBox: View {
 			.padding(.horizontal, 12)
 			.padding(.vertical, 8)
 			.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-			.withLocalData($inviterUser, id: request.requestedBy, shouldAutoUpdate: true)
+			.withLocalData($inviterUser, id: request.requestedBy, shouldAutoUpdate: false)
 		}
 	}
 }

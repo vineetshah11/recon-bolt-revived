@@ -2,8 +2,14 @@ import SwiftUI
 
 struct AutoRefresher: View {
 	@State private var isFilledUp = true
+	@Environment(\.scenePhase) private var scenePhase
 	
+	var isPaused: Bool = false
 	var refreshAction: () async -> Void
+	
+	private var isActive: Bool {
+		!isPaused && scenePhase == .active
+	}
 	
 	var body: some View {
 		let strokeStyle = StrokeStyle(lineWidth: 4, lineCap: .round)
@@ -15,9 +21,12 @@ struct AutoRefresher: View {
 			.stroke(Color.accentColor, style: strokeStyle)
 			.background(Circle().stroke(.quaternary, style: strokeStyle))
 			.frame(width: 20, height: 20)
-			.task {
+			.task(id: isActive) {
+				isFilledUp = true
+				guard isActive else { return }
 				while !Task.isCancelled {
 					await refreshAction()
+					guard !Task.isCancelled else { return }
 					
 					let refreshInterval: TimeInterval = 5
 					let tolerance: TimeInterval = 1
