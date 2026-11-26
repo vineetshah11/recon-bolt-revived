@@ -24,30 +24,45 @@ struct MatchDetailsView: View {
 	@State private var isCompactScoreboard = false
 	@State private var scoreboardSort: MatchScoreboardSort = .acs
 	@State private var resolvedUsers: [Player.ID: User] = [:]
+	@State private var menuAgentIcons: [Player.ID: UIImage] = [:]
 	@State private var isRefreshingProfiles = false
+	@State private var refreshProfilesTask: Task<Void, Never>?
 	@State private var isShowingShareSheet = false
 	
 	@Environment(\.valorantLoad) private var load
 	@Environment(\.assets) private var assets
+	
+	private final class MenuIconCache: @unchecked Sendable {
+		static let shared = MenuIconCache()
+		let cache = NSCache<NSString, UIImage>() <- {
+			$0.countLimit = 64
+		}
+	}
+	
+	private struct MenuIconTaskKey: Equatable {
+		var matchID: Match.ID
+		var version: AssetVersion?
+	}
 	
 	init(data: MatchViewData) {
 		self.data = data
 		self.analytics = MatchAnalytics(details: data.details)
 		let initialFocus = data.myself?.id
 			?? data.details.players.first(where: { $0.teamID != .neutral })?.id
-			?? data.details.players[0].id
+			?? data.details.players.first?.id
+			?? Player.ID()
 		self._focusedPlayerID = State(initialValue: initialFocus)
 	}
 	
-	private var focusedPlayer: Player {
+	private var focusedPlayer: Player? {
 		data.players[focusedPlayerID]
 			?? data.myself
-			?? data.details.players[0]
+			?? data.details.players.first
 	}
 	
 	private var focusedData: MatchViewData {
-		if focusedPlayer.id == data.myself?.id { return data }
-		return MatchViewData(details: data.details, userID: focusedPlayer.id)
+		if focusedPlayer?.id == data.myself?.id { return data }
+		return MatchViewData(details: data.details, userID: focusedPlayer?.id)
 	}
 	
 	private var availableTabs: [Tab] {
@@ -61,77 +76,103 @@ struct MatchDetailsView: View {
 	}
 	
 	var body: some View {
+		if let focusedPlayer {
+			mainContent(for: focusedPlayer)
+		} else {
+			Text("Match data unavailable.")
+				.foregroundStyle(.secondary)
+				.frame(maxWidth: .infinity, maxHeight: .infinity)
+				.background(Color.groupedBackground)
+		}
+	}
+	
+	@ViewBuilder
+	private func mainContent(for focusedPlayer: Player) -> some View {
 		ScrollView {
-			VStack(spacing: 16) {
-				tabBar
-				
-				Group {
-					switch activeTab {
-					case .summary:
-						MatchSummaryTabView(
-							data: focusedData,
-							analytics: analytics,
-							focusedPlayer: focusedPlayer,
-							resolvedUsers: resolvedUsers
-						)
-						
-					case .scoreboard:
-						ScoreboardView(
-							data: data,
-							analytics: analytics,
-							focusedPlayerID: focusedPlayer.id,
-							groupedByTeam: groupedByTeam,
-							isCompact: isCompactScoreboard,
-							sort: scoreboardSort,
-							resolvedUsers: resolvedUsers,
-							highlight: $highlight,
-							onSelectFocus: { newID in
-								focusedPlayerID = newID
-							}
-						)
-						
-					case .rounds:
-						roundsTab
-						
-					case .duels:
-						MatchDuelsTabView(
-							data: focusedData,
-							analytics: analytics,
-							focusedTeamID: focusedPlayer.teamID,
-							resolvedUsers: resolvedUsers
-						)
-						
-					case .performance:
-						MatchPerformanceTabView(
-							data: focusedData,
-							analytics: analytics,
-							focusedPlayer: focusedPlayer,
-							resolvedUsers: resolvedUsers
-						)
-						
-					case .economy:
-						MatchEconomyTabView(
-							data: focusedData,
-							analytics: analytics,
-							focusedPlayer: focusedPlayer
-						)
-					}
+			LazyVStack(spacing: 12, pinnedViews: [.sectionHeaders]) {
+				if activeTab == .summary {
+					MatchHeroBanner(
+						data: focusedData,
+						analytics: analytics,
+						focusedPlayer: focusedPlayer
+					)
+					.padding(.horizontal, 16)
 				}
-				.padding(.horizontal, 16)
+				
+				Section {
+					Group {
+						switch activeTab {
+						case .summary:
+							MatchSummaryTabView(
+								data: focusedData,
+								analytics: analytics,
+								focusedPlayer: focusedPlayer,
+								resolvedUsers: resolvedUsers
+							)
+							
+						case .scoreboard:
+							ScoreboardView(
+								data: data,
+								analytics: analytics,
+								focusedPlayerID: focusedPlayer.id,
+								groupedByTeam: groupedByTeam,
+								isCompact: isCompactScoreboard,
+								sort: scoreboardSort,
+								resolvedUsers: resolvedUsers,
+								highlight: $highlight,
+								onSelectFocus: { newID in
+									focusedPlayerID = newID
+								}
+							)
+							
+						case .rounds:
+							roundsTab
+							
+						case .duels:
+							MatchDuelsTabView(
+								data: focusedData,
+								analytics: analytics,
+								focusedTeamID: focusedPlayer.teamID,
+								resolvedUsers: resolvedUsers
+							)
+							
+						case .performance:
+							MatchPerformanceTabView(
+								data: focusedData,
+								analytics: analytics,
+								focusedPlayer: focusedPlayer,
+								resolvedUsers: resolvedUsers
+							)
+							
+						case .economy:
+							MatchEconomyTabView(
+								data: focusedData,
+								analytics: analytics,
+								focusedPlayer: focusedPlayer
+							)
+						}
+					}
+					.padding(.horizontal, 16)
+					.padding(.top, 4)
+				} header: {
+					tabBar
+						.padding(.vertical, 6)
+						.background(Color.groupedBackground)
+				}
 			}
 			.padding(.top, 8)
 			.padding(.bottom, 24)
 		}
 		.background(Color.groupedBackground)
 		.safeAreaInset(edge: .bottom) {
-			focusedPlayerFloatingBar
+			focusedPlayerFloatingBar(for: focusedPlayer)
 		}
 		.navigationTitle(activeTab == .summary ? Text("Match Details", comment: "Match Details: title") : Text(""))
 		.navigationBarTitleDisplayMode(.inline)
 		.toolbar {
 			if activeTab != .summary {
 				ToolbarItem(placement: .principal) {
-					compactHeaderTitle
+					compactHeaderTitle(for: focusedPlayer)
 				}
 			}
 			
@@ -154,6 +195,13 @@ struct MatchDetailsView: View {
 		}
 		.task(id: data.details.id) {
 			await ensurePlayerNamesLoaded()
+		}
+		.task(id: MenuIconTaskKey(matchID: data.details.id, version: assets?.version)) {
+			await prepareMenuAgentIcons()
+		}
+		.onDisappear {
+			refreshProfilesTask?.cancel()
+			refreshProfilesTask = nil
 		}
 	}
 	
@@ -200,7 +248,7 @@ struct MatchDetailsView: View {
 	}
 	
 	@ViewBuilder
-	private var compactHeaderTitle: some View {
+	private func compactHeaderTitle(for focusedPlayer: Player) -> some View {
 		let info = data.details.matchInfo
 		let mapName = assets?.maps[info.mapID]?.displayName ?? "Map"
 		HStack(spacing: 6) {
@@ -278,7 +326,7 @@ struct MatchDetailsView: View {
 	
 	// MARK: - Floating Focused Player Bar & Menu
 	
-	private var focusedPlayerFloatingBar: some View {
+	private func focusedPlayerFloatingBar(for focusedPlayer: Player) -> some View {
 		let menuPlayers = data.details.players
 			.filter { $0.teamID != .neutral }
 			.sorted { lhs, rhs in
@@ -321,7 +369,8 @@ struct MatchDetailsView: View {
 			}
 			
 			Button {
-				Task { await refreshAllProfiles() }
+				refreshProfilesTask?.cancel()
+				refreshProfilesTask = Task { await refreshAllProfiles() }
 			} label: {
 				Label("Refresh Profiles", systemImage: "arrow.clockwise")
 			}
@@ -360,7 +409,7 @@ struct MatchDetailsView: View {
 						Label {
 							Text(labelText)
 						} icon: {
-							if let uiIcon = menuAgentIcon(for: player) {
+							if let uiIcon = menuAgentIcons[player.id] {
 								Image(uiImage: uiIcon)
 							} else {
 								Image(systemName: "person.fill")
@@ -447,27 +496,56 @@ struct MatchDetailsView: View {
 		.padding(.bottom, 6)
 	}
 	
-	private func menuAgentIcon(for player: Player) -> UIImage? {
-		let source: UIImage?
-		if player.agentID == .abilityDraftAgent {
-			let name = player.teamID.gauntletRoboAssetName(
-				isOVariant: data.isGauntletOVariant(for: player),
-				isKillfeed: false
-			) ?? "gauntlet/robo_grey_x"
-			source = UIImage.bundledAsset(named: name)
-		} else if let aid = player.agentID {
-			source = assets?.agents[aid]?.displayIcon.load()
-		} else {
-			source = nil
+	private func prepareMenuAgentIcons() async {
+		let players = data.details.players
+		let assets = self.assets
+		var specs: [(playerID: Player.ID, cacheKey: String, bundledName: String?, assetImage: AssetImage?)] = []
+		specs.reserveCapacity(players.count)
+		for player in players {
+			if player.agentID == .abilityDraftAgent {
+				let name = player.teamID.gauntletRoboAssetName(
+					isOVariant: data.isGauntletOVariant(for: player),
+					isKillfeed: false
+				) ?? "gauntlet/robo_grey_x"
+				specs.append((player.id, "bundled:\(name)", name, nil))
+			} else if let aid = player.agentID, let asset = assets?.agents[aid]?.displayIcon {
+				specs.append((player.id, "asset:\(asset.url.absoluteString)", nil, asset))
+			}
 		}
-		guard let source else { return nil }
-		let side = CGFloat(22)
-		let size = CGSize(width: side, height: side)
-		let renderer = UIGraphicsImageRenderer(size: size)
-		return renderer.image { _ in
-			UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 5).addClip()
-			source.draw(in: CGRect(origin: .zero, size: size))
-		}.withRenderingMode(.alwaysOriginal)
+		
+		let resolved = await Task.detached(priority: .userInitiated) { () -> [Player.ID: UIImage] in
+			var result: [Player.ID: UIImage] = [:]
+			result.reserveCapacity(specs.count)
+			for spec in specs {
+				let nsKey = spec.cacheKey as NSString
+				if let cached = MenuIconCache.shared.cache.object(forKey: nsKey) {
+					result[spec.playerID] = cached
+					continue
+				}
+				let source: UIImage?
+				if let bundledName = spec.bundledName {
+					source = UIImage.bundledAsset(named: bundledName)
+				} else if let assetImage = spec.assetImage {
+					source = assetImage.load()
+				} else {
+					source = nil
+				}
+				guard let source else { continue }
+				let side: CGFloat = 22
+				let size = CGSize(width: side, height: side)
+				let renderer = UIGraphicsImageRenderer(size: size)
+				let rendered = renderer.image { _ in
+					UIBezierPath(roundedRect: CGRect(origin: .zero, size: size), cornerRadius: 5).addClip()
+					source.draw(in: CGRect(origin: .zero, size: size))
+				}.withRenderingMode(.alwaysOriginal)
+				MenuIconCache.shared.cache.setObject(rendered, forKey: nsKey)
+				result[spec.playerID] = rendered
+			}
+			return result
+		}.value
+		
+		guard !Task.isCancelled else { return }
+		menuAgentIcons = resolved
 	}
 	
 	private func syncCachedUsers() async {
@@ -495,7 +573,7 @@ struct MatchDetailsView: View {
 		guard !missingIDs.isEmpty else { return }
 		await load { client in
 			let fetched = try await client.getUsers(for: missingIDs)
-			await LocalDataProvider.shared.userManager.store(fetched, asOf: .now)
+			LocalDataProvider.shared.userManager.store(fetched, asOf: .now)
 		}
 		await syncCachedUsers()
 	}
@@ -507,12 +585,33 @@ struct MatchDetailsView: View {
 		await load { client in
 			let ids = data.details.players.map(\.id)
 			if let fetched = try? await client.getUsers(for: ids) {
-				await LocalDataProvider.shared.userManager.store(fetched, asOf: .now)
+				LocalDataProvider.shared.userManager.store(fetched, asOf: .now)
 			}
-			for playerID in ids {
-				try? await client.fetchCareerSummary(for: playerID, forceFetch: true)
+			await withTaskGroup(of: Void.self) { group in
+				var nextIndex = 0
+				let maxConcurrent = 4
+				for _ in 0..<min(maxConcurrent, ids.count) {
+					let playerID = ids[nextIndex]
+					nextIndex += 1
+					group.addTask {
+						guard !Task.isCancelled else { return }
+						try? await client.fetchCareerSummary(for: playerID, forceFetch: true)
+					}
+				}
+				for await _ in group {
+					if Task.isCancelled { break }
+					if nextIndex < ids.count {
+						let nextID = ids[nextIndex]
+						nextIndex += 1
+						group.addTask {
+							guard !Task.isCancelled else { return }
+							try? await client.fetchCareerSummary(for: nextID, forceFetch: true)
+						}
+					}
+				}
 			}
 		}
+		guard !Task.isCancelled else { return }
 		await syncCachedUsers()
 	}
 }
@@ -530,13 +629,13 @@ private struct MatchShareSheet: View {
 	@Environment(\.assets) private var assets
 	@Environment(\.seasons) private var seasons
 	@Environment(\.dismiss) private var dismiss
-	@EnvironmentObject private var imageManager: ImageManager
+	@Environment(\.imageManager) private var imageManager
 	
+	@State private var showRiotID = true
+	@State private var preloadedImages: [AssetImage: UIImage] = [:]
 	@State private var renderedImage: UIImage?
-	@State private var showsRiotID = true
-	@State private var didCopy = false
-	
-	private static let cardWidth: CGFloat = 360
+	@State private var isRendering = true
+	@State private var didCopyImage = false
 	
 	init(
 		data: MatchViewData,
@@ -548,35 +647,34 @@ private struct MatchShareSheet: View {
 		self.analytics = analytics
 		self.focusedPlayer = focusedPlayer
 		self.resolvedUsers = resolvedUsers
-		self._summary = .init(id: focusedPlayer.id)
+		self._summary = LocalData(id: focusedPlayer.id)
+	}
+	
+	private var agentAsset: AssetImage? {
+		focusedPlayer.agentID.flatMap { assets?.agents[$0]?.displayIcon }
 	}
 	
 	var body: some View {
-		NavigationView {
+		NavigationStack {
 			ScrollView {
-				VStack(spacing: 16) {
-					cardPreview
+				VStack(spacing: 18) {
+					matchCardCanvas(images: preloadedImages, clipCorners: true)
+						.clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+						.shadow(color: .black.opacity(0.45), radius: 22, y: 10)
 					
-					showRiotIDToggle
-					
-					if let renderedImage {
-						ShareLink(
-							item: Image(uiImage: renderedImage),
-							preview: SharePreview("Match Summary", image: Image(uiImage: renderedImage))
-						) {
-							shareButtonLabel("Share Match Card")
-						}
-						
-						Button {
-							UIPasteboard.general.image = renderedImage
-							didCopy = true
-							DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-								didCopy = false
-							}
-						} label: {
-							copyButtonLabel(didCopy ? "Copied" : "Copy Image", systemImage: didCopy ? "checkmark" : "doc.on.doc")
-						}
+					SettingsCard {
+						Toggle("Show Riot ID", isOn: $showRiotID)
+							.padding(.horizontal, 16)
+							.padding(.vertical, 12)
 					}
+					
+					ShareCardActionButtons(
+						renderedImage: renderedImage,
+						isPreparing: isRendering,
+						shareTitle: "Share Match Card",
+						previewTitle: "VALORANT Match",
+						didCopyImage: $didCopyImage
+					)
 				}
 				.padding(16)
 			}
@@ -585,339 +683,289 @@ private struct MatchShareSheet: View {
 			.navigationBarTitleDisplayMode(.inline)
 			.toolbar {
 				ToolbarItem(placement: .cancellationAction) {
-					Button("Done") { dismiss() }
+					Button {
+						dismiss()
+					} label: {
+						Image(systemName: "xmark")
+							.font(.subheadline.weight(.bold))
+							.foregroundStyle(.tint)
+					}
 				}
 			}
-		}
-		.task(id: showsRiotID) {
-			await renderSnapshot()
-		}
-		.task(id: resolvedTier) {
-			await renderSnapshot()
-		}
-		.withLocalData($summary, id: focusedPlayer.id)
-	}
-	
-	// MARK: - Sheet Controls
-	
-	@ViewBuilder
-	private var cardPreview: some View {
-		if let renderedImage {
-			Image(uiImage: renderedImage)
-				.resizable()
-				.scaledToFit()
-				.frame(maxWidth: .infinity)
-				.clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-				.shadow(color: .black.opacity(0.35), radius: 14, y: 6)
-		} else {
-			RoundedRectangle(cornerRadius: 20, style: .continuous)
-				.fill(Color.secondaryGroupedBackground)
-				.aspectRatio(0.82, contentMode: .fit)
-				.overlay { ProgressView("Rendering summary…") }
-		}
-	}
-	
-	/// The tier the player was in for this match, falling back to their current
-	/// career rank when the match payload doesn't include one.
-	private var resolvedTier: Int {
-		if focusedPlayer.competitiveTier >= 3 {
-			return focusedPlayer.competitiveTier
-		}
-		if let act = seasons?.currentAct()?.id,
-		   let tier = summary?.competitiveInfo?.bySeason?[act]?.competitiveTier,
-		   tier >= 3 {
-			return tier
-		}
-		if let latest = summary?.latestUpdate?.tierAfterUpdate, latest >= 3 {
-			return latest
-		}
-		return focusedPlayer.competitiveTier
-	}
-	
-	private var showRiotIDToggle: some View {
-		Toggle(isOn: $showsRiotID) {
-			VStack(alignment: .leading, spacing: 2) {
-				Text("Show Riot ID")
-					.font(.subheadline.weight(.medium))
-				Text("Include your #tag in the shared image")
-					.font(.caption)
-					.foregroundStyle(.secondary)
+			.withLocalData($summary, id: focusedPlayer.id)
+			.task(id: showRiotID) {
+				await prepareAndRender()
 			}
 		}
-		.tint(Color.accentColor)
-		.padding(14)
-		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 	}
 	
-	private func shareButtonLabel(_ title: String) -> some View {
-		Label(title, systemImage: "square.and.arrow.up")
-			.font(.headline)
-			.foregroundStyle(.white)
-			.frame(maxWidth: .infinity)
-			.padding(.vertical, 15)
-			.background(Color.accentColor, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-	}
-	
-	private func copyButtonLabel(_ title: String, systemImage: String) -> some View {
-		Label(title, systemImage: systemImage)
-			.font(.subheadline.weight(.semibold))
-			.foregroundStyle(Color.accentColor)
-			.frame(maxWidth: .infinity)
-			.padding(.vertical, 13)
-			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-	}
-	
-	// MARK: - Renderable Card
-	
-	private var cardName: String {
-		focusedPlayer.resolvedDisplayName(using: resolvedUsers)
-	}
-	
-	private var cardTag: String {
-		focusedPlayer.resolvedTagLine(using: resolvedUsers)
-	}
-	
-	private func resultInfo() -> (title: String, color: Color, score: String?)? {
-		guard data.details.teams.count == 2 else { return nil }
-		guard let own = data.details.teams.first(where: { $0.id == focusedPlayer.teamID }),
-			  let enemy = data.details.teams.first(where: { $0.id != focusedPlayer.teamID })
-		else { return nil }
-		
-		let hasWinner = data.details.teams.contains(where: \.won)
-		if !hasWinner {
-			return ("DRAW", .secondary, "\(own.roundsWon) – \(enemy.roundsWon)")
-		}
-		return own.won
-			? ("VICTORY", .green, "\(own.roundsWon) – \(enemy.roundsWon)")
-			: ("DEFEAT", Color.valorantRed, "\(own.roundsWon) – \(enemy.roundsWon)")
-	}
-	
-	private func badges(for stats: MatchAnalytics.PlayerMatchAnalytics?) -> [String] {
-		guard let stats else { return [] }
-		var result: [String] = []
-		for count in stats.multiKills.keys.sorted(by: >) where count >= 2 {
-			let occurrences = stats.multiKills[count, default: 0]
-			guard occurrences > 0 else { continue }
-			result.append(occurrences > 1 ? "\(count)K ×\(occurrences)" : "\(count)K")
-		}
-		if let biggestClutch = stats.clutchWonSizes.filter({ $0.value > 0 }).keys.max() {
-			result.append("1V\(biggestClutch) CLUTCH")
-		}
-		if stats.kastPercent >= 80 {
-			result.append("HIGH KAST")
-		}
-		return Array(result.prefix(4))
-	}
-	
-	private func snapshotCard(showsRiotID: Bool, preloaded: [AssetImage: UIImage]) -> some View {
+	private func matchCardCanvas(images: [AssetImage: UIImage], clipCorners: Bool) -> some View {
 		let info = data.details.matchInfo
-		let mapAsset = assets?.maps[info.mapID]?.listViewIcon
-		let mapImage = mapAsset.flatMap { preloaded[$0] }
 		let mapName = assets?.maps[info.mapID]?.displayName ?? "Map"
-		let agentImage = focusedPlayer.agentID
-			.flatMap { assets?.agents[$0]?.displayIcon }
-			.flatMap { preloaded[$0] }
+		let agentName = focusedPlayer.agentID.flatMap { assets?.agents[$0]?.displayName }
 		let stats = analytics.byPlayer[focusedPlayer.id]
-		let result = resultInfo()
-		let tierIcon = seasons?.currentTierInfo(number: resolvedTier)?.icon.flatMap { preloaded[$0] }
-		let matchBadges = badges(for: stats)
+		let comparison = analytics.lobbyComparison(for: focusedPlayer.id)
+		let ownTeam = data.details.teams.first(where: { $0.id == focusedPlayer.teamID })
+		let enemyTeam = data.details.teams.first(where: { $0.id != focusedPlayer.teamID })
+		let highlights = (stats?.highlights ?? []).filter { !$0.isNegative }.prefix(4)
 		
-		return VStack(alignment: .leading, spacing: 14) {
-			ZStack(alignment: .bottomLeading) {
-				Group {
-					if let mapImage {
-						Image(uiImage: mapImage)
-							.resizable()
-							.scaledToFill()
-					} else {
-						Color(white: 0.16)
-					}
-				}
-				.frame(width: Self.cardWidth, height: 128)
-				.clipped()
-				.overlay(
-					LinearGradient(
-						colors: [.black.opacity(0.25), .black.opacity(0.85)],
-						startPoint: .top,
-						endPoint: .bottom
-					)
-				)
-				
-				VStack(alignment: .leading, spacing: 4) {
-					Text(mapName)
-						.font(.title2.bold())
-						.foregroundStyle(.white)
-					
-					if let result {
-						HStack(alignment: .firstTextBaseline, spacing: 8) {
-							Text(result.title)
-								.font(.caption.weight(.heavy))
-								.foregroundStyle(result.color)
-							if let score = result.score {
-								Text(score)
-									.font(.subheadline.weight(.bold).monospacedDigit())
-									.foregroundStyle(.white.opacity(0.9))
-							}
-						}
-					}
-				}
-				.padding(14)
+		let outcome: (title: String, color: Color) = {
+			guard let own = ownTeam, let enemy = enemyTeam else {
+				return ("MATCH", .white.opacity(0.7))
 			}
-			.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+			if own.roundsWon > enemy.roundsWon {
+				return ("VICTORY", Color(red: 0.24, green: 0.85, blue: 0.50))
+			} else if own.roundsWon < enemy.roundsWon {
+				return ("DEFEAT", Color(red: 0.96, green: 0.34, blue: 0.42))
+			} else {
+				return ("DRAW", .white.opacity(0.7))
+			}
+		}()
+		
+		return VStack(alignment: .leading, spacing: 16) {
+			HStack(alignment: .top) {
+				VStack(alignment: .leading, spacing: 2) {
+					info.queueLabel
+						.textCase(.uppercase)
+						.font(.system(size: 11, weight: .semibold))
+						.tracking(1.1)
+						.foregroundStyle(.white.opacity(0.48))
+					
+					Text(mapName)
+						.font(.system(size: 18, weight: .bold))
+						.foregroundStyle(.white)
+				}
+				
+				Spacer()
+				
+				Text(info.gameStart.formatted(.dateTime.day().month(.wide).year()))
+					.font(.system(size: 11.5, weight: .medium))
+					.foregroundStyle(.white.opacity(0.48))
+			}
+			
+			VStack(alignment: .leading, spacing: 2) {
+				Text(outcome.title)
+					.font(.system(size: 13, weight: .heavy))
+					.tracking(0.8)
+					.foregroundStyle(outcome.color)
+				
+				if let own = ownTeam, let enemy = enemyTeam {
+					HStack(spacing: 8) {
+						Text("\(own.roundsWon)")
+							.foregroundStyle(.white)
+						Text("–")
+							.foregroundStyle(.white.opacity(0.35))
+						Text("\(enemy.roundsWon)")
+							.foregroundStyle(.white.opacity(0.55))
+					}
+					.font(.system(size: 46, weight: .heavy, design: .rounded))
+					.monospacedDigit()
+				}
+			}
 			
 			HStack(spacing: 12) {
 				Group {
-					if let agentImage {
-						Image(uiImage: agentImage)
+					if let agentAsset, let ui = images[agentAsset] {
+						Image(uiImage: ui)
 							.resizable()
 							.scaledToFill()
+					} else if let aid = focusedPlayer.agentID {
+						AgentImage.icon(
+							aid,
+							teamID: focusedPlayer.teamID,
+							isOVariant: data.isGauntletOVariant(for: focusedPlayer)
+						)
 					} else {
-						Color.white.opacity(0.1)
-					}
-				}
-				.frame(width: 54, height: 54)
-				.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-				
-				VStack(alignment: .leading, spacing: 3) {
-					HStack(spacing: 0) {
-						Text(cardName)
-							.font(.headline.bold())
-							.lineLimit(1)
-						if showsRiotID, !cardTag.isEmpty {
-							Text("#\(cardTag)")
-								.font(.subheadline)
-								.foregroundStyle(.white.opacity(0.5))
-								.lineLimit(1)
+						ZStack {
+							Color(red: 0.21, green: 0.29, blue: 0.28)
+							Image(systemName: "person.fill")
+								.font(.system(size: 24))
+								.foregroundStyle(.white.opacity(0.55))
 						}
 					}
-					info.queueLabel
-						.font(.caption)
-						.foregroundStyle(.white.opacity(0.55))
+				}
+				.frame(width: 50, height: 50)
+				.background(Color(red: 0.21, green: 0.29, blue: 0.28), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+				.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+				.overlay {
+					RoundedRectangle(cornerRadius: 12, style: .continuous)
+						.stroke(.white.opacity(0.10), lineWidth: 1)
 				}
 				
-				Spacer(minLength: 0)
+				VStack(alignment: .leading, spacing: 3) {
+					if showRiotID {
+						let name = focusedPlayer.resolvedDisplayName(using: resolvedUsers)
+						let tag = focusedPlayer.resolvedTagLine(using: resolvedUsers)
+						HStack(spacing: 4) {
+							Text(name)
+								.font(.system(size: 17, weight: .heavy))
+								.foregroundStyle(.white)
+							if !tag.isEmpty {
+								Text("#\(tag)")
+									.font(.system(size: 17, weight: .medium))
+									.foregroundStyle(.white.opacity(0.45))
+							}
+						}
+						.lineLimit(1)
+						.minimumScaleFactor(0.75)
+					} else {
+						Text("VALORANT Player")
+							.font(.system(size: 17, weight: .heavy))
+							.foregroundStyle(.white)
+					}
+					
+					if let agentName {
+						Text(agentName)
+							.font(.system(size: 12.5, weight: .medium))
+							.foregroundStyle(.white.opacity(0.58))
+					}
+				}
 				
-				if let tierIcon {
-					Image(uiImage: tierIcon)
-						.resizable()
-						.scaledToFit()
-						.frame(width: 44, height: 44)
+				Spacer(minLength: 6)
+				
+				if summary != nil {
+					RankInfoView(summary: summary, size: 46, lineWidth: 3.5, shouldShowProgress: true)
 				}
 			}
 			
 			if let stats {
-				let others = analytics.lobbyComparison(for: focusedPlayer.id)
-				HStack(alignment: .top, spacing: 0) {
-					shareMetric("\(stats.kills)/\(stats.deaths)/\(stats.assists)", "K / D / A")
-					shareMetric("\(Int(stats.acs.rounded()))", "ACS", delta: deltaText(stats.acs, others?.avgACS))
-					shareMetric("\(Int(stats.adr.rounded()))", "ADR", delta: deltaText(stats.adr, others?.avgADR))
-					shareMetric(String(format: "%.0f%%", stats.hsPercent), "HS %", delta: deltaText(stats.hsPercent, others?.avgHSPercent, suffix: " %"))
-					shareMetric(String(format: "%.0f%%", stats.kastPercent), "KAST", delta: deltaText(stats.kastPercent, others?.avgKASTPercent, suffix: " %"))
-				}
-				.padding(.vertical, 10)
-				.background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+				let acsDelta = comparison.map { Int((stats.acs - $0.avgACS).rounded()) }
+				let adrDelta = comparison.map { Int((stats.adr - $0.avgADR).rounded()) }
+				let hsDelta = comparison.map { Int((stats.hsPercent - $0.avgHSPercent).rounded()) }
+				let kastDelta = comparison.map { Int((stats.kastPercent - $0.avgKASTPercent).rounded()) }
 				
-				if !matchBadges.isEmpty {
-					HStack(spacing: 6) {
-						ForEach(matchBadges, id: \.self) { badge in
-							Text(badge)
-								.font(.system(size: 9, weight: .bold))
-								.foregroundStyle(.white.opacity(0.8))
-								.lineLimit(1)
-								.padding(.horizontal, 8)
-								.padding(.vertical, 4)
-								.background(Color.white.opacity(0.08), in: Capsule())
-						}
-					}
+				HStack(spacing: 0) {
+					statColumn(
+						value: "\(stats.kills)/\(stats.deaths)/\(stats.assists)",
+						label: "K/D/A",
+						delta: nil,
+						isPercent: false
+					)
+					statDivider
+					statColumn(
+						value: "\(Int(stats.acs.rounded()))",
+						label: "ACS",
+						delta: acsDelta,
+						isPercent: false
+					)
+					statDivider
+					statColumn(
+						value: "\(Int(stats.adr.rounded()))",
+						label: "ADR",
+						delta: adrDelta,
+						isPercent: false
+					)
+					statDivider
+					statColumn(
+						value: "\(Int(stats.hsPercent.rounded())) %",
+						label: "HS%",
+						delta: hsDelta,
+						isPercent: true
+					)
+					statDivider
+					statColumn(
+						value: "\(Int(stats.kastPercent.rounded())) %",
+						label: "KAST",
+						delta: kastDelta,
+						isPercent: true
+					)
+				}
+				.padding(.vertical, 13)
+				.padding(.horizontal, 4)
+				.background(Color.white.opacity(0.055), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+				.overlay {
+					RoundedRectangle(cornerRadius: 14, style: .continuous)
+						.stroke(.white.opacity(0.08), lineWidth: 1)
 				}
 			}
 			
-			HStack {
-				Text(info.gameStart.formatted(.dateTime.day().month(.abbreviated).year()))
-					.font(.caption2)
-					.foregroundStyle(.white.opacity(0.45))
-				Spacer()
-				Text("Vantage")
-					.font(.caption2.weight(.bold))
-					.foregroundStyle(.white.opacity(0.45))
+			if !highlights.isEmpty {
+				HStack(spacing: 6) {
+					ForEach(Array(highlights)) { item in
+						Text(item.label)
+							.font(.system(size: 9.5, weight: .bold))
+							.tracking(0.5)
+							.foregroundStyle(.white.opacity(0.72))
+							.padding(.horizontal, 9)
+							.padding(.vertical, 5)
+							.background(Color.white.opacity(0.065), in: Capsule())
+							.overlay {
+								Capsule()
+									.stroke(.white.opacity(0.09), lineWidth: 1)
+							}
+							.lineLimit(1)
+					}
+				}
 			}
 		}
-		.padding(16)
-		.frame(width: Self.cardWidth)
-		.background(
-			LinearGradient(
-				colors: [Color(red: 0.11, green: 0.11, blue: 0.14), Color(red: 0.07, green: 0.07, blue: 0.09)],
-				startPoint: .top,
-				endPoint: .bottom
-			),
-			in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-		)
+		.padding(18)
+		.padding(.bottom, 12)
+		.background { ShareCardBackdrop() }
+		.overlay(alignment: .bottomTrailing) {
+			ShareCardWatermarkBadge()
+				.padding(12)
+		}
+		.modifier(ShareCardChromeModifier(clipCorners: clipCorners))
 	}
 	
-	/// Difference against the lobby average, e.g. "+90" or "+3 %".
-	private func deltaText(_ value: Double, _ average: Double?, suffix: String = "") -> String? {
-		guard let average else { return nil }
-		let difference = Int((value - average).rounded())
-		guard difference != 0 else { return nil }
-		return difference > 0 ? "+\(difference)\(suffix)" : "-\(abs(difference))\(suffix)"
+	private var statDivider: some View {
+		Rectangle()
+			.fill(.white.opacity(0.09))
+			.frame(width: 1, height: 34)
 	}
 	
-	private func shareMetric(_ value: String, _ label: String, delta: String? = nil) -> some View {
+	private func statColumn(value: String, label: String, delta: Int?, isPercent: Bool) -> some View {
 		VStack(spacing: 3) {
 			Text(value)
-				.font(.headline.bold().monospacedDigit())
+				.font(.system(size: 14.5, weight: .bold, design: .rounded))
+				.monospacedDigit()
 				.foregroundStyle(.white)
 				.lineLimit(1)
-				.minimumScaleFactor(0.7)
+				.minimumScaleFactor(0.75)
+			
 			Text(label)
 				.font(.system(size: 9, weight: .semibold))
-				.foregroundStyle(.white.opacity(0.5))
-				.lineLimit(1)
-			if let delta {
-				Text(delta)
-					.font(.system(size: 10, weight: .bold).monospacedDigit())
-					.foregroundStyle(delta.hasPrefix("+") ? Color.green : Color.valorantRed)
-					.lineLimit(1)
+				.tracking(0.5)
+				.foregroundStyle(.white.opacity(0.45))
+			
+			if let delta, delta != 0 {
+				let sign = delta > 0 ? "+" : ""
+				let suffix = isPercent ? " %" : ""
+				Text("\(sign)\(delta)\(suffix)")
+					.font(.system(size: 9.5, weight: .bold, design: .rounded))
+					.monospacedDigit()
+					.foregroundStyle(
+						delta > 0
+							? Color(red: 0.24, green: 0.85, blue: 0.50)
+							: Color(red: 0.96, green: 0.34, blue: 0.42)
+					)
+			} else {
+				Text(" ")
+					.font(.system(size: 9.5, weight: .bold))
 			}
 		}
 		.frame(maxWidth: .infinity)
 	}
 	
 	@MainActor
-	private func renderSnapshot() async {
-		var targets: [AssetImage] = []
-		if let mapImg = assets?.maps[data.details.matchInfo.mapID]?.listViewIcon {
-			targets.append(mapImg)
-		}
-		if let aid = focusedPlayer.agentID, let agentImg = assets?.agents[aid]?.displayIcon {
-			targets.append(agentImg)
-		}
-		if let tierImg = seasons?.currentTierInfo(number: resolvedTier)?.icon {
-			targets.append(tierImg)
-		}
-		
-		var loaded: [AssetImage: UIImage] = [:]
-		for asset in targets {
-			if let cached = asset.load() {
-				loaded[asset] = cached
-			} else {
-				_ = try? await asset.ensureDownloaded()
-				if let downloaded = asset.load() {
-					loaded[asset] = downloaded
-				}
+	private func prepareAndRender() async {
+		isRendering = true
+		var loaded = preloadedImages
+		if let agentAsset, loaded[agentAsset] == nil {
+			if let cached = imageManager.cachedImage(for: agentAsset, bucket: .icon) {
+				loaded[agentAsset] = cached
+			} else if let downloaded = await imageManager.awaitImage(for: agentAsset, bucket: .icon) {
+				loaded[agentAsset] = downloaded
 			}
 		}
+		preloadedImages = loaded
 		
-		let renderer = ImageRenderer(
-			content: snapshotCard(showsRiotID: showsRiotID, preloaded: loaded)
-				.environment(\.assets, assets)
-				.environment(\.colorScheme, .dark)
-				.environmentObject(imageManager)
-		)
-		renderer.scale = 3.0
-		if let image = renderer.uiImage {
-			renderedImage = image
-		}
+		let snapshot = matchCardCanvas(images: loaded, clipCorners: false)
+			.environment(\.assets, assets)
+			.environment(\.imageManager, imageManager)
+		
+		renderedImage = ShareCardRenderer.render(snapshot)
+		isRendering = false
 	}
 }
 

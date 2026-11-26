@@ -24,8 +24,6 @@ struct ContractDetailsView: View {
 	
 	@State private var selectedTab: SectionTab = .missions
 	@State private var includeEpilogue = true
-	@State private var masteriesExpanded = true
-	@State private var legacyContractsExpanded = false
 	
 	private var resolvedUserID: User.ID? {
 		userID ?? accountManager.activeAccount?.id
@@ -416,127 +414,11 @@ struct ContractDetailsView: View {
 			currentAct: currentAct,
 			previousAct: prevAct
 		)
-		let legacyContracts = (assets.map { Array($0.contracts.values) } ?? [])
-			.filter { $0.content.relationType == .agent }
-			.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
-		let progressByID = Dictionary(uniqueKeysWithValues: contracts.details.contracts.map { ($0.id, $0) })
 		
-		VStack(spacing: 12) {
-			VStack(spacing: 0) {
-				Button {
-					withAnimation(.easeInOut(duration: 0.2)) {
-						masteriesExpanded.toggle()
-					}
-				} label: {
-					HStack(spacing: 10) {
-						Image(systemName: "star.circle.fill")
-							.foregroundStyle(Color.accentColor)
-						Text("Agent Masteries")
-							.font(.headline)
-							.foregroundStyle(.primary)
-						Spacer()
-						Text("\(summaries.count)")
-							.font(.caption.monospacedDigit())
-							.foregroundStyle(.secondary)
-						Image(systemName: masteriesExpanded ? "chevron.up" : "chevron.down")
-							.font(.caption.weight(.semibold))
-							.foregroundStyle(.secondary)
-					}
-					.padding(.horizontal, 14)
-					.padding(.vertical, 12)
-					.contentShape(Rectangle())
-				}
-				.buttonStyle(.plain)
-				
-				if masteriesExpanded {
-					Divider()
-						.padding(.horizontal, 12)
-					
-					AgentMasterySectionView(
-						summaries: summaries,
-						actEndDate: currentAct?.timeSpan.end,
-						isEmbedded: true
-					)
-					.padding(12)
-				}
-			}
-			.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-			.overlay {
-				RoundedRectangle(cornerRadius: 14, style: .continuous)
-					.stroke(Color.separator.opacity(0.3), lineWidth: 0.5)
-			}
-			
-			VStack(spacing: 0) {
-				Button {
-					withAnimation(.easeInOut(duration: 0.2)) {
-						legacyContractsExpanded.toggle()
-					}
-				} label: {
-					HStack(spacing: 10) {
-						Image(systemName: "archivebox.fill")
-							.foregroundStyle(.secondary)
-						Text("Legacy Agent Contracts")
-							.font(.headline)
-							.foregroundStyle(.primary)
-						Spacer()
-						Text("\(legacyContracts.count)")
-							.font(.caption.monospacedDigit())
-							.foregroundStyle(.secondary)
-						Image(systemName: legacyContractsExpanded ? "chevron.up" : "chevron.down")
-							.font(.caption.weight(.semibold))
-							.foregroundStyle(.secondary)
-					}
-					.padding(.horizontal, 14)
-					.padding(.vertical, 12)
-					.contentShape(Rectangle())
-				}
-				.buttonStyle(.plain)
-				
-				if legacyContractsExpanded {
-					Divider()
-						.padding(.horizontal, 12)
-					
-					VStack(spacing: 8) {
-						ForEach(legacyContracts) { contract in
-							NavigationLink {
-								ContractPassDetailsView(contractInfo: contract, progress: progressByID[contract.id])
-							} label: {
-								HStack(spacing: 12) {
-									if let agentID = contract.content.agentID {
-										AgentImage.icon(agentID)
-											.frame(width: 36, height: 36)
-											.cornerRadius(8)
-									}
-									VStack(alignment: .leading, spacing: 2) {
-										Text(contract.displayName)
-											.font(.subheadline.weight(.medium))
-											.foregroundStyle(.primary)
-										let tiers = contract.content.chapters.reduce(0) { $0 + $1.levels.count }
-										let reached = progressByID[contract.id]?.levelReached ?? 0
-										Text("Tier \(reached) / \(tiers)")
-											.font(.caption2)
-											.foregroundStyle(.secondary)
-									}
-									Spacer()
-									Image(systemName: "chevron.right")
-										.font(.caption)
-										.foregroundStyle(.secondary)
-								}
-								.padding(10)
-								.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 10))
-							}
-							.buttonStyle(.plain)
-						}
-					}
-					.padding(12)
-				}
-			}
-			.background(Color.tertiaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-			.overlay {
-				RoundedRectangle(cornerRadius: 14, style: .continuous)
-					.stroke(Color.separator.opacity(0.3), lineWidth: 0.5)
-			}
-		}
+		AgentMasterySectionView(
+			summaries: summaries,
+			actEndDate: currentAct?.timeSpan.end
+		)
 	}
 	
 	// MARK: - Helpers

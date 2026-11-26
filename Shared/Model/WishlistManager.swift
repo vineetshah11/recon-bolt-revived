@@ -114,6 +114,29 @@ final class WishlistManager: ObservableObject {
 		persist()
 	}
 	
+	@discardableResult
+	func importEntries(_ incoming: [WishlistEntry], replaceAll: Bool) async -> Int {
+		var working = replaceAll ? [] : entries
+		var changedCount = 0
+		
+		for entry in incoming {
+			if let idx = working.firstIndex(where: { $0.kind == entry.kind && $0.itemID == entry.itemID }) {
+				if entry.addedAt < working[idx].addedAt {
+					working[idx].addedAt = entry.addedAt
+					changedCount += 1
+				}
+			} else {
+				working.append(entry)
+				changedCount += 1
+			}
+		}
+		
+		working.sort { $0.addedAt > $1.addedAt }
+		entries = working
+		await LocalJSONStore.saveAndWait(entries, to: filename)
+		return replaceAll ? working.count : changedCount
+	}
+	
 	func isOfferWishlisted(_ offer: StoreOffer, assets: AssetCollection?) -> Bool {
 		guard let assets else { return false }
 		for reward in offer.rewards {

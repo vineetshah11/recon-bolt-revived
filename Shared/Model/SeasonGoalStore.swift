@@ -134,17 +134,53 @@ final class SeasonGoalStore: ObservableObject {
 		persist()
 	}
 	
+	func exportGoals(for playerIDs: Set<User.ID>?) -> [SeasonGoal] {
+		guard let playerIDs else { return goals }
+		return goals.filter { goal in
+			guard let accountID = goal.accountID else { return !playerIDs.isEmpty }
+			return playerIDs.contains(accountID)
+		}
+	}
+	
+	@discardableResult
+	func importGoals(_ incoming: [SeasonGoal], replaceAll: Bool) async -> Int {
+		var working = replaceAll ? [] : goals
+		var changedCount = 0
+		
+		for goal in incoming {
+			if let idx = working.firstIndex(where: { $0.id == goal.id }) {
+				if goal.createdAt > working[idx].createdAt {
+					working[idx] = goal
+					changedCount += 1
+				}
+			} else if let idx = working.firstIndex(where: { $0.accountID == goal.accountID && $0.actID == goal.actID }) {
+				if goal.createdAt > working[idx].createdAt {
+					working[idx] = goal
+					changedCount += 1
+				}
+			} else {
+				working.append(goal)
+				changedCount += 1
+			}
+		}
+		
+		working.sort { $0.createdAt > $1.createdAt }
+		goals = working
+		await LocalJSONStore.saveAndWait(goals, to: filename)
+		return replaceAll ? working.count : changedCount
+	}
+	
 	private func persist() {
 		LocalJSONStore.save(goals, to: filename)
 	}
 	
 	// MARK: - Elo & Trajectory Calculation
 	
-	static func lowestImmortalTier(in tiers: CompetitiveTier.Collection?) -> Int {
+	nonisolated static func lowestImmortalTier(in tiers: CompetitiveTier.Collection?) -> Int {
 		tiers?.lowestImmortalPlusTier() ?? 24
 	}
 	
-	static func elo(tier: Int, rr: Int, tiers: CompetitiveTier.Collection?) -> Int {
+	nonisolated static func elo(tier: Int, rr: Int, tiers: CompetitiveTier.Collection?) -> Int {
 		guard tier >= 3 else { return 0 }
 		let lowestImm = lowestImmortalTier(in: tiers)
 		if tier < lowestImm {
@@ -155,7 +191,7 @@ final class SeasonGoalStore: ObservableObject {
 		return immBase + max(0, rr)
 	}
 	
-	static func targetThresholdElo(for targetTier: Int, tiers: CompetitiveTier.Collection?) -> Int {
+	nonisolated static func targetThresholdElo(for targetTier: Int, tiers: CompetitiveTier.Collection?) -> Int {
 		guard targetTier >= 3 else { return 0 }
 		let lowestImm = lowestImmortalTier(in: tiers)
 		if targetTier <= lowestImm {
@@ -170,7 +206,7 @@ final class SeasonGoalStore: ObservableObject {
 		}
 	}
 	
-	static func currentRank(
+	nonisolated static func currentRank(
 		summary: CareerSummary?,
 		matchList: MatchList?,
 		act: Act?
@@ -188,7 +224,7 @@ final class SeasonGoalStore: ObservableObject {
 		return (0, 0, gamesNeeded)
 	}
 	
-	static func compute(
+	nonisolated static func compute(
 		goal: SeasonGoal,
 		summary: CareerSummary?,
 		matchList: MatchList?,

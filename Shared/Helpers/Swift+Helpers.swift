@@ -92,19 +92,8 @@ extension Dictionary {
 }
 
 extension Task where Success == Never, Failure == Never {
-	/// The built-in ``sleep(_:)`` didn't work for me, so I made this instead.
 	static func sleep(seconds: TimeInterval, tolerance: TimeInterval) async {
-		// TODO: this should stop being necessary at some point
-		//await sleep(UInt64(seconds * 1e9))
-		await withCheckedContinuation { continuation in
-			DispatchQueue.main.schedule(
-				after: .init(.now() + seconds),
-				tolerance: .init(floatLiteral: tolerance),
-				options: nil,
-				continuation.resume
-			)
-			//DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: continuation.resume)
-		}
+		try? await Task.sleep(for: .seconds(seconds), tolerance: .seconds(tolerance))
 	}
 }
 
@@ -114,11 +103,15 @@ func withRobustThrowingContinuation<T>(
 	_ body: (@escaping (Result<T, Error>) -> Void) -> Void
 ) async throws -> T {
 	try await withCheckedThrowingContinuation(function: function) { continuation in
+		let lock = NSLock()
 		var hasResumed = false
-		body {
-			guard !hasResumed else { return }
+		body { result in
+			lock.lock()
+			let shouldResume = !hasResumed
 			hasResumed = true
-			continuation.resume(with: $0)
+			lock.unlock()
+			guard shouldResume else { return }
+			continuation.resume(with: result)
 		}
 	}
 }

@@ -1,66 +1,130 @@
 import SwiftUI
 import ValorantAPI
 
+enum MasteryTierStyle {
+	static func color(for level: Int) -> Color {
+		switch level {
+		case ..<4:
+			return Color(red: 0.45, green: 0.47, blue: 0.50)
+		case 4..<7:
+			return Color(red: 0.16, green: 0.62, blue: 0.72)
+		case 7..<10:
+			return Color(red: 0.80, green: 0.56, blue: 0.18)
+		default:
+			return Color(red: 0.64, green: 0.28, blue: 0.78)
+		}
+	}
+}
+
+struct MasteryCornerRibbonShape: Shape {
+	func path(in rect: CGRect) -> Path {
+		var path = Path()
+		path.move(to: CGPoint(x: rect.width * 0.28, y: 0))
+		path.addLine(to: CGPoint(x: rect.maxX, y: 0))
+		path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+		path.addLine(to: CGPoint(x: 0, y: rect.maxY))
+		path.closeSubpath()
+		return path
+	}
+}
+
+struct MasteryAgentIcon: View {
+	let agentID: Agent.ID
+	let actLevel: Int
+	var size: CGFloat = 48
+	var cornerRadius: CGFloat = 8
+	
+	var body: some View {
+		let tierColor = MasteryTierStyle.color(for: actLevel)
+		AgentImage.icon(agentID)
+			.frame(width: size, height: size)
+			.background(Color(red: 0.14, green: 0.17, blue: 0.20))
+			.overlay(alignment: .bottom) {
+				if actLevel > 0 {
+					Rectangle()
+						.fill(tierColor)
+						.frame(height: 1.5)
+				}
+			}
+			.overlay(alignment: .bottomTrailing) {
+				if actLevel > 0 {
+					Text(String(format: "%02d", actLevel))
+						.font(.system(size: max(9, size * 0.20), weight: .bold).monospacedDigit())
+						.foregroundStyle(.white)
+						.padding(.leading, max(6, size * 0.14))
+						.padding(.trailing, max(4, size * 0.08))
+						.padding(.vertical, 2)
+						.background {
+							MasteryCornerRibbonShape()
+								.fill(tierColor)
+						}
+				}
+			}
+			.clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+			.overlay {
+				RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+					.stroke(Color.white.opacity(0.10), lineWidth: 1)
+			}
+	}
+}
+
 struct AgentMasterySectionView: View {
 	var summaries: [AgentMasterySummary]
 	var actEndDate: Date?
 	var isEmbedded: Bool = false
 	
+	private var displayedSummaries: [AgentMasterySummary] {
+		let active = summaries.filter(\.hasMasteryActivity)
+		return active.isEmpty ? summaries : active
+	}
+	
 	var body: some View {
-		VStack(alignment: .leading, spacing: 12) {
-			if isEmbedded {
-				if let actEndDate, actEndDate > Date() {
-					HStack {
-						Text("Current Act")
-							.font(.caption.weight(.semibold))
-							.foregroundStyle(.secondary)
-						Spacer()
-						HStack(spacing: 4) {
-							CountdownText(target: actEndDate)
-							Image(systemName: "clock")
-						}
-						.font(.caption.monospacedDigit())
-						.foregroundStyle(.secondary)
-					}
-				}
-			} else {
+		let displayed = displayedSummaries
+		
+		VStack(spacing: 12) {
+			VStack(alignment: .leading, spacing: 14) {
 				HStack {
 					Text("Agent Mastery")
 						.font(.headline)
 					Spacer()
 					if let actEndDate, actEndDate > Date() {
-						HStack(spacing: 4) {
+						HStack(spacing: 5) {
 							CountdownText(target: actEndDate)
 							Image(systemName: "clock")
 						}
-						.font(.caption.monospacedDigit())
+						.font(.subheadline.monospacedDigit())
 						.foregroundStyle(.secondary)
 					}
 				}
-			}
-			
-			if let top = summaries.first {
-				NavigationLink {
-					AgentMasteryDetailView(summary: top, actEndDate: actEndDate)
-				} label: {
-					AgentMasteryHeroCard(summary: top, isEmbedded: isEmbedded)
+				
+				if let top = displayed.first {
+					NavigationLink {
+						AgentMasteryDetailView(summary: top, actEndDate: actEndDate)
+					} label: {
+						AgentMasteryHeroCard(summary: top, isEmbedded: isEmbedded)
+					}
+					.buttonStyle(.plain)
+				} else {
+					Text("Play matches to track your Agent Mastery progress and lifetime laurels.")
+						.font(.subheadline)
+						.foregroundStyle(.secondary)
+						.padding(.vertical, 8)
 				}
-				.buttonStyle(.plain)
-			} else {
-				Text("Play matches to track your Agent Mastery progress and lifetime laurels.")
-					.font(.subheadline)
-					.foregroundStyle(.secondary)
-					.padding(.vertical, 8)
-			}
-			
-			ForEach(summaries.dropFirst().prefix(2)) { summary in
-				NavigationLink {
-					AgentMasteryDetailView(summary: summary, actEndDate: actEndDate)
-				} label: {
-					AgentMasteryCompactRow(summary: summary)
+				
+				ForEach(displayed.dropFirst().prefix(2)) { summary in
+					NavigationLink {
+						AgentMasteryDetailView(summary: summary, actEndDate: actEndDate)
+					} label: {
+						AgentMasteryCompactRow(summary: summary)
+					}
+					.buttonStyle(.plain)
 				}
-				.buttonStyle(.plain)
 			}
+			.padding(14)
+			.background(
+				Color.tertiaryGroupedBackground.opacity(0.65),
+				in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+			)
 			
 			if !summaries.isEmpty {
 				NavigationLink {
@@ -68,21 +132,14 @@ struct AgentMasterySectionView: View {
 				} label: {
 					Text("View Agent Mastery")
 						.font(.subheadline.weight(.medium))
+						.foregroundStyle(.primary)
 						.frame(maxWidth: .infinity)
-						.padding(.vertical, 10)
-						.background(
-							isEmbedded ? Color.secondaryGroupedBackground : Color.tertiaryGroupedBackground,
-							in: RoundedRectangle(cornerRadius: 10)
-						)
+						.padding(.vertical, 12)
+						.background(Color(.systemFill), in: Capsule())
 				}
 				.buttonStyle(.plain)
 			}
 		}
-		.padding(isEmbedded ? 0 : 14)
-		.background(
-			isEmbedded ? Color.clear : Color.secondaryGroupedBackground,
-			in: RoundedRectangle(cornerRadius: 14)
-		)
 	}
 }
 
@@ -91,51 +148,51 @@ struct AgentMasteryCompactRow: View {
 	
 	var body: some View {
 		HStack(spacing: 12) {
-			ZStack(alignment: .bottomTrailing) {
-				AgentImage.icon(summary.agentID)
-					.frame(width: 46, height: 46)
-					.cornerRadius(8)
-				if summary.currentActLevel > 0 {
-					Text(String(format: "%02d", summary.currentActLevel))
-						.font(.system(size: 10, weight: .bold).monospacedDigit())
-						.padding(.horizontal, 4)
-						.padding(.vertical, 1)
-						.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
-				}
-			}
+			MasteryAgentIcon(
+				agentID: summary.agentID,
+				actLevel: summary.currentActLevel,
+				size: 48,
+				cornerRadius: 8
+			)
 			
-			VStack(alignment: .leading, spacing: 4) {
+			VStack(alignment: .leading, spacing: 5) {
 				HStack {
 					Text(summary.displayName)
-						.font(.subheadline.weight(.semibold))
+						.font(.body.weight(.semibold))
+						.foregroundStyle(.primary)
 					Spacer()
 					if summary.currentActLevel > 0 {
 						Text("Act Level \(summary.currentActLevel)")
-							.font(.caption)
+							.font(.subheadline)
 							.foregroundStyle(.secondary)
 					} else if summary.lifetimeLevel > 0 {
-						LaurelBadge(level: summary.lifetimeLevel)
+						LaurelBadge(level: summary.lifetimeLevel, tint: .secondary, fontSize: 13)
 					}
 				}
 				
 				MasterySegmentedBar(
 					actLevel: summary.currentActLevel,
 					inLevelProgress: summary.levelProgress,
+					fillColor: .accentColor,
 					compact: true
 				)
 				
 				if summary.currentActMP > 0 || summary.currentActLevel > 0 {
 					Text("\(summary.xpInCurrentLevel.formatted()) / \(summary.nextLevelMPNeeded.formatted()) MP to Act Level \(summary.currentActLevel + 1)")
-						.font(.caption2.monospacedDigit())
+						.font(.caption.monospacedDigit())
 						.foregroundStyle(.secondary)
 				} else if summary.lastActLevel > 0 {
 					Text("Last Act: Act Level \(summary.lastActLevel)")
-						.font(.caption2)
+						.font(.caption)
+						.foregroundStyle(.secondary)
+				} else {
+					Text("Not played this Act")
+						.font(.caption)
 						.foregroundStyle(.secondary)
 				}
 			}
 		}
-		.padding(.vertical, 4)
+		.padding(.vertical, 2)
 	}
 }
 
@@ -145,83 +202,103 @@ struct AgentMasteryHeroCard: View {
 	var isEmbedded: Bool = false
 	
 	var body: some View {
-		let cardBackground: Color = showProgressBar
-			? (isEmbedded ? Color.secondaryGroupedBackground : Color.tertiaryGroupedBackground.opacity(0.65))
-			: .clear
+		let badgeLevel = showProgressBar ? summary.currentActLevel : max(summary.currentActLevel, summary.lastActLevel)
+		let tierColor = badgeLevel > 0 ? MasteryTierStyle.color(for: badgeLevel) : Color.white.opacity(0.18)
 		
-		VStack(alignment: .leading, spacing: showProgressBar ? 0 : 12) {
-			ZStack(alignment: .bottomTrailing) {
-				HStack(alignment: .center) {
+		VStack(alignment: .leading, spacing: 0) {
+			Color.clear
+				.frame(height: 132)
+				.frame(maxWidth: .infinity)
+				.background {
+					LinearGradient(
+						colors: [
+							Color(red: 0.08, green: 0.11, blue: 0.15),
+							Color(red: 0.13, green: 0.19, blue: 0.25),
+						],
+						startPoint: .topLeading,
+						endPoint: .bottomTrailing
+					)
+				}
+				.overlay(alignment: .trailing) {
+					AgentImage.fullPortrait(summary.agentID)
+						.scaledToFill()
+						.frame(width: 152, height: 156, alignment: .top)
+						.offset(x: 6, y: 8)
+				}
+				.clipped()
+				.overlay(alignment: .leading) {
 					VStack(alignment: .leading, spacing: 6) {
 						if summary.lifetimeLevel > 0 {
-							LaurelBadge(level: summary.lifetimeLevel)
+							LaurelBadge(level: summary.lifetimeLevel, tint: .white.opacity(0.92), fontSize: 13)
 						}
 						Text(summary.displayName.uppercased())
-							.font(.title2.weight(.heavy))
-						Text(summary.currentActLevel > 0 ? "ACT LEVEL \(summary.currentActLevel)" : "UNRANKED MASTERY")
-							.font(.caption.weight(.bold))
-							.foregroundStyle(.secondary)
+							.font(.system(size: 28, weight: .black))
+							.foregroundStyle(.white)
+							.lineLimit(1)
+							.minimumScaleFactor(0.7)
+						Text("ACT LEVEL \(summary.currentActLevel)")
+							.font(.system(size: 13, weight: .bold))
+							.tracking(0.3)
+							.foregroundStyle(.white.opacity(0.92))
 						if !showProgressBar, let role = summary.roleName, !role.isEmpty {
 							Text(role)
 								.font(.caption)
-								.foregroundStyle(.secondary)
+								.foregroundStyle(.white.opacity(0.7))
 						}
 					}
-					Spacer()
+					.padding(.horizontal, 14)
+					.padding(.vertical, 14)
 				}
-				.padding(14)
-				.frame(minHeight: 118)
-				
-				AgentImage.fullPortrait(summary.agentID)
-					.frame(width: 118, height: 118)
-					.clipped()
-				
-				let displayBadgeLevel = max(summary.currentActLevel, summary.lastActLevel)
-				if displayBadgeLevel > 0 {
-					Text(String(format: "%02d", displayBadgeLevel))
-						.font(.caption.bold().monospacedDigit())
-						.padding(.horizontal, 8)
-						.padding(.vertical, 4)
-						.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 6))
-						.padding(8)
+				.overlay(alignment: .bottomTrailing) {
+					if badgeLevel > 0 {
+						Text(String(format: "%02d", badgeLevel))
+							.font(.system(size: 14, weight: .bold).monospacedDigit())
+							.foregroundStyle(.white)
+							.padding(.leading, 8)
+							.frame(width: 44, height: 24)
+							.background {
+								MasteryCornerRibbonShape()
+									.fill(tierColor)
+							}
+					}
 				}
+			
+			if showProgressBar || badgeLevel > 0 {
+				Rectangle()
+					.fill(tierColor)
+					.frame(height: 2.5)
 			}
-			.background(
-				LinearGradient(
-					colors: showProgressBar
-						? [Color.white.opacity(0.05), Color.clear]
-						: [Color.secondaryGroupedBackground, Color.tertiaryGroupedBackground],
-					startPoint: .topLeading,
-					endPoint: .bottomTrailing
-				),
-				in: RoundedRectangle(cornerRadius: 12)
-			)
 			
 			if showProgressBar {
-				VStack(alignment: .leading, spacing: 8) {
-					Text("\(summary.xpInCurrentLevel.formatted()) / \(summary.nextLevelMPNeeded.formatted()) MP to Act Level \(summary.currentActLevel + 1)")
-						.font(.caption.monospacedDigit())
-						.foregroundStyle(.secondary)
+				VStack(alignment: .leading, spacing: 10) {
+					Group {
+						if summary.currentActLevel > 0 || summary.currentActMP > 0 {
+							Text("\(summary.xpInCurrentLevel.formatted()) / \(summary.nextLevelMPNeeded.formatted()) MP to Act Level \(summary.currentActLevel + 1)")
+						} else if summary.lastActLevel > 0 {
+							Text("Last Act: Act Level \(summary.lastActLevel)")
+						} else {
+							Text("Not played this Act")
+						}
+					}
+					.font(.caption.weight(.medium).monospacedDigit())
+					.foregroundStyle(.white.opacity(0.92))
 					
 					MasterySegmentedBar(
 						actLevel: summary.currentActLevel,
-						inLevelProgress: summary.levelProgress
+						inLevelProgress: summary.levelProgress,
+						fillColor: .white,
+						compact: false
 					)
 				}
 				.padding(.horizontal, 12)
-				.padding(.bottom, 12)
-				.padding(.top, 4)
+				.padding(.vertical, 12)
+				.background(Color(red: 0.06, green: 0.07, blue: 0.09))
 			}
 		}
-		.background(
-			cardBackground,
-			in: RoundedRectangle(cornerRadius: 12, style: .continuous)
-		)
+		.clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
 		.overlay {
-			if showProgressBar {
-				RoundedRectangle(cornerRadius: 12, style: .continuous)
-					.stroke(Color.separator.opacity(0.35), lineWidth: 0.5)
-			}
+			RoundedRectangle(cornerRadius: 14, style: .continuous)
+				.stroke(Color.white.opacity(0.14), lineWidth: 1)
 		}
 	}
 }
@@ -440,49 +517,54 @@ struct AgentMasteryDetailView: View {
 	}
 	
 	private func tierAccentColor(for level: Int) -> Color {
-		switch level {
-		case 1: return .gray
-		case 4: return .cyan
-		case 7: return .orange
-		default: return .purple
-		}
+		MasteryTierStyle.color(for: level)
 	}
 }
 
 struct LaurelBadge: View {
 	var level: Int
+	var tint: Color = .secondary
+	var fontSize: CGFloat = 13
 	
 	var body: some View {
 		HStack(spacing: 3) {
 			Image(systemName: "laurel.leading")
-				.font(.caption2)
 			Text("\(level)")
-				.font(.caption.bold().monospacedDigit())
+				.fontWeight(.bold)
+				.monospacedDigit()
 			Image(systemName: "laurel.trailing")
-				.font(.caption2)
 		}
-		.foregroundStyle(.secondary)
+		.font(.system(size: fontSize))
+		.foregroundStyle(tint)
 	}
 }
 
 struct MasterySegmentedBar: View {
 	var actLevel: Int
 	var inLevelProgress: Double
-	var compact = false
+	var fillColor: Color = .accentColor
+	var compact: Bool = false
+	
+	private static let milestoneByColumn: [Int: Int] = [
+		0: 1,
+		3: 4,
+		6: 7,
+		9: 10,
+	]
 	
 	var body: some View {
-		VStack(spacing: compact ? 0 : 4) {
+		VStack(spacing: compact ? 0 : 6) {
 			HStack(spacing: 4) {
 				ForEach(0..<10, id: \.self) { step in
 					let fill: Double = step < actLevel ? 1 : (step == actLevel ? inLevelProgress : 0)
 					GeometryReader { geo in
 						ZStack(alignment: .leading) {
 							Capsule()
-								.fill(Color.secondary.opacity(0.25))
+								.fill(Color.white.opacity(0.14))
 							if fill > 0 {
 								Capsule()
-									.fill(step < actLevel ? Color.accentColor : Color.accentColor.opacity(0.85))
-									.frame(width: geo.size.width * CGFloat(min(1, max(0, fill))))
+									.fill(fillColor)
+									.frame(width: max(3, geo.size.width * CGFloat(min(1, max(0, fill)))))
 							}
 						}
 					}
@@ -491,21 +573,20 @@ struct MasterySegmentedBar: View {
 			}
 			
 			if !compact {
-				HStack {
-					Image(systemName: actLevel >= 1 ? "diamond.fill" : "diamond")
-						.foregroundStyle(actLevel >= 1 ? Color.accentColor : .secondary)
-					Spacer()
-					Image(systemName: actLevel >= 4 ? "diamond.fill" : "diamond")
-						.foregroundStyle(actLevel >= 4 ? Color.accentColor : .secondary)
-					Spacer()
-					Image(systemName: actLevel >= 7 ? "diamond.fill" : "diamond")
-						.foregroundStyle(actLevel >= 7 ? Color.accentColor : .secondary)
-					Spacer()
-					Image(systemName: actLevel >= 10 ? "diamond.fill" : "diamond")
-						.foregroundStyle(actLevel >= 10 ? Color.accentColor : .secondary)
+				HStack(spacing: 4) {
+					ForEach(0..<10, id: \.self) { column in
+						if let milestone = Self.milestoneByColumn[column] {
+							let reached = actLevel >= milestone
+							Image(systemName: reached ? "diamond.fill" : "diamond")
+								.font(.system(size: 8, weight: .semibold))
+								.foregroundStyle(reached ? fillColor : .secondary)
+								.frame(maxWidth: .infinity)
+						} else {
+							Color.clear
+								.frame(maxWidth: .infinity, maxHeight: 8)
+						}
+					}
 				}
-				.font(.system(size: 8))
-				.padding(.horizontal, 12)
 			}
 		}
 	}
@@ -561,19 +642,12 @@ struct AgentMasterySummaryBox: View {
 							AgentMasteryDetailView(summary: item, actEndDate: actEndDate)
 						} label: {
 							VStack(spacing: 6) {
-								ZStack(alignment: .bottomTrailing) {
-									AgentImage.icon(item.agentID)
-										.frame(width: 56, height: 56)
-										.cornerRadius(10)
-									let badge = max(item.currentActLevel, item.lastActLevel)
-									if badge > 0 {
-										Text(String(format: "%02d", badge))
-											.font(.system(size: 10, weight: .bold).monospacedDigit())
-											.padding(.horizontal, 4)
-											.padding(.vertical, 1)
-											.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 4))
-									}
-								}
+								MasteryAgentIcon(
+									agentID: item.agentID,
+									actLevel: item.currentActLevel,
+									size: 56,
+									cornerRadius: 10
+								)
 								Text(item.displayName)
 									.font(.caption.weight(.semibold))
 									.lineLimit(1)
@@ -613,47 +687,143 @@ struct AgentMasteryListView: View {
 	var summaries: [AgentMasterySummary]
 	var actEndDate: Date? = nil
 	
-	@State private var search = ""
+	private var playedSummaries: [AgentMasterySummary] {
+		summaries.filter(\.hasMasteryActivity)
+	}
+	
+	private var unplayedSummaries: [AgentMasterySummary] {
+		summaries
+			.filter { !$0.hasMasteryActivity }
+			.sorted { $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending }
+	}
 	
 	var body: some View {
-		let filtered = summaries.filter {
-			search.isEmpty || $0.displayName.localizedCaseInsensitiveContains(search)
-		}
-		List {
-			ForEach(filtered) { item in
-				Section {
+		let played = playedSummaries
+		let unplayed = unplayedSummaries
+		
+		ScrollView {
+			LazyVStack(alignment: .leading, spacing: 14) {
+				ForEach(played) { item in
 					NavigationLink {
 						AgentMasteryDetailView(summary: item, actEndDate: actEndDate)
 					} label: {
-						VStack(alignment: .leading, spacing: 10) {
-							HStack(spacing: 12) {
-								AgentImage.icon(item.agentID)
-									.frame(width: 52, height: 52)
-									.cornerRadius(10)
-								VStack(alignment: .leading, spacing: 3) {
-									HStack {
-										Text(item.displayName)
-											.font(.headline)
-										Spacer()
-										LaurelBadge(level: item.lifetimeLevel)
-									}
-									Text("Act Level \(item.currentActLevel) • \(item.xpInCurrentLevel.formatted()) / \(item.nextLevelMPNeeded.formatted()) MP")
-										.font(.caption)
-										.foregroundStyle(.secondary)
-								}
+						playedCard(for: item)
+					}
+					.buttonStyle(.plain)
+				}
+				
+				if !unplayed.isEmpty {
+					Text("Not Played Yet")
+						.font(.title3.bold())
+						.foregroundStyle(.primary)
+						.padding(.top, 8)
+					
+					LazyVGrid(
+						columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)],
+						spacing: 12
+					) {
+						ForEach(unplayed) { item in
+							NavigationLink {
+								AgentMasteryDetailView(summary: item, actEndDate: actEndDate)
+							} label: {
+								unplayedCard(for: item)
 							}
-							
-							MasterySegmentedBar(
-								actLevel: item.currentActLevel,
-								inLevelProgress: item.levelProgress
-							)
+							.buttonStyle(.plain)
 						}
-						.padding(.vertical, 4)
 					}
 				}
 			}
+			.padding(.horizontal, 16)
+			.padding(.top, 12)
+			.padding(.bottom, 24)
 		}
-		.searchable(text: $search, prompt: Text("Search agents"))
+		.background(Color.groupedBackground)
 		.navigationTitle("Agent Mastery")
+		.navigationBarTitleDisplayMode(.inline)
+	}
+	
+	private func playedCard(for item: AgentMasterySummary) -> some View {
+		let hasCurrentActProgress = item.currentActLevel > 0 || item.currentActMP > 0
+		
+		return VStack(alignment: .leading, spacing: 12) {
+			HStack(alignment: .center, spacing: 12) {
+				MasteryAgentIcon(
+					agentID: item.agentID,
+					actLevel: item.currentActLevel,
+					size: 52,
+					cornerRadius: 10
+				)
+				
+				VStack(alignment: .leading, spacing: 3) {
+					Text(item.displayName)
+						.font(.headline)
+						.foregroundStyle(.primary)
+					Text(hasCurrentActProgress ? "Act Level \(item.currentActLevel)" : "Not played this Act")
+						.font(.subheadline)
+						.foregroundStyle(.secondary)
+				}
+				
+				Spacer(minLength: 8)
+				
+				HStack(spacing: 10) {
+					VStack(alignment: .trailing, spacing: 2) {
+						LaurelBadge(level: item.lifetimeLevel, tint: .primary, fontSize: 15)
+						Text("Lifetime Level")
+							.font(.caption2)
+							.foregroundStyle(.secondary)
+					}
+					
+					Image(systemName: "chevron.right")
+						.font(.caption.weight(.semibold))
+						.foregroundStyle(.tertiary)
+				}
+			}
+			
+			MasterySegmentedBar(
+				actLevel: item.currentActLevel,
+				inLevelProgress: item.levelProgress,
+				fillColor: .accentColor,
+				compact: false
+			)
+			
+			if hasCurrentActProgress {
+				Text("\(item.xpInCurrentLevel.formatted()) / \(item.nextLevelMPNeeded.formatted()) MP to Act Level \(item.currentActLevel + 1)")
+					.font(.caption.monospacedDigit())
+					.foregroundStyle(.secondary)
+			} else if item.lastActLevel > 0 {
+				Text("Last Act: Act Level \(item.lastActLevel)")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+		}
+		.padding(14)
+		.background(
+			Color.secondaryGroupedBackground,
+			in: RoundedRectangle(cornerRadius: 16, style: .continuous)
+		)
+	}
+	
+	private func unplayedCard(for item: AgentMasterySummary) -> some View {
+		HStack(spacing: 10) {
+			MasteryAgentIcon(
+				agentID: item.agentID,
+				actLevel: 0,
+				size: 36,
+				cornerRadius: 8
+			)
+			
+			Text(item.displayName)
+				.font(.subheadline.weight(.semibold))
+				.foregroundStyle(.primary)
+				.lineLimit(1)
+			
+			Spacer(minLength: 0)
+		}
+		.padding(.horizontal, 10)
+		.padding(.vertical, 10)
+		.background(
+			Color.secondaryGroupedBackground,
+			in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+		)
 	}
 }

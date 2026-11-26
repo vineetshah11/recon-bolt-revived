@@ -36,7 +36,7 @@ struct CircularProgressView<Base: View, Background: View>: View {
 				
 				let layers = layers()
 				
-				ForEach(layers) { layer in
+				ForEach(Array(layers.enumerated()), id: \.offset) { _, layer in
 					if layer.shouldKnockOutSurroundings {
 						ZStack {
 							layer.arc.stroke(style: thickerStroke)
@@ -83,9 +83,7 @@ extension CircularProgressView where Background == EmptyView {
 	}
 }
 
-struct CircularProgressLayer: Identifiable {
-	let id = UUID()
-	
+struct CircularProgressLayer {
 	var start: CGFloat = 0
 	var end: CGFloat
 	

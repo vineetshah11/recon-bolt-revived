@@ -55,6 +55,32 @@ final class BookmarkList: ObservableObject {
 		bookmarks = []
 	}
 	
+	func exportBookmarks(for playerIDs: Set<User.ID>?) -> [Entry] {
+		guard let playerIDs else { return bookmarks }
+		return bookmarks.filter { playerIDs.contains($0.user) }
+	}
+	
+	@discardableResult
+	func importBookmarks(_ incoming: [Entry], replaceAll: Bool) -> Int {
+		var working = replaceAll ? [] : bookmarks
+		var changedCount = 0
+		
+		for entry in incoming {
+			if let idx = working.firstIndex(where: { $0.user == entry.user }) {
+				if working[idx].location != entry.location {
+					working[idx] = entry
+					changedCount += 1
+				}
+			} else {
+				working.append(entry)
+				changedCount += 1
+			}
+		}
+		
+		bookmarks = working
+		return replaceAll ? working.count : changedCount
+	}
+	
 	struct Entry: Hashable, Identifiable, Codable, DefaultsValueConvertible {
 		let user: User.ID
 		let location: Location

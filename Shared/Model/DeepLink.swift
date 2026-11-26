@@ -52,7 +52,7 @@ private enum DeepLinkHandlerKey: PreferenceKey {
 			guard !other.handlers.isEmpty else { return }
 			handlers.merge(
 				other.handlers,
-				uniquingKeysWith: { _, _ in fatalError("attempting to merge duplicate handlers") }
+				uniquingKeysWith: { _, newer in newer }
 			)
 		}
 		

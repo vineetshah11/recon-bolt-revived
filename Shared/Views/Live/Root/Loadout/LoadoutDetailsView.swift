@@ -26,7 +26,9 @@ struct LoadoutDetailsView: View {
 	}
 	@State private var isRandomizing = false
 	@State private var actRankHiddenOverride: Bool?
+	@State private var actRankToggleGeneration: UInt64 = 0
 	@State private var fetchedAccountLevel: Int?
+	@State private var mutationQueue = LoadoutMutationQueue()
 	
 	init(loadout: Loadout, inventory: Inventory) {
 		self.fetchedLoadout = loadout
@@ -44,9 +46,9 @@ struct LoadoutDetailsView: View {
 	var body: some View {
 		let loadoutBinding = Binding { loadout } set: { newLoadout in
 			loadout = newLoadout
-			Task {
-				await load {
-					loadout = .init(try await $0.updateLoadout(to: .init(newLoadout)))
+			mutationQueue.enqueue(newLoadout, load: load) { serverLoadout, committedRev in
+				if mutationQueue.revision == committedRev {
+					loadout = serverLoadout
 				}
 			}
 		}
@@ -113,6 +115,12 @@ struct LoadoutDetailsView: View {
 			LoadoutBlockCard {
 				Menu {
 					Button {
+						activeShareCard = .profile
+					} label: {
+						Label("Profile Card", systemImage: "person.text.rectangle")
+					}
+					
+					Button {
 						activeShareCard = .loadout
 					} label: {
 						Label("Loadout Card", systemImage: "scope")
@@ -140,6 +148,11 @@ struct LoadoutDetailsView: View {
 		.withLocalData($summary, id: loadout.subject)
 		.withLocalData($user, id: loadout.subject)
 		.withLocalData($identity, id: loadout.subject)
+		.onChange(of: fetchedLoadout) { newFetched in
+			if !mutationQueue.hasPendingMutation {
+				loadout = .init(newFetched)
+			}
+		}
 		.task(id: loadout.subject) {
 			await load { client in
 				await favoritesManager.refreshIfNeeded(using: client)
@@ -179,6 +192,14 @@ struct LoadoutDetailsView: View {
 		}
 		.sheet(item: $activeShareCard) { kind in
 			switch kind {
+			case .profile:
+				ShareProfileCardSheet(
+					user: user,
+					cardID: loadout.identity.card,
+					titleID: loadout.identity.title,
+					accountLevel: resolvedAccountLevel,
+					summary: summary
+				)
 			case .loadout:
 				ShareLoadoutCardSheet(loadout: loadout, user: user)
 			case .collection:
@@ -302,11 +323,16 @@ struct LoadoutDetailsView: View {
 						isOn: Binding(
 							get: { actRankHiddenOverride ?? summary?.isActRankBadgeHidden ?? false },
 							set: { newValue in
+								actRankToggleGeneration &+= 1
+								let gen = actRankToggleGeneration
 								actRankHiddenOverride = newValue
 								Task {
 									await load { client in
 										try await client.setActRankBadgeHidden(newValue)
 										try await client.fetchCareerSummary(for: loadout.subject, forceFetch: true)
+									}
+									if gen == actRankToggleGeneration {
+										actRankHiddenOverride = nil
 									}
 								}
 							}
@@ -336,19 +362,69 @@ struct LoadoutDetailsView: View {
 	}
 	
 	private func randomize(favoritesOnly: Bool) {
-		guard let assets else { return }
+		guard let assets, !isRandomizing else { return }
 		isRandomizing = true
 		Task {
 			defer { isRandomizing = false }
-			await load { client in
-				let favs: Favorites? = favoritesOnly ? (try? await client.getFavorites()) : nil
-				let randomized = LoadoutPresetManager.randomizedLoadout(
+			var generated: UpdatableLoadout?
+			if favoritesOnly {
+				await load { client in
+					let favs = try? await client.getFavorites()
+					generated = LoadoutPresetManager.randomizedLoadout(
+						from: loadout,
+						inventory: inventory,
+						assets: assets,
+						favorites: favs
+					)
+				}
+			} else {
+				generated = LoadoutPresetManager.randomizedLoadout(
 					from: loadout,
 					inventory: inventory,
 					assets: assets,
-					favorites: favs
+					favorites: nil
 				)
-				loadout = .init(try await client.updateLoadout(to: .init(randomized)))
+			}
+			guard let randomized = generated else { return }
+			loadout = randomized
+			mutationQueue.enqueue(randomized, load: load) { serverLoadout, committedRev in
+				if mutationQueue.revision == committedRev {
+					loadout = serverLoadout
+				}
+			}
+		}
+	}
+}
+
+@MainActor
+private final class LoadoutMutationQueue {
+	private(set) var revision: UInt64 = 0
+	private var pendingLoadout: UpdatableLoadout?
+	private var workerTask: Task<Void, Never>?
+	
+	var hasPendingMutation: Bool {
+		pendingLoadout != nil || workerTask != nil
+	}
+	
+	func enqueue(
+		_ updated: UpdatableLoadout,
+		load: @escaping ValorantLoadFunction,
+		onCommitted: @escaping @MainActor (UpdatableLoadout, UInt64) -> Void
+	) {
+		revision &+= 1
+		pendingLoadout = updated
+		guard workerTask == nil else { return }
+		
+		workerTask = Task { @MainActor [weak self] in
+			guard let self else { return }
+			defer { self.workerTask = nil }
+			while let next = self.pendingLoadout, !Task.isCancelled {
+				self.pendingLoadout = nil
+				let targetRev = self.revision
+				await load { client in
+					let server = try await client.updateLoadout(to: .init(next))
+					onCommitted(.init(server), targetRev)
+				}
 			}
 		}
 	}

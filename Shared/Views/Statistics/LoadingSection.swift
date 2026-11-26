@@ -26,10 +26,11 @@ struct LoadingSection: View {
 				VStack {
 					Text("Matches to load: **\(fetchCount)**", comment: "Stats: match loading")
 					
-					let oldestTime = sublist.last!.startTime
-					Text("Data going back to \(oldestTime, format: .dateTime.year().month().day())", comment: "Stats: match loading")
-						.foregroundStyle(.secondary)
-						.font(.footnote)
+					if let oldestTime = sublist.last?.startTime {
+						Text("Data going back to \(oldestTime, format: .dateTime.year().month().day())", comment: "Stats: match loading")
+							.foregroundStyle(.secondary)
+							.font(.footnote)
+					}
 					
 					HStack {
 						changeButtons(magnitude: 1)
@@ -98,6 +99,9 @@ struct LoadingSection: View {
 				fetchedMatches = updated
 			}
 		}
+		.onDisappear {
+			fetcher.cancelFetching()
+		}
 	}
 	
 	func errorList() -> some View {
@@ -159,16 +163,25 @@ struct LoadingSection: View {
 	}
 	
 	func clamp(_ count: Int) -> Int {
-		count.clamped(to: 1...matchList.matches.count)
+		guard !matchList.matches.isEmpty else { return 0 }
+		return count.clamped(to: 1...matchList.matches.count)
 	}
 }
 
 @MainActor
 private final class MatchFetcher: ObservableObject {
+	private static let maxConcurrentFetches = 4
+	
 	@Published var matches: [Match.ID: MatchDetails] = [:]
 	@Published var errors: [Match.ID: Error] = [:]
 	@Published var fetchCount = 0 // so fetching less matches still changes the object
 	private var tokens: [Match.ID: AnyCancellable] = [:]
+	private var fetchTask: Task<Void, Never>?
+	
+	func cancelFetching() {
+		fetchTask?.cancel()
+		fetchTask = nil
+	}
 	
 	func preloadCached(for ids: [Match.ID]) async {
 		let cached = await LocalDataProvider.shared.matchDetailsManager.cachedObjects(for: ids)
@@ -178,26 +191,64 @@ private final class MatchFetcher: ObservableObject {
 	}
 	
 	func fetchMatches(withIDs ids: some Collection<Match.ID>, load: @escaping ValorantLoadFunction) {
+		fetchTask?.cancel()
 		fetchCount = ids.count
-		for match in ids {
-			guard tokens[match] == nil else { continue }
-			tokens[match] = LocalDataProvider.shared.matchDetailsManager
-				.objectPublisher(for: match)
-				.receive(on: DispatchQueue.main)
-				.sink { [weak self] in
-					self?.matches[match] = $0.value
-					self?.errors[match] = nil
-				}
-			
-			Task {
-				await load { [weak self] in
-					do {
-						try await MatchDetails.autoUpdate(for: match, using: $0)
-					} catch {
-						self?.errors[match] = error
+		
+		var seen: Set<Match.ID> = []
+		var missingIDs: [Match.ID] = []
+		for match in ids where seen.insert(match).inserted {
+			if tokens[match] == nil {
+				tokens[match] = LocalDataProvider.shared.matchDetailsManager
+					.objectPublisher(for: match)
+					.receive(on: DispatchQueue.main)
+					.sink { [weak self] in
+						self?.matches[match] = $0.value
+						self?.errors[match] = nil
+					}
+			}
+			if matches[match] == nil {
+				missingIDs.append(match)
+			}
+		}
+		
+		guard !missingIDs.isEmpty else { return }
+		fetchTask = Task { @MainActor [weak self] in
+			await load { client in
+				await withTaskGroup(of: Void.self) { group in
+					var nextIndex = 0
+					for _ in 0..<min(Self.maxConcurrentFetches, missingIDs.count) {
+						let match = missingIDs[nextIndex]
+						nextIndex += 1
+						group.addTask {
+							await self?.fetchSingleMatch(match, using: client)
+						}
+					}
+					for await _ in group {
+						if Task.isCancelled { break }
+						if nextIndex < missingIDs.count {
+							let nextMatch = missingIDs[nextIndex]
+							nextIndex += 1
+							group.addTask {
+								await self?.fetchSingleMatch(nextMatch, using: client)
+							}
+						}
 					}
 				}
 			}
+		}
+	}
+	
+	private func fetchSingleMatch(_ match: Match.ID, using client: ValorantClient) async {
+		guard !Task.isCancelled else { return }
+		do {
+			try await MatchDetails.autoUpdate(for: match, using: client)
+		} catch is CancellationError {
+			return
+		} catch let urlError as URLError where urlError.code == .cancelled {
+			return
+		} catch {
+			guard !Task.isCancelled else { return }
+			self.errors[match] = error
 		}
 	}
 }

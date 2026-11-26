@@ -55,11 +55,12 @@ final class LocalDataProvider {
 	static let shared = LocalDataProvider()
 	
 	static var onIdentitiesStored: (@Sendable ([Player.Identity], Date) -> Void)?
+	static var onIdentityAndTierResolved: (@Sendable (Player.Identity, Int?, Date) -> Void)?
 	
 	var matchListManager = LocalDataManager<MatchList>(ageCausingAutoUpdate: .minutes(5))
 	var careerSummaryManager = LocalDataManager<CareerSummary>(ageCausingAutoUpdate: .minutes(5))
 	var userManager = LocalDataManager<User>(ageCausingAutoUpdate: .hours(1))
-	var matchDetailsManager = LocalDataManager<MatchDetails>()
+	var matchDetailsManager = LocalDataManager<MatchDetails>(maxInMemoryEntries: 60)
 	var playerIdentityManager = LocalDataManager<Player.Identity>(ageCausingAutoUpdate: .minutes(5))
 	
 	private init() {}
@@ -83,6 +84,7 @@ final class LocalDataProvider {
 	static func dataFetched(_ details: MatchDetails) {
 		shared.store(details.players.map(\.identity), asOf: details.matchInfo.gameStart)
 		UsernameHistoryStore.record(players: details.players)
+		AccoladesCacheStore.recordIfTracked(details)
 	}
 	
 	static func dataFetched(_ info: LivePregameInfo) {
@@ -121,10 +123,89 @@ final class LocalDataProvider {
 extension LocalDataManager where Object == MatchDetails {
 	func unloadedMatches(in matchList: MatchList, maxCount: Int) async -> [Match.ID]? {
 		let matches = matchList.matches.prefix(maxCount + 1) // need at least 1 more to know if it's been exceeded
-		let cached = await cachedObjects(for: matches.lazy.map(\.id))
-		let cachedIDs = Set(cached.lazy.map(\.id))
-		let unloaded = matches.prefix { !cachedIDs.contains($0.id) }
-		return unloaded.count > maxCount ? nil : unloaded.map(\.id)
+		var unloaded: [Match.ID] = []
+		for match in matches {
+			if await hasCachedFile(for: match.id) {
+				break
+			}
+			unloaded.append(match.id)
+			if unloaded.count > maxCount {
+				return nil
+			}
+		}
+		return unloaded
+	}
+}
+
+extension LocalDataManager where Object == MatchList {
+	@discardableResult
+	func importMatchLists(_ entries: [Entry], replaceAll: Bool) async throws -> Int {
+		var byUser: [User.ID: Entry] = [:]
+		for incoming in entries {
+			if let existing = byUser[incoming.id] {
+				byUser[incoming.id] = Self.mergeMatchListEntries(existing, incoming)
+			} else {
+				byUser[incoming.id] = Self.normalizeMatchListEntry(incoming)
+			}
+		}
+		
+		if replaceAll {
+			try await clearOut()
+			return try await persistImportedEntries(Array(byUser.values), forceChangeNotification: true)
+		}
+		
+		let existingByID = await existingEntriesByID(for: Array(byUser.keys))
+		var toSave: [Entry] = []
+		for (userID, incoming) in byUser {
+			if let existing = existingByID[userID] {
+				let merged = Self.mergeMatchListEntries(existing, incoming)
+				let existingIDs = Set(existing.object.matches.map(\.id))
+				let mergedIDs = Set(merged.object.matches.map(\.id))
+				if mergedIDs != existingIDs
+					|| merged.object.matches.count != existing.object.matches.count
+					|| merged.object.highestLoadedIndex != existing.object.highestLoadedIndex
+					|| merged.lastUpdate > existing.lastUpdate {
+					toSave.append(merged)
+				}
+			} else {
+				toSave.append(incoming)
+			}
+		}
+		
+		return try await persistImportedEntries(toSave, forceChangeNotification: false)
+	}
+	
+	private static func normalizeMatchListEntry(_ entry: Entry) -> Entry {
+		var byMatchID: [Match.ID: CompetitiveUpdate] = [:]
+		for match in entry.object.matches {
+			if byMatchID[match.id] == nil {
+				byMatchID[match.id] = match
+			}
+		}
+		let sorted = byMatchID.values.sorted { $0.startTime > $1.startTime }
+		var copy = entry
+		copy.object.matches = sorted
+		return copy
+	}
+	
+	private static func mergeMatchListEntries(_ lhs: Entry, _ rhs: Entry) -> Entry {
+		let older = lhs.lastUpdate <= rhs.lastUpdate ? lhs : rhs
+		let newer = lhs.lastUpdate <= rhs.lastUpdate ? rhs : lhs
+		
+		var byMatchID: [Match.ID: CompetitiveUpdate] = [:]
+		for match in older.object.matches {
+			byMatchID[match.id] = match
+		}
+		for match in newer.object.matches {
+			byMatchID[match.id] = match
+		}
+		let sorted = byMatchID.values.sorted { $0.startTime > $1.startTime }
+		let mergedList = MatchList(
+			userID: newer.object.userID,
+			matches: sorted,
+			highestLoadedIndex: max(older.object.highestLoadedIndex, newer.object.highestLoadedIndex)
+		)
+		return Entry(lastUpdate: max(older.lastUpdate, newer.lastUpdate), object: mergedList)
 	}
 }
 
@@ -231,12 +312,73 @@ extension ValorantClient {
 	
 	func fetchMatchDetails(for matchIDs: [Match.ID]) async throws {
 		try await withThrowingTaskGroup(of: Void.self) { group in
-			for matchID in matchIDs {
+			var iterator = matchIDs.makeIterator()
+			for _ in 0..<4 {
+				guard let nextID = iterator.next() else { break }
 				group.addTask {
-					try await self.fetchMatchDetails(for: matchID)
+					try await self.fetchMatchDetails(for: nextID)
 				}
 			}
-			for try await _ in group {} // TODO: might be able to remove this once the function stops being rethrows
+			while try await group.next() != nil {
+				if let nextID = iterator.next() {
+					group.addTask {
+						try await self.fetchMatchDetails(for: nextID)
+					}
+				}
+			}
+		}
+	}
+	
+	func prefetchPlayerPreview(for user: User, latestMatchID: Match.ID?) async -> Player.Identity? {
+		UsernameHistoryStore.record(user)
+		await LocalDataProvider.shared.userManager.store(user, asOf: .now)
+		
+		async let summaryTask: Void = {
+			try? await self.fetchCareerSummary(for: user.id)
+		}()
+		async let identityTask: Player.Identity? = self.resolvePlayerIdentity(
+			for: user.id,
+			latestMatchID: latestMatchID
+		)
+		
+		let (_, identity) = await (summaryTask, identityTask)
+		return identity
+	}
+	
+	private func resolvePlayerIdentity(for userID: User.ID, latestMatchID: Match.ID?) async -> Player.Identity? {
+		if userID == self.userID {
+			try? await fetchIdentity(for: userID)
+			return await LocalDataProvider.shared.playerIdentityManager.cachedObject(for: userID)
+		}
+		
+		if let latestMatchID {
+			try? await fetchMatchDetails(for: latestMatchID)
+			if let details = await LocalDataProvider.shared.matchDetailsManager.cachedObject(for: latestMatchID),
+			   let player = details.players.first(where: { $0.id == userID }) {
+				let identity = player.identity
+				await LocalDataProvider.shared.playerIdentityManager.store(
+					identity,
+					asOf: details.matchInfo.gameStart
+				)
+				return await LocalDataProvider.shared.playerIdentityManager.cachedObject(for: userID) ?? identity
+			}
+		}
+		
+		return await LocalDataProvider.shared.playerIdentityManager.cachedObject(for: userID)
+	}
+	
+	func backfillMissingIdentities(for entries: [(userID: User.ID, location: Location)]) async {
+		for (userID, location) in entries {
+			guard !Task.isCancelled else { return }
+			guard await LocalDataProvider.shared.playerIdentityManager.cachedObject(for: userID) == nil else {
+				continue
+			}
+			let scoped = self.in(location)
+			if userID == self.userID {
+				try? await scoped.fetchIdentity(for: userID)
+			} else if let latestMatchID = try? await scoped.getMatchHistory(userID: userID).first?.matchID {
+				_ = await scoped.resolvePlayerIdentity(for: userID, latestMatchID: latestMatchID)
+			}
 		}
 	}
 }

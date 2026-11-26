@@ -90,11 +90,11 @@ struct SeasonCollection: AssetItem, Codable {
 		}
 		
 		func currentTiers(at time: Date? = nil) -> CompetitiveTier.Collection? {
-			currentAct(at: adjust(time)).map(collection.tiers(in:))
+			currentAct(at: time).map(collection.tiers(in:))
 		}
 		
 		func currentTierInfo(number: Int, at time: Date? = nil) -> CompetitiveTier? {
-			currentTiers(at: adjust(time))?.tier(number)
+			currentTiers(at: time)?.tier(number)
 		}
 		
 		func tierInfo(number: Int?, in act: Act? = nil) -> CompetitiveTier? {

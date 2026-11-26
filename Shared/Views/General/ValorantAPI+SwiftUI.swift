@@ -41,6 +41,20 @@ extension Team.ID {
 		return Self.gauntletTeamNames[slot - 1]
 	}
 	
+	var name: Text {
+		if let gauntletDisplayName {
+			return Text(gauntletDisplayName)
+		}
+		switch rawID.lowercased() {
+		case "blue":
+			return Text(String(localized: "Blue Team", comment: "Team name in Agent Select"))
+		case "red":
+			return Text(String(localized: "Red Team", comment: "Team name in Agent Select"))
+		default:
+			return Text(String(localized: "\(rawID) Team", comment: "Used for unknown team IDs."))
+		}
+	}
+	
 	var gauntletMascotAssetName: String? {
 		guard let slot = gauntletSlotIndex else { return nil }
 		return "gauntlet/mascot_\(slot)"

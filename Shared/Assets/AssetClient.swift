@@ -50,12 +50,11 @@ protocol AssetDataRequest: GetJSONRequest {}
 
 extension AssetDataRequest {
 	func decodeResponse(from raw: Protoresponse) throws -> Response {
-		try raw
-			.decodeJSON(as: AssetResponse<Response>.self, using: responseDecoder)
+		let decoder = JSONDecoder() <- {
+			$0.dateDecodingStrategy = .iso8601
+		}
+		return try raw
+			.decodeJSON(as: AssetResponse<Response>.self, using: decoder)
 			.data
 	}
-}
-
-private let responseDecoder = JSONDecoder() <- {
-	$0.dateDecodingStrategy = .iso8601
 }

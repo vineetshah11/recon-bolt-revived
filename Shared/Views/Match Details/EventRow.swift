@@ -24,7 +24,7 @@ struct EventRow: View, Animatable {
 				} else if let bombEvent = roundEvent as? BombEvent {
 					bombEventContent(for: bombEvent)
 				} else {
-					fatalError("unknown event!")
+					EmptyView()
 				}
 			}
 		}

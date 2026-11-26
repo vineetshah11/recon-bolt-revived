@@ -46,8 +46,6 @@ struct LiveView: View {
 					storeBox
 				}
 				.padding()
-				.compositingGroup() // avoid shadows overlapping other boxes
-				.shadow(color: .black.opacity(0.1), radius: 20, x: 0, y: 10)
 			}
 			.background(Color.groupedBackground)
 			.deepLinkHandler { handle($0, scrollView: scrollView) }

@@ -37,6 +37,7 @@ final class AccountManager: ObservableObject {
 	var clientVersion: String? {
 		get { storage.clientVersion }
 		set {
+			guard storage.clientVersion != newValue else { return }
 			storage.clientVersion = newValue
 			updateClientVersion()
 		}
@@ -249,6 +250,8 @@ final class StoredAccount: ObservableObject, Identifiable {
 		session: session,
 		urlSessionOverride: .init(configuration: .ephemeral <- {
 			$0.httpAdditionalHeaders = ["User-Agent": ""]
+			$0.timeoutIntervalForRequest = 20
+			$0.timeoutIntervalForResource = 60
 		})
 	) <- {
 		sessionUpdateListener = $0.onSessionUpdate { [weak self] session in
@@ -306,13 +309,13 @@ final class StoredAccount: ObservableObject, Identifiable {
 	}
 	
 	func setClientVersion(_ version: String) {
+		guard client.clientVersion != version else { return }
 		client.clientVersion = version
-		trySave()
 	}
 	
 	func setReauthBehavior(_ behavior: ValorantClient.ReauthBehavior) {
 		Task {
-			await client.setReauthBehavior(context.reauthBehavior)
+			await client.setReauthBehavior(behavior)
 		}
 	}
 	

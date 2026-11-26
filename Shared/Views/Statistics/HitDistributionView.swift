@@ -242,7 +242,12 @@ private enum HitRegionKey: Plottable {
 	case legs, body, head
 	
 	init?(primitivePlottable: String) {
-		fatalError()
+		switch primitivePlottable {
+		case Self.legs.primitivePlottable: self = .legs
+		case Self.body.primitivePlottable: self = .body
+		case Self.head.primitivePlottable: self = .head
+		default: return nil
+		}
 	}
 	
 	var primitivePlottable: String {

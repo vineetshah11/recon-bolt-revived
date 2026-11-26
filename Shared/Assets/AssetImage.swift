@@ -5,7 +5,7 @@ import HandyOperators
 
 private let fileManager = FileManager.default
 
-struct AssetImage: Hashable, Identifiable {
+struct AssetImage: Hashable, Identifiable, Sendable {
 	var url: URL
 	
 	var id: Self { self }
@@ -17,21 +17,30 @@ struct AssetImage: Hashable, Identifiable {
 		maxScale: CGFloat? = nil,
 		outlineRadius: CGFloat? = nil,
 		preferFullResolution: Bool = false,
-		shouldLoadImmediately: Bool = false
+		shouldLoadImmediately: Bool = false,
+		bucket: ImageBucket? = nil
 	) -> some View {
+		let resolvedBucket: ImageBucket = {
+			if let bucket {
+				return bucket
+			} else if preferFullResolution || maxScale != nil {
+				return .full
+			} else if shouldLoadImmediately {
+				return (aspectRatio ?? 0) >= 2.2 ? .banner : .icon
+			} else {
+				return (aspectRatio ?? 0) >= 2.2 ? .banner : .medium
+			}
+		}()
+		
 		ImageView(
 			image: self,
+			bucket: resolvedBucket,
 			renderingMode: renderingMode,
 			aspectRatio: aspectRatio,
 			maxScale: maxScale,
-			outlineRadius: outlineRadius,
-			preferFullResolution: preferFullResolution || maxScale != nil,
-			shouldLoadImmediately: isInSwiftUIPreview || shouldLoadImmediately
+			outlineRadius: outlineRadius
 		)
 		.id(self)
-#if DEBUG
-		.modifier(ImageManagerProvider())
-#endif
 	}
 	
 #if WIDGETS
@@ -71,6 +80,7 @@ struct AssetImage: Hashable, Identifiable {
 	<- migrate(to:)
 	
 	private static func migrate(to localFolder: URL) {
+		guard localFolder.standardizedFileURL != oldLocalFolder.standardizedFileURL else { return }
 		guard fileManager.fileExists(atPath: oldLocalFolder.path) else { return }
 		do {
 			try fileManager.moveItem(at: oldLocalFolder, to: localFolder)
@@ -87,20 +97,43 @@ struct AssetImage: Hashable, Identifiable {
 	
 	private struct ImageView: View {
 		let image: AssetImage
+		let bucket: ImageBucket
 		var renderingMode: Image.TemplateRenderingMode?
 		/// aspect ratio for the placeholder shown when the image is not loaded
 		var aspectRatio: CGFloat?
 		var maxScale: CGFloat?
 		var outlineRadius: CGFloat?
-		var preferFullResolution: Bool = false
-		var shouldLoadImmediately: Bool = false
-		@State var loaded: UIImage?
-		@State private var isLoadingLarge = false
 		
-		@State private var isShowingErrorAlert = false
+#if !WIDGETS
+		@Environment(\.imageManager) private var manager
+		
+		@State private var loadedImage: UIImage?
+		@State private var isDownloading = false
 		@State private var loadError: Error?
+		@State private var isShowingErrorAlert = false
+		@State private var reloadToken = 0
+		@State private var forceRetry = false
 		
-		@EnvironmentObject private var manager: ImageManager
+		private struct TaskKey: Equatable {
+			let image: AssetImage
+			let bucket: ImageBucket
+			let outlineRadiusTenths: Int?
+			let reloadToken: Int
+		}
+		
+		private var outlineRadiusTenths: Int? {
+			outlineRadius.map { Int(($0 * 10).rounded()) }
+		}
+		
+		private var taskKey: TaskKey {
+			TaskKey(
+				image: image,
+				bucket: bucket,
+				outlineRadiusTenths: outlineRadiusTenths,
+				reloadToken: reloadToken
+			)
+		}
+#endif
 		
 		var body: some View {
 #if WIDGETS
@@ -115,109 +148,97 @@ struct AssetImage: Hashable, Identifiable {
 					.aspectRatio(aspectRatio, contentMode: .fit)
 			}
 #else
-			switch manager.state(for: image) {
-			case nil:
-				// onAppear/task may lag while scrolling in List; start deduplicated download safely
-				let _ = manager.ensureDownloadStarted(for: image)
-				content
-			case .downloading:
-				content
-					.overlay { ProgressView() }
-			case .errored(let error):
-				content
-					.overlay { Image(systemName: "xmark.octagon.fill") }
-					.onTapGesture {
-						loadError = error
-						isShowingErrorAlert = true
-						manager.ensureDownloadStarted(for: image, retrying: true)
-					}
-					.alert(
-						"Image failed to load!",
-						isPresented: $isShowingErrorAlert,
-						presenting: loadError
-					) { error in
-						Button("Copy Error Details") {
-							UIPasteboard.general.string = error.localizedDescription
-						}
-						Button("OK") {}
-					}
-			case .available:
-				content
-			}
-#endif
-		}
-		
-#if !WIDGETS
-		@ViewBuilder
-		var content: some View {
-			if let displayed = displayedImage {
-				Image(uiImage: displayed)
-					.renderingMode(renderingMode)
-					.resizable()
-					.scaledToFit()
-					.onChange(of: manager.cacheState(for: image)) { _ in
-						self.loaded = nil
-						self.isLoadingLarge = false
-					}
-					.frame(
-						maxWidth: maxScale.map { $0 * displayed.size.width },
-						maxHeight: maxScale.map { $0 * displayed.size.height }
-					)
-			} else {
-				let _ = loadLargeIfNeeded()
-				Color.primary.opacity(0.1)
-					.aspectRatio(aspectRatio, contentMode: .fit)
-			}
-		}
-		
-		private var displayedImage: UIImage? {
-			if preferFullResolution {
-				if let full = loaded ?? manager.largeImage(for: image) {
-					return full
-				}
-				if case .available = manager.state(for: image) {
-					loadLargeIfNeeded(evenWhenCached: true)
-				}
-			}
-			let cachedImage = cached
-			if let outlineRadius {
-				if let outlined = manager.outlinedImage(for: image, radius: outlineRadius) {
-					return outlined
-				}
-				let isAvailable: Bool
-				if case .available = manager.state(for: image) {
-					isAvailable = true
+			let cachedExact = manager.cachedImage(for: image, bucket: bucket, outlineRadius: outlineRadius)
+			let cachedBase = (outlineRadius != nil && cachedExact == nil)
+				? manager.cachedImage(for: image, bucket: bucket, outlineRadius: nil)
+				: nil
+			let previewImage = (isInSwiftUIPreview && loadedImage == nil && cachedExact == nil && cachedBase == nil)
+				? manager.syncPreviewImage(for: image, bucket: bucket, outlineRadius: outlineRadius)
+				: nil
+			let displayed = loadedImage ?? cachedExact ?? cachedBase ?? previewImage
+			
+			Group {
+				if let displayed {
+					Image(uiImage: displayed)
+						.renderingMode(renderingMode)
+						.resizable()
+						.scaledToFit()
+						.frame(
+							maxWidth: maxScale.map { $0 * displayed.size.width },
+							maxHeight: maxScale.map { $0 * displayed.size.height }
+						)
 				} else {
-					isAvailable = false
-				}
-				if cachedImage != nil || isAvailable {
-					manager.ensureOutlinedPrepared(for: image, radius: outlineRadius)
+					Color.primary.opacity(0.1)
+						.aspectRatio(aspectRatio, contentMode: .fit)
+						.overlay {
+							if isDownloading {
+								ProgressView()
+							} else if loadError != nil {
+								Image(systemName: "xmark.octagon.fill")
+							}
+						}
+						.onTapGesture {
+							guard let loadError else { return }
+							isShowingErrorAlert = true
+							self.loadError = loadError
+							forceRetry = true
+							reloadToken &+= 1
+						}
+						.alert(
+							"Image failed to load!",
+							isPresented: $isShowingErrorAlert,
+							presenting: loadError
+						) { error in
+							Button("Copy Error Details") {
+								UIPasteboard.general.string = error.localizedDescription
+							}
+							Button("OK") {}
+						}
 				}
 			}
-			return loaded ?? cachedImage ?? manager.largeImage(for: image)
-		}
-		
-		private var cached: UIImage? {
-			let state = manager.cacheState(for: image, loadImmediately: shouldLoadImmediately)
-			guard case .cached(let image) = state else { return nil }
-			return image
-		}
-		
-		private func loadLargeIfNeeded(evenWhenCached: Bool = false) {
-			let cacheState = manager.cacheState(for: image)
-			guard cacheState == .tooLarge || evenWhenCached else { return }
-			guard !isLoadingLarge, loaded == nil else { return }
-			DispatchQueue.main.async {
-				guard !self.isLoadingLarge, self.loaded == nil else { return }
-				self.isLoadingLarge = true
-				Task {
-					let result = await manager.loadLargeImage(for: image)
-					self.loaded = result
-					self.isLoadingLarge = false
+			.task(id: taskKey) {
+				let shouldRetry = forceRetry
+				if shouldRetry {
+					forceRetry = false
+				}
+				if !shouldRetry, manager.cachedImage(for: image, bucket: bucket, outlineRadius: outlineRadius) != nil {
+					manager.scheduleRevalidationIfNeeded(for: image)
+					return
+				}
+				do {
+					let result = try await manager.loadImage(
+						for: image,
+						bucket: bucket,
+						outlineRadius: outlineRadius,
+						forceRetry: shouldRetry,
+						onDownloadStart: {
+							Task { @MainActor in
+								isDownloading = true
+							}
+						}
+					)
+					guard !Task.isCancelled else { return }
+					loadedImage = result
+					isDownloading = false
+					loadError = nil
+				} catch is CancellationError {
+					isDownloading = false
+				} catch {
+					guard !Task.isCancelled else { return }
+					isDownloading = false
+					loadError = error
 				}
 			}
-		}
+			.onReceive(manager.imageDidUpdate) { updated in
+				guard updated == nil || updated == image else { return }
+				loadedImage = nil
+				loadError = nil
+				isDownloading = false
+				forceRetry = false
+				reloadToken &+= 1
+			}
 #endif
+		}
 	}
 }
 
@@ -232,35 +253,9 @@ extension Optional where Wrapped == AssetImage {
 	}
 }
 
-#if DEBUG
-@MainActor
-let sharedManager: ImageManager? = isInSwiftUIPreview ? .init() : nil
-
-private struct ImageManagerProvider: ViewModifier {
-	func body(content: Content) -> some View {
-		if isInSwiftUIPreview, let sharedManager {
-			content.environmentObject(sharedManager)
-		} else {
-			content
-		}
-	}
-}
-#endif
-
 extension AssetImage {
-	/// - returns: whether a new image was downloaded (false means old image is still correct)
-	func ensureDownloaded() async throws -> Bool {
+	func downloadToDisk() async throws {
 		let client = AssetImageClient.shared
-		
-		// don't download images that we already have (assuming size will always change when the image changes)
-		if let existingSize = fileManager.sizeOfItem(atPath: localURL.path) {
-			print("\(url) found existing size \(existingSize)")
-			let newSize = try await client.sizeOfImage(at: url)
-			guard newSize != existingSize else { return false }
-		} else {
-			assert(!fileManager.fileExists(atPath: localURL.path))
-		}
-		
 		let imageData = try await client.imageData(at: url)
 		guard !imageData.isEmpty else {
 			print("got empty image data for \(self)")
@@ -271,6 +266,25 @@ extension AssetImage {
 			withIntermediateDirectories: true
 		)
 		try imageData.write(to: localURL, options: .atomic)
+	}
+	
+	/// - returns: whether a new image was downloaded (false means old image is still correct)
+	@discardableResult
+	func ensureDownloaded() async throws -> Bool {
+		let client = AssetImageClient.shared
+		
+		// don't download images that we already have (assuming size will always change when the image changes)
+		if let existingSize = fileManager.sizeOfItem(atPath: localURL.path) {
+			if let newSize = try await client.sizeOfImage(at: url) {
+				guard newSize != existingSize else { return false }
+			} else {
+				return false
+			}
+		} else {
+			assert(!fileManager.fileExists(atPath: localURL.path))
+		}
+		
+		try await downloadToDisk()
 		return true
 	}
 	
@@ -289,15 +303,25 @@ extension FileManager {
 struct AssetImageClient {
 	static let shared = Self()
 	
-	let networkLayer = Protolayer.urlSession()
+	let networkLayer: Protolayer = {
+		let config = URLSessionConfiguration.ephemeral
+		config.urlCache = nil
+		config.timeoutIntervalForRequest = 20
+		config.timeoutIntervalForResource = 60
+		config.httpMaximumConnectionsPerHost = 6
+		return Protolayer.urlSession(URLSession(configuration: config))
+	}()
 	
 	// TODO: use a hash instead
-	func sizeOfImage(at url: URL) async throws -> Int {
+	func sizeOfImage(at url: URL) async throws -> Int? {
 		let request = URLRequest(url: url) <- {
 			$0.httpMethod = "HEAD"
 		}
 		let response = try await networkLayer.send(request)
-		return .init(response.httpMetadata!.expectedContentLength)
+		guard let expected = response.httpMetadata?.expectedContentLength, expected > 0 else {
+			return nil
+		}
+		return Int(expected)
 	}
 	
 	func imageData(at url: URL) async throws -> Data {

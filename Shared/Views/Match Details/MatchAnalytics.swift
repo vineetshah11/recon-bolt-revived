@@ -1,7 +1,7 @@
 import Foundation
 import ValorantAPI
 
-struct MatchAnalytics {
+final class MatchAnalytics {
 	struct PerformanceBreakdownItem: Identifiable {
 		var id: String { title }
 		var title: String
@@ -228,6 +228,20 @@ struct MatchAnalytics {
 		var lobbyAvgDmgPer1k: Double
 	}
 	
+	private struct PrecomputedRound {
+		let number: Int
+		let winningTeam: Team.ID
+		let outcomeRawValue: String
+		let ceremony: String
+		let plantActor: Player.ID?
+		let defusalActor: Player.ID?
+		let allKills: [Kill]
+		let playerStats: [RoundResult.PlayerStats]
+		let statsByPlayer: [Player.ID: RoundResult.PlayerStats]
+		let scoreByPlayer: [Player.ID: Int]
+		let economyByPlayer: [Player.ID: RoundResult.PlayerEconomy]
+	}
+	
 	let details: MatchDetails
 	let byPlayer: [Player.ID: PlayerMatchAnalytics]
 	let matchMVPID: Player.ID?
@@ -236,6 +250,13 @@ struct MatchAnalytics {
 	let lobbyAvgACS: Double
 	let lobbyAvgADR: Double
 	let lobbyAvgKills: Double
+	
+	private let precomputedRounds: [PrecomputedRound]
+	private let cacheLock = NSLock()
+	private var cachedLobbyComparisons: [Player.ID: LobbyComparison?] = [:]
+	private var cachedDuelMatrices: [Team.ID: DuelMatrixData?] = [:]
+	private var cachedEconomyAnalytics: [Team.ID: EconomyAnalytics?] = [:]
+	private var cachedOpponentMatchups: [Player.ID: [OpponentMatchupRow]] = [:]
 	
 	init(details: MatchDetails) {
 		self.details = details
@@ -247,11 +268,56 @@ struct MatchAnalytics {
 			p.agentID.map { (p.id, $0) }
 		})
 		
+		var playersByTeam: [Team.ID: Set<Player.ID>] = [:]
+		for p in activePlayers {
+			playersByTeam[p.teamID, default: []].insert(p.id)
+		}
+		var opponentsByTeam: [Team.ID: Set<Player.ID>] = [:]
+		for teamID in playersByTeam.keys {
+			var opp: Set<Player.ID> = []
+			for (otherTeam, members) in playersByTeam where otherTeam != teamID {
+				opp.formUnion(members)
+			}
+			opponentsByTeam[teamID] = opp
+		}
+		
+		let precomputedRounds: [PrecomputedRound] = details.roundResults.map { round in
+			let allKills = round.playerStats
+				.flatMap(\.kills)
+				.sorted { $0.roundTimeMillis < $1.roundTimeMillis }
+			let statsByPlayer = Dictionary(
+				round.playerStats.map { ($0.subject, $0) },
+				uniquingKeysWith: { first, _ in first }
+			)
+			let scoreByPlayer = Dictionary(
+				round.playerScores?.map { ($0.subject, $0.score) } ?? [],
+				uniquingKeysWith: { first, _ in first }
+			)
+			let economyByPlayer = Dictionary(
+				(round.playerEconomies ?? []).compactMap { e in e.subject.map { ($0, e) } },
+				uniquingKeysWith: { first, _ in first }
+			)
+			return PrecomputedRound(
+				number: round.number,
+				winningTeam: round.winningTeam,
+				outcomeRawValue: round.outcome.rawValue,
+				ceremony: round.ceremony,
+				plantActor: round.plant?.actor,
+				defusalActor: round.defusal?.actor,
+				allKills: allKills,
+				playerStats: round.playerStats,
+				statsByPlayer: statsByPlayer,
+				scoreByPlayer: scoreByPlayer,
+				economyByPlayer: economyByPlayer
+			)
+		}
+		self.precomputedRounds = precomputedRounds
+		
 		// Determine which team starts on Attack during half 1 (defaults to .red per Riot API).
 		let roundStruct = details.roundStructure
 		let half1Attackers: Team.ID = {
-			for r in details.roundResults {
-				if let planter = r.plant?.actor, let planterTeam = teamByPlayer[planter] {
+			for r in precomputedRounds {
+				if let planter = r.plantActor, let planterTeam = teamByPlayer[planter] {
 					let swapped = roundStruct?.areRolesSwapped(inRound: r.number) ?? false
 					if swapped {
 						return planterTeam == .red ? .blue : .red
@@ -283,6 +349,9 @@ struct MatchAnalytics {
 			let acs = Double(score) / Double(roundsPlayed)
 			let kd = deaths > 0 ? Double(kills) / Double(deaths) : Double(kills)
 			
+			let teammates = playersByTeam[player.teamID] ?? []
+			let opponents = opponentsByTeam[player.teamID] ?? []
+			
 			var headshots = 0
 			var bodyshots = 0
 			var legshots = 0
@@ -301,6 +370,7 @@ struct MatchAnalytics {
 			var atkHalf = HalfStats()
 			var defHalf = HalfStats()
 			var roundEntries: [PlayerRoundEntry] = []
+			roundEntries.reserveCapacity(precomputedRounds.count)
 			var totalLoadout = 0
 			var totalSpent = 0
 			var economyRoundCount = 0
@@ -309,7 +379,7 @@ struct MatchAnalytics {
 			var headshotsByWeapon: [Weapon.ID: Int] = [:]
 			var roundsUsedByWeapon: [Weapon.ID: Int] = [:]
 			
-			for round in details.roundResults {
+			for round in precomputedRounds {
 				let won = round.winningTeam == player.teamID
 				let isAtk = isAttackTeam(player.teamID, roundNumber: round.number)
 				
@@ -321,9 +391,7 @@ struct MatchAnalytics {
 					if won { defHalf.roundsWon += 1 }
 				}
 				
-				let allKills = round.playerStats
-					.flatMap(\.kills)
-					.sorted { $0.roundTimeMillis < $1.roundTimeMillis }
+				let allKills = round.allKills
 				
 				if let firstKill = allKills.first {
 					if firstKill.killer == player.id {
@@ -336,8 +404,8 @@ struct MatchAnalytics {
 					}
 				}
 				
-				let didPlant = round.plant?.actor == player.id
-				let didDefuse = round.defusal?.actor == player.id
+				let didPlant = round.plantActor == player.id
+				let didDefuse = round.defusalActor == player.id
 				if didPlant {
 					plants += 1
 					atkHalf.plants += 1
@@ -424,8 +492,6 @@ struct MatchAnalytics {
 				}
 				
 				// Clutch detection: walk kills in chronological order to check if player ended up last alive on their team vs enemies.
-				let teammates = Set(activePlayers.filter { $0.teamID == player.teamID }.map(\.id))
-				let opponents = Set(activePlayers.filter { $0.teamID != player.teamID }.map(\.id))
 				if teammates.count > 1 && !opponents.isEmpty {
 					var aliveAllies = teammates
 					var aliveEnemies = opponents
@@ -449,7 +515,7 @@ struct MatchAnalytics {
 				}
 				
 				// Damage & hits in this round
-				let myRoundStats = round.playerStats.first { $0.subject == player.id }
+				let myRoundStats = round.statsByPlayer[player.id]
 				var rDmg = 0
 				var rHS = 0
 				var rHits = 0
@@ -466,10 +532,10 @@ struct MatchAnalytics {
 				totalDamage += rDmg
 				
 				let rScore = myRoundStats?.combatScore
-					?? round.playerScores?.first(where: { $0.subject == player.id })?.score
+					?? round.scoreByPlayer[player.id]
 					?? 0
 				let econ = myRoundStats?.economy
-					?? round.playerEconomies?.first(where: { $0.subject == player.id })
+					?? round.economyByPlayer[player.id]
 				let loadoutVal = econ?.loadoutValue ?? 0
 				let spentVal = econ?.spent ?? 0
 				let remainingVal = econ?.remaining ?? 0
@@ -520,7 +586,7 @@ struct MatchAnalytics {
 					loadoutValue: loadoutVal,
 					spent: spentVal,
 					remaining: remainingVal,
-					outcome: round.outcome.rawValue,
+					outcome: round.outcomeRawValue,
 					ceremony: round.ceremony,
 					headshots: rHS,
 					totalHits: rHits
@@ -699,37 +765,67 @@ struct MatchAnalytics {
 	}
 	
 	func lobbyComparison(for playerID: Player.ID) -> LobbyComparison? {
-		guard let mine = byPlayer[playerID] else { return nil }
-		let all = Array(byPlayer.values)
-		let others = all.filter { $0.playerID != playerID }
-		guard !others.isEmpty else { return nil }
-		
-		let n = Double(others.count)
-		func rank(_ value: (PlayerMatchAnalytics) -> Double) -> Int {
-			1 + others.filter { value($0) > value(mine) + Double(0.0001) }.count
+		cacheLock.lock()
+		if let cached = cachedLobbyComparisons[playerID] {
+			cacheLock.unlock()
+			return cached
 		}
+		cacheLock.unlock()
 		
-		return LobbyComparison(
-			otherCount: others.count,
-			avgPerformanceScore: Double(others.reduce(0) { $0 + $1.performanceScore }) / n,
-			avgACS: others.reduce(Double(0)) { $0 + $1.acs } / n,
-			avgADR: others.reduce(Double(0)) { $0 + $1.adr } / n,
-			avgHSPercent: others.reduce(Double(0)) { $0 + $1.hsPercent } / n,
-			avgKASTPercent: others.reduce(Double(0)) { $0 + $1.kastPercent } / n,
-			avgKD: others.reduce(Double(0)) { $0 + $1.kd } / n,
-			avgFKPerRound: others.reduce(Double(0)) { $0 + $1.fkPerRound } / n,
-			perfRank: rank { Double($0.performanceScore) },
-			acsRank: rank(\.acs),
-			adrRank: rank(\.adr),
-			hsRank: rank(\.hsPercent),
-			kastRank: rank(\.kastPercent),
-			kdRank: rank(\.kd),
-			fkRank: rank(\.fkPerRound),
-			totalPlayers: all.count
-		)
+		let result: LobbyComparison? = {
+			guard let mine = byPlayer[playerID] else { return nil }
+			let all = Array(byPlayer.values)
+			let others = all.filter { $0.playerID != playerID }
+			guard !others.isEmpty else { return nil }
+			
+			let n = Double(others.count)
+			func rank(_ value: (PlayerMatchAnalytics) -> Double) -> Int {
+				1 + others.filter { value($0) > value(mine) + Double(0.0001) }.count
+			}
+			
+			return LobbyComparison(
+				otherCount: others.count,
+				avgPerformanceScore: Double(others.reduce(0) { $0 + $1.performanceScore }) / n,
+				avgACS: others.reduce(Double(0)) { $0 + $1.acs } / n,
+				avgADR: others.reduce(Double(0)) { $0 + $1.adr } / n,
+				avgHSPercent: others.reduce(Double(0)) { $0 + $1.hsPercent } / n,
+				avgKASTPercent: others.reduce(Double(0)) { $0 + $1.kastPercent } / n,
+				avgKD: others.reduce(Double(0)) { $0 + $1.kd } / n,
+				avgFKPerRound: others.reduce(Double(0)) { $0 + $1.fkPerRound } / n,
+				perfRank: rank { Double($0.performanceScore) },
+				acsRank: rank(\.acs),
+				adrRank: rank(\.adr),
+				hsRank: rank(\.hsPercent),
+				kastRank: rank(\.kastPercent),
+				kdRank: rank(\.kd),
+				fkRank: rank(\.fkPerRound),
+				totalPlayers: all.count
+			)
+		}()
+		
+		cacheLock.lock()
+		cachedLobbyComparisons[playerID] = result
+		cacheLock.unlock()
+		return result
 	}
 	
 	func duelMatrix(for allyTeamID: Team.ID) -> DuelMatrixData? {
+		cacheLock.lock()
+		if let cached = cachedDuelMatrices[allyTeamID] {
+			cacheLock.unlock()
+			return cached
+		}
+		cacheLock.unlock()
+		
+		let result = computeDuelMatrix(for: allyTeamID)
+		
+		cacheLock.lock()
+		cachedDuelMatrices[allyTeamID] = result
+		cacheLock.unlock()
+		return result
+	}
+	
+	private func computeDuelMatrix(for allyTeamID: Team.ID) -> DuelMatrixData? {
 		guard details.teams.count == 2 else { return nil }
 		let enemyTeamID = details.teams.first(where: { $0.id != allyTeamID })?.id ?? (allyTeamID == .blue ? .red : .blue)
 		
@@ -772,10 +868,8 @@ struct MatchAnalytics {
 			}
 		}
 		
-		for round in details.roundResults {
-			let killsInRound = round.playerStats
-				.flatMap(\.kills)
-				.sorted { $0.roundTimeMillis < $1.roundTimeMillis }
+		for round in precomputedRounds {
+			let killsInRound = round.allKills
 			let firstKill = killsInRound.first
 			
 			for kill in killsInRound {
@@ -866,6 +960,22 @@ struct MatchAnalytics {
 	}
 	
 	func economyAnalytics(for allyTeamID: Team.ID) -> EconomyAnalytics? {
+		cacheLock.lock()
+		if let cached = cachedEconomyAnalytics[allyTeamID] {
+			cacheLock.unlock()
+			return cached
+		}
+		cacheLock.unlock()
+		
+		let result = computeEconomyAnalytics(for: allyTeamID)
+		
+		cacheLock.lock()
+		cachedEconomyAnalytics[allyTeamID] = result
+		cacheLock.unlock()
+		return result
+	}
+	
+	private func computeEconomyAnalytics(for allyTeamID: Team.ID) -> EconomyAnalytics? {
 		guard details.teams.count == 2, !details.roundResults.isEmpty else { return nil }
 		let allySet = Set(details.players.filter { $0.teamID == allyTeamID }.map(\.id))
 		let halfLength = details.roundStructure?.roundsPerHalf ?? 12
@@ -956,31 +1066,45 @@ struct MatchAnalytics {
 	}
 	
 	func opponentMatchups(for playerID: Player.ID) -> [OpponentMatchupRow] {
-		guard let player = details.players.first(where: { $0.id == playerID }),
-			  let matrix = duelMatrix(for: player.teamID) else {
-			return []
+		cacheLock.lock()
+		if let cached = cachedOpponentMatchups[playerID] {
+			cacheLock.unlock()
+			return cached
 		}
-		return matrix.enemyPlayers.compactMap { enemy in
-			let key = DuelPairKey(allyID: playerID, enemyID: enemy.id)
-			guard let m = matrix.cells[key] else { return nil }
-			return OpponentMatchupRow(
-				opponent: enemy,
-				myKills: m.allyKills,
-				theirKills: m.enemyKills,
-				damageDealt: m.allyDamage,
-				damageTaken: m.enemyDamage,
-				headshotsDealt: m.allyHeadshots,
-				firstBloodsWon: m.allyFirstBloods,
-				firstBloodsLost: m.enemyFirstBloods,
-				events: m.events
-			)
-		}
-		.sorted { lhs, rhs in
-			let lTotal = lhs.myKills + lhs.theirKills
-			let rTotal = rhs.myKills + rhs.theirKills
-			if lTotal != rTotal { return lTotal > rTotal }
-			return lhs.myKills > rhs.myKills
-		}
+		cacheLock.unlock()
+		
+		let result: [OpponentMatchupRow] = {
+			guard let player = details.players.first(where: { $0.id == playerID }),
+				  let matrix = duelMatrix(for: player.teamID) else {
+				return []
+			}
+			return matrix.enemyPlayers.compactMap { enemy in
+				let key = DuelPairKey(allyID: playerID, enemyID: enemy.id)
+				guard let m = matrix.cells[key] else { return nil }
+				return OpponentMatchupRow(
+					opponent: enemy,
+					myKills: m.allyKills,
+					theirKills: m.enemyKills,
+					damageDealt: m.allyDamage,
+					damageTaken: m.enemyDamage,
+					headshotsDealt: m.allyHeadshots,
+					firstBloodsWon: m.allyFirstBloods,
+					firstBloodsLost: m.enemyFirstBloods,
+					events: m.events
+				)
+			}
+			.sorted { lhs, rhs in
+				let lTotal = lhs.myKills + lhs.theirKills
+				let rTotal = rhs.myKills + rhs.theirKills
+				if lTotal != rTotal { return lTotal > rTotal }
+				return lhs.myKills > rhs.myKills
+			}
+		}()
+		
+		cacheLock.lock()
+		cachedOpponentMatchups[playerID] = result
+		cacheLock.unlock()
+		return result
 	}
 	
 	func sitePreferences(for teamID: Team.ID, focusedPlayerID: Player.ID) -> [SitePreferenceStat] {

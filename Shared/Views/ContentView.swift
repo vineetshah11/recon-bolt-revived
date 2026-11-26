@@ -9,10 +9,27 @@ struct ContentView: View {
 	@ObservedObject var settings: AppSettings
 	@ObservedObject var store: InAppStore
 	
+	@EnvironmentObject private var bookmarkList: BookmarkList
+	@EnvironmentObject private var loadoutPresetManager: LoadoutPresetManager
+	@EnvironmentObject private var wishlistManager: WishlistManager
+	@EnvironmentObject private var shopHistoryStore: ShopHistoryStore
+	@EnvironmentObject private var usernameHistoryStore: UsernameHistoryStore
+	@EnvironmentObject private var playerSettingsSnapshotStore: PlayerSettingsSnapshotStore
+	@EnvironmentObject private var seasonGoalStore: SeasonGoalStore
+	@EnvironmentObject private var progressTimelineStore: ProgressTimelineStore
+	@EnvironmentObject private var socialManager: SocialManager
+	@EnvironmentObject private var lineupsManager: LineupsManager
+	
 	@SceneStorage("tab")
 	var tab = Tab.career
 	
 	@State var handleDeepLink: DeepLink.Handler?
+	@State private var incomingBackupFile: IncomingBackupFile?
+	
+	private struct IncomingBackupFile: Identifiable {
+		let id = UUID()
+		let url: URL
+	}
 	
 	var body: some View {
 		TabView(selection: $tab) {
@@ -69,6 +86,28 @@ struct ContentView: View {
 		.readingDeepLinkHandler { handleDeepLink = $0 }
 		.environment(\.deepLink, handle(_:))
 		.onOpenURL(perform: handle(_:))
+		.sheet(item: $incomingBackupFile) { file in
+			NavigationStack {
+				BackupImportView(stores: makeBackupStores(), initialURL: file.url)
+			}
+		}
+	}
+	
+	private func makeBackupStores() -> BackupStores {
+		BackupStores(
+			accountManager: accountManager,
+			bookmarkList: bookmarkList,
+			settings: settings,
+			loadoutPresetManager: loadoutPresetManager,
+			wishlistManager: wishlistManager,
+			shopHistoryStore: shopHistoryStore,
+			usernameHistoryStore: usernameHistoryStore,
+			playerSettingsSnapshotStore: playerSettingsSnapshotStore,
+			seasonGoalStore: seasonGoalStore,
+			progressTimelineStore: progressTimelineStore,
+			socialManager: socialManager,
+			lineupsManager: lineupsManager
+		)
 	}
 	
 	@ViewBuilder
@@ -85,6 +124,10 @@ struct ContentView: View {
 	
 	func handle(_ url: URL) {
 		print("handling", url)
+		if url.isFileURL, url.pathExtension.lowercased() == "rbbackup" {
+			incomingBackupFile = IncomingBackupFile(url: url)
+			return
+		}
 		do {
 			if let widgetLink = try WidgetLink(from: url) {
 				handle(widgetLink)
@@ -160,10 +203,23 @@ private struct LiquidGlassTabBarModifier: ViewModifier {
 #if DEBUG
 struct ContentView_Previews: PreviewProvider {
 	static var previews: some View {
-		ContentView(accountManager: .mocked, assetManager: .forPreviews, settings: .init(), store: .init())
-		ContentView(accountManager: .mocked, assetManager: .forPreviews, settings: .init(), store: .init(), tab: .live)
-		ContentView(accountManager: .mocked, assetManager: .forPreviews, settings: .init(), store: .init(), tab: .reference)
-		ContentView(accountManager: .init(), assetManager: .forPreviews, settings: .init(), store: .init())
+		Group {
+			ContentView(accountManager: .mocked, assetManager: .forPreviews, settings: .init(), store: .init())
+			ContentView(accountManager: .mocked, assetManager: .forPreviews, settings: .init(), store: .init(), tab: .live)
+			ContentView(accountManager: .mocked, assetManager: .forPreviews, settings: .init(), store: .init(), tab: .reference)
+			ContentView(accountManager: .init(), assetManager: .forPreviews, settings: .init(), store: .init())
+		}
+		.environmentObject(BookmarkList())
+		.environmentObject(LoadoutPresetManager())
+		.environmentObject(WishlistManager())
+		.environmentObject(FavoritesManager())
+		.environmentObject(ShopHistoryStore())
+		.environmentObject(UsernameHistoryStore.shared)
+		.environmentObject(PlayerSettingsSnapshotStore())
+		.environmentObject(SeasonGoalStore())
+		.environmentObject(ProgressTimelineStore())
+		.environmentObject(SocialManager())
+		.environmentObject(LineupsManager())
 	}
 }
 #endif

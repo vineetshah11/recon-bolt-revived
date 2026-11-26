@@ -157,7 +157,6 @@ struct CompetitiveSummaryCell_Previews: PreviewProvider, PreviewProviderWithAsse
 		CompetitiveSummaryCell(summary: PreviewData.summary)
 			.buttonStyle(.navigationLinkPreview)
 			.previewLayout(.sizeThatFits)
-			.environmentObject(ImageManager())
 			.previewDisplayName("Single Cell")
 		
 		List {
@@ -192,7 +191,6 @@ struct CompetitiveSummaryCell_Previews: PreviewProvider, PreviewProviderWithAsse
 			}
 		}
 		.withToolbar()
-		.environmentObject(ImageManager())
 		.previewDisplayName("List")
 	}
 }

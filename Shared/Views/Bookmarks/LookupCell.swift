@@ -10,9 +10,32 @@ struct LookupCell: View {
 	@FocusState private var focusedField: Field?
 	
 	@Environment(\.loadWithErrorAlerts) private var load
+	@Environment(\.assets) private var assets
+	@EnvironmentObject private var accountManager: AccountManager
 	
 	@ScaledMetric(relativeTo: .body) private var maxNameFieldWidth = 150
 	@ScaledMetric(relativeTo: .body) private var tagFieldWidth = 50
+	
+	private var parsedQuery: (name: String, tag: String)? {
+		let trimmedName = gameName.trimmingCharacters(in: .whitespacesAndNewlines)
+		var trimmedTag = tagLine.trimmingCharacters(in: .whitespacesAndNewlines)
+		
+		let resolvedName: String
+		if trimmedTag.isEmpty, let separator = trimmedName.lastIndex(of: "#") {
+			resolvedName = String(trimmedName[..<separator]).trimmingCharacters(in: .whitespacesAndNewlines)
+			trimmedTag = String(trimmedName[trimmedName.index(after: separator)...])
+				.trimmingCharacters(in: .whitespacesAndNewlines)
+		} else {
+			resolvedName = trimmedName
+			while trimmedTag.hasPrefix("#") {
+				trimmedTag.removeFirst()
+			}
+			trimmedTag = trimmedTag.trimmingCharacters(in: .whitespacesAndNewlines)
+		}
+		
+		guard !resolvedName.isEmpty, !trimmedTag.isEmpty else { return nil }
+		return (resolvedName, trimmedTag)
+	}
 	
 	var body: some View {
 		HStack(spacing: 12) {
@@ -50,7 +73,7 @@ struct LookupCell: View {
 					Image(systemName: "magnifyingglass")
 				}
 				.buttonStyle(.borderless)
-				.disabled(gameName.isEmpty || tagLine.isEmpty)
+				.disabled(parsedQuery == nil)
 			}
 		}
 		.textInputAutocapitalization(.never)
@@ -60,17 +83,28 @@ struct LookupCell: View {
 	}
 	
 	private func lookUpPlayer() {
-		guard !gameName.isEmpty, !tagLine.isEmpty else { return }
+		guard !isLoading, let query = parsedQuery else { return }
 		Task {
 			isLoading = true
-			let name = "\(gameName) #\(tagLine)"
+			defer { isLoading = false }
+			let name = "\(query.name) #\(query.tag)"
 			await load(errorTitle: "Could not look up \(name)") {
-				let (user, location) = try await HenrikClient.shared.lookUpPlayer(name: gameName, tag: tagLine)
-				LocalDataProvider.dataFetched(user)
+				guard let account = accountManager.activeAccount else {
+					throw APIError.sessionExpired(mfaRequired: false)
+				}
+				let result = try await account.client.lookUpPlayerInfo(gameName: query.name, tagLine: query.tag)
+				let scopedClient = account.client.in(result.location)
+				let identity = await scopedClient.prefetchPlayerPreview(
+					for: result.user,
+					latestMatchID: result.latestMatchID
+				)
+				if let cardID = identity?.cardID,
+				   let smallArt = assets?.playerCards[cardID]?.smallArt {
+					_ = await ImageManager.shared.awaitImage(for: smallArt, bucket: .icon)
+				}
 				dispatchPrecondition(condition: .onQueue(.main))
-				history.lookedUp(user.id, location: location)
+				history.lookedUp(result.user.id, location: result.location)
 			}
-			isLoading = false
 		}
 	}
 	
@@ -93,6 +127,7 @@ struct LookupCell_Previews: PreviewProvider {
 			LookupCell(gameName: "Example", tagLine: "EX123", isLoading: true, history: LookupHistory())
 				.padding()
 		}
+		.environmentObject(AccountManager.mocked)
 		.frame(width: 400)
 		.previewLayout(.sizeThatFits)
 	}

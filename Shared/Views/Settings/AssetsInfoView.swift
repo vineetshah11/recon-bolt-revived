@@ -4,7 +4,7 @@ struct AssetsInfoView: View {
 	@ObservedObject var assetManager: AssetManager
 	@State var newestVersion: AssetVersion?
 	
-	@EnvironmentObject private var imageManager: ImageManager
+	@Environment(\.imageManager) private var imageManager
 	
 	var body: some View {
 		List {
@@ -64,7 +64,7 @@ struct AssetsInfoView: View {
 		Section {
 			AsyncButton {
 				await assetManager.reset()
-				imageManager.clear()
+				await imageManager.clear()
 			} label: {
 				Text("Reset", comment: "Asset Management: button")
 			}

@@ -37,8 +37,15 @@ struct RefreshableBox<Content: View>: View {
 		}
 		.background(Color.secondaryGroupedBackground)
 		.cornerRadius(20)
-		.task(doRefresh)
-		.onSceneActivation(perform: doRefresh)
+		.shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 6)
+		.task(id: isExpanded) {
+			guard isExpanded else { return }
+			await doRefresh()
+		}
+		.onSceneActivation {
+			guard isExpanded else { return }
+			await doRefresh()
+		}
 	}
 	
 	@Sendable

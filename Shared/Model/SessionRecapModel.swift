@@ -69,6 +69,44 @@ struct PlaySession: Identifiable {
 }
 
 enum SessionRecapBuilder {
+	struct LatestSessionPreview: Equatable {
+		var startTime: Date
+		var matchCount: Int
+		var netRRDelta: Int
+	}
+	
+	/// Lightweight preview for the MatchListView card without building full `MatchAnalytics`.
+	static func latestSessionPreview(
+		matches: [CompetitiveUpdate],
+		detailsByID: [Match.ID: MatchDetails],
+		maxGap: TimeInterval = 3 * 3600
+	) -> LatestSessionPreview? {
+		let resolved: [SessionMatchItem] = matches.compactMap { update in
+			guard let details = detailsByID[update.id] else { return nil }
+			return SessionMatchItem(details: details, update: update)
+		}
+		.sorted { $0.details.matchInfo.gameStart > $1.details.matchInfo.gameStart }
+		
+		guard let first = resolved.first else { return nil }
+		var previousStart = first.details.matchInfo.gameStart
+		var oldestStart = previousStart
+		var count = 1
+		var netRR = first.update?.ratingEarned ?? 0
+		
+		for item in resolved.dropFirst() {
+			let currentStart = item.details.matchInfo.gameStart
+			if previousStart.timeIntervalSince(currentStart) > maxGap {
+				break
+			}
+			count += 1
+			netRR += item.update?.ratingEarned ?? 0
+			previousStart = currentStart
+			oldestStart = currentStart
+		}
+		
+		return LatestSessionPreview(startTime: oldestStart, matchCount: count, netRRDelta: netRR)
+	}
+	
 	/// Groups matches separated by <= 3 hours into coherent play sessions.
 	static func buildSessions(
 		userID: User.ID,

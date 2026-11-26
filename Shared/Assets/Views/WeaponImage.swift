@@ -8,7 +8,7 @@ struct _WeaponImageProvider: AssetImageProvider {
 
 extension WeaponImage {
 	static func killStreamIcon(_ id: Weapon.ID) -> Self {
-		Self(id: id, renderingMode: .template, shouldLoadImmediately: true, getImage: \.killStreamIcon)
+		Self(id: id, renderingMode: .template, shouldLoadImmediately: true, bucket: .banner, getImage: \.killStreamIcon)
 	}
 	
 	static func displayIcon(_ id: Weapon.ID) -> Self {

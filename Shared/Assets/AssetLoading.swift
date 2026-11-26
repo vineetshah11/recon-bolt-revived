@@ -22,6 +22,7 @@ extension AssetClient {
 		async let bundles = getBundleInfo()
 		async let contentTiers = getContentTiers()
 		async let levelBorders = (try? getLevelBorders()) ?? []
+		async let gamePods = (try? getGamePods()) ?? [:]
 		
 		// this seems to be what skins are actually referred to by…
 		let skinsByLevelID = try await Dictionary(
@@ -63,7 +64,8 @@ extension AssetClient {
 			bundles: .init(values: bundles),
 			contentTiers: .init(values: contentTiers),
 			flex: .init(values: flex),
-			levelBorders: .init(values: levelBorders)
+			levelBorders: .init(values: levelBorders),
+			gamePods: gamePods
 		)
 	}
 }

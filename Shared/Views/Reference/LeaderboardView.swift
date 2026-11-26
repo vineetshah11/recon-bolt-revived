@@ -19,9 +19,29 @@ struct LeaderboardView: View {
 	@State private var selectedRegion = "eu"
 	@State private var selectedSeasonID: Season.ID?
 	@State private var query = ""
+	@State private var submittedQuery = ""
+	@State private var hasInitializedFilters = false
+	@State private var reloadToken = 0
+	@State private var fetchGeneration = 0
 	@State private var leaderboard: Leaderboard?
 	@State private var isLoading = false
 	@State private var errorMessage: String?
+	
+	private struct QueryKey: Equatable {
+		let region: String
+		let seasonID: Season.ID?
+		let query: String
+		let reloadToken: Int
+	}
+	
+	private var queryKey: QueryKey {
+		QueryKey(
+			region: selectedRegion,
+			seasonID: selectedSeasonID,
+			query: submittedQuery,
+			reloadToken: reloadToken
+		)
+	}
 	
 	var body: some View {
 		ScrollView {
@@ -44,7 +64,7 @@ struct LeaderboardView: View {
 							.foregroundStyle(.red)
 							.multilineTextAlignment(.center)
 						Button("Retry") {
-							Task { await fetch(startIndex: 0, append: false) }
+							reloadToken &+= 1
 						}
 						.buttonStyle(.bordered)
 					}
@@ -119,22 +139,25 @@ struct LeaderboardView: View {
 				filterMenu
 			}
 		}
-		.onChange(of: selectedRegion) { _ in
-			Task { await fetch(startIndex: 0, append: false) }
-		}
-		.onChange(of: selectedSeasonID) { _ in
-			Task { await fetch(startIndex: 0, append: false) }
-		}
-		.task {
-			if let region = accountManager.activeAccount?.location.region {
-				selectedRegion = region
+		.task(id: queryKey) {
+			if !hasInitializedFilters {
+				hasInitializedFilters = true
+				let defaultRegion = accountManager.activeAccount?.location.region
+				let defaultSeason = seasons?.currentAct()?.id ?? assets?.seasons.actsInOrder.last?.id
+				var didAdjustDefaults = false
+				if let defaultRegion, defaultRegion != selectedRegion {
+					selectedRegion = defaultRegion
+					didAdjustDefaults = true
+				}
+				if selectedSeasonID == nil, let defaultSeason {
+					selectedSeasonID = defaultSeason
+					didAdjustDefaults = true
+				}
+				if didAdjustDefaults {
+					return
+				}
 			}
-			if selectedSeasonID == nil {
-				selectedSeasonID = seasons?.currentAct()?.id ?? assets?.seasons.actsInOrder.last?.id
-			}
-			if leaderboard == nil {
-				await fetch(startIndex: 0, append: false)
-			}
+			await fetch(startIndex: 0, append: false)
 		}
 	}
 	
@@ -151,12 +174,14 @@ struct LeaderboardView: View {
 				.autocorrectionDisabled()
 				.submitLabel(.search)
 				.onSubmit {
-					Task { await fetch(startIndex: 0, append: false) }
+					submittedQuery = query
+					reloadToken &+= 1
 				}
 			if !query.isEmpty {
 				Button {
 					query = ""
-					Task { await fetch(startIndex: 0, append: false) }
+					submittedQuery = ""
+					reloadToken &+= 1
 				} label: {
 					Image(systemName: "xmark.circle.fill")
 						.foregroundStyle(.secondary)
@@ -321,9 +346,15 @@ struct LeaderboardView: View {
 		guard let seasonID = selectedSeasonID ?? seasons?.currentAct()?.id ?? assets?.seasons.actsInOrder.last?.id else {
 			return
 		}
+		fetchGeneration += 1
+		let gen = fetchGeneration
 		isLoading = true
 		errorMessage = nil
-		defer { isLoading = false }
+		defer {
+			if gen == fetchGeneration {
+				isLoading = false
+			}
+		}
 		
 		do {
 			let fetched = try await client.getLeaderboard(
@@ -332,8 +363,9 @@ struct LeaderboardView: View {
 				seasonID: seasonID,
 				startIndex: startIndex,
 				size: 100,
-				query: query.isEmpty ? nil : query
+				query: submittedQuery.isEmpty ? nil : submittedQuery
 			)
+			guard !Task.isCancelled, gen == fetchGeneration else { return }
 			if append, var existing = leaderboard {
 				existing.players.append(contentsOf: fetched.players)
 				existing.totalPlayers = fetched.totalPlayers
@@ -342,6 +374,10 @@ struct LeaderboardView: View {
 				leaderboard = fetched
 			}
 		} catch {
+			guard !Task.isCancelled, gen == fetchGeneration else { return }
+			if error is CancellationError || (error as? URLError)?.code == .cancelled {
+				return
+			}
 			errorMessage = error.localizedDescription
 		}
 	}

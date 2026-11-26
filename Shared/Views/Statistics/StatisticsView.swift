@@ -214,13 +214,23 @@ struct StatisticsView: View {
 				fetchedMatches = cached
 			}
 		}
-		.onChange(of: dataSourceHash) { _ in
-			recomputeStatistics()
-		}
-		.onAppear {
-			if statistics == nil && !fetchedMatches.isEmpty {
-				recomputeStatistics()
+		.task(id: dataSourceHash) {
+			if statistics != nil {
+				try? await Task.sleep(for: .milliseconds(80))
+				guard !Task.isCancelled else { return }
 			}
+			let matches = filteredMatches
+			if matches.isEmpty {
+				statistics = nil
+				return
+			}
+			let updates = matchList.matches
+			let userID = user.id
+			let stats = await Task.detached(priority: .userInitiated) {
+				Statistics(userID: userID, matches: matches, competitiveUpdates: updates)
+			}.value
+			guard !Task.isCancelled else { return }
+			statistics = stats
 		}
 	}
 	
@@ -230,18 +240,6 @@ struct StatisticsView: View {
 			let lDate = seasons?.act(lhs)?.timeSpan.start ?? Date.distantPast
 			let rDate = seasons?.act(rhs)?.timeSpan.start ?? Date.distantPast
 			return lDate > rDate
-		}
-	}
-	
-	private func recomputeStatistics() {
-		let matches = filteredMatches
-		let updates = matchList.matches
-		let userID = user.id
-		Task.detached(priority: .userInitiated) {
-			let stats = matches.isEmpty ? nil : Statistics(userID: userID, matches: matches, competitiveUpdates: updates)
-			await MainActor.run {
-				self.statistics = stats
-			}
 		}
 	}
 	

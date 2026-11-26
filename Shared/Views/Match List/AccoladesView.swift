@@ -3,9 +3,10 @@ import ValorantAPI
 
 struct AccoladesSummaryBox: View {
 	var userID: User.ID
-	var matches: [MatchDetails]
+	var knownMatchIDs: [Match.ID] = []
 	var report: AccoladesReport
 	
+	@ObservedObject private var accoladesCache = AccoladesCacheStore.shared
 	@State private var isExpanded = false
 	
 	var body: some View {
@@ -31,7 +32,7 @@ struct AccoladesSummaryBox: View {
 				Spacer()
 				
 				NavigationLink {
-					AccoladesView(userID: userID, matches: matches)
+					AccoladesView(userID: userID, knownMatchIDs: knownMatchIDs)
 				} label: {
 					Image(systemName: "chevron.right")
 						.font(.caption.weight(.semibold))
@@ -77,7 +78,7 @@ struct AccoladesSummaryBox: View {
 			AccoladeDetailView(
 				userID: userID,
 				item: item,
-				totalCachedMatches: matches.count
+				totalCachedMatches: accoladesCache.cachedMatchCount(for: userID)
 			)
 		} label: {
 			VStack(spacing: 6) {
@@ -85,8 +86,7 @@ struct AccoladesSummaryBox: View {
 					Circle()
 						.fill(Color.accentColor)
 						.frame(width: 44, height: 44)
-					Image(systemName: item.type.iconName)
-						.font(.system(size: 18, weight: .bold))
+					AccoladeIcon(type: item.type, size: 22)
 						.foregroundStyle(.white)
 				}
 				Text("×\(item.count)")
@@ -112,20 +112,22 @@ struct AccoladesView: View {
 	}
 	
 	var userID: User.ID
-	var matches: [MatchDetails]
+	var knownMatchIDs: [Match.ID] = []
 	
 	@Environment(\.seasons) private var seasons
+	@Environment(\.assets) private var assets
+	@ObservedObject private var accoladesCache = AccoladesCacheStore.shared
 	@State private var scope: Scope = .thisAct
 	
 	private let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 3)
 	
 	var body: some View {
-		let report = AccoladesCalculator.compute(
-			userID: userID,
-			matches: matches,
+		let report = accoladesCache.report(
+			for: userID,
 			act: scope == .thisAct ? seasons?.currentAct() : nil,
 			seasons: seasons
 		)
+		let cachedCount = accoladesCache.cachedMatchCount(for: userID)
 		
 		ScrollView {
 			VStack(spacing: 14) {
@@ -153,13 +155,17 @@ struct AccoladesView: View {
 							AccoladeDetailView(
 								userID: userID,
 								item: item,
-								totalCachedMatches: matches.count
+								totalCachedMatches: cachedCount
 							)
 						} label: {
 							accoladeGridCard(item)
 						}
 						.buttonStyle(.plain)
 					}
+				}
+				
+				if !report.recentMatches.isEmpty {
+					recentMatchesSection(report.recentMatches)
 				}
 			}
 			.padding(.horizontal, 16)
@@ -168,6 +174,9 @@ struct AccoladesView: View {
 		.background(Color.groupedBackground)
 		.navigationTitle("Accolades")
 		.navigationBarTitleDisplayMode(.inline)
+		.task(id: knownMatchIDs) {
+			await accoladesCache.syncMissingMatches(for: userID, matchIDs: knownMatchIDs)
+		}
 	}
 	
 	private func accoladeGridCard(_ item: AccoladeSummary) -> some View {
@@ -175,21 +184,20 @@ struct AccoladesView: View {
 		return VStack(spacing: 7) {
 			ZStack {
 				Circle()
-					.fill(earned ? Color.accentColor : Color.secondary.opacity(0.18))
-					.frame(width: 46, height: 46)
-				Image(systemName: item.type.iconName)
-					.font(.system(size: 20, weight: .bold))
-					.foregroundStyle(earned ? Color.white : Color.secondary.opacity(0.65))
+					.fill(earned ? Color.accentColor : Color.white.opacity(0.10))
+					.frame(width: 48, height: 48)
+				AccoladeIcon(type: item.type, size: 24)
+					.foregroundStyle(earned ? Color.white : Color.secondary.opacity(0.75))
 			}
 			
 			Text(item.type.title)
-				.font(.caption.weight(.semibold))
+				.font(.subheadline.weight(.semibold))
 				.foregroundStyle(earned ? .primary : .secondary)
 				.lineLimit(1)
 				.minimumScaleFactor(0.85)
 			
 			Text("×\(item.count)")
-				.font(.subheadline.bold().monospacedDigit())
+				.font(.title3.bold().monospacedDigit())
 				.foregroundStyle(earned ? .primary : .secondary)
 			
 			Group {
@@ -199,16 +207,85 @@ struct AccoladesView: View {
 					Text("Not earned yet")
 				}
 			}
-			.font(.caption2.monospacedDigit())
+			.font(.caption.monospacedDigit())
 			.foregroundStyle(.secondary)
 			.lineLimit(1)
 			.minimumScaleFactor(0.8)
 		}
-		.frame(maxWidth: .infinity, minHeight: 132)
+		.frame(maxWidth: .infinity, minHeight: 138)
 		.padding(.horizontal, 6)
 		.padding(.vertical, 10)
-		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
 		.opacity(earned ? 1 : 0.72)
+	}
+	
+	private func recentMatchesSection(_ recentMatches: [AccoladeMatchGroup]) -> some View {
+		VStack(alignment: .leading, spacing: 12) {
+			Text("Recent Matches")
+				.font(.title3.bold())
+				.foregroundStyle(.primary)
+				.frame(maxWidth: .infinity, alignment: .leading)
+				.padding(.top, 8)
+			
+			VStack(spacing: 0) {
+				ForEach(Array(recentMatches.enumerated()), id: \.element.id) { index, entry in
+					if index > 0 {
+						Divider()
+							.opacity(0.4)
+							.padding(.horizontal, 16)
+					}
+					
+					NavigationLink {
+						MatchDetailsContainer(matchID: entry.matchID, userID: userID)
+					} label: {
+						VStack(alignment: .leading, spacing: 10) {
+							HStack {
+								Text(assets?.maps[entry.mapID]?.displayName ?? "Map")
+									.font(.headline)
+									.foregroundStyle(.primary)
+								Spacer()
+								Text(entry.gameStart.formatted(.relative(presentation: .named)))
+									.font(.subheadline)
+									.foregroundStyle(.secondary)
+							}
+							
+							if !entry.accolades.isEmpty {
+								HighlightFlowLayout(spacing: 8) {
+									ForEach(entry.accolades) { accolade in
+										AccoladePillView(item: accolade, showNewBest: true)
+									}
+								}
+								.frame(maxWidth: .infinity, alignment: .leading)
+							} else {
+								Text("No accolades in this match")
+									.font(.subheadline)
+									.foregroundStyle(.secondary)
+							}
+						}
+						.padding(.horizontal, 16)
+						.padding(.vertical, 14)
+						.contentShape(Rectangle())
+					}
+					.buttonStyle(.plain)
+				}
+			}
+			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+			
+			VStack(alignment: .leading, spacing: 6) {
+				HStack(spacing: 6) {
+					NewBestBadge(size: 14)
+					Text("New best")
+						.font(.caption)
+						.foregroundStyle(.secondary)
+				}
+				
+				Text("Riot shares accolades only for recent matches.")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+			.frame(maxWidth: .infinity, alignment: .leading)
+			.padding(.top, 2)
+		}
 	}
 }
 
@@ -254,8 +331,7 @@ struct AccoladeDetailView: View {
 				endPoint: .bottomTrailing
 			)
 			
-			Image(systemName: item.type.iconName)
-				.font(.system(size: 132, weight: .bold))
+			AccoladeIcon(type: item.type, size: 132)
 				.foregroundStyle(.white.opacity(0.1))
 				.offset(x: 24, y: 12)
 			
@@ -264,8 +340,7 @@ struct AccoladeDetailView: View {
 					Circle()
 						.fill(Color.accentColor)
 						.frame(width: 48, height: 48)
-					Image(systemName: item.type.iconName)
-						.font(.system(size: 21, weight: .bold))
+					AccoladeIcon(type: item.type, size: 22)
 						.foregroundStyle(.white)
 				}
 				
@@ -400,8 +475,8 @@ struct AccoladeDetailView: View {
 							Spacer()
 							
 							if record.isNewBest {
-								HStack(spacing: 4) {
-									Image(systemName: "sparkle")
+								HStack(spacing: 5) {
+									NewBestBadge(size: 14)
 									Text("New best")
 								}
 								.font(.caption.weight(.semibold))

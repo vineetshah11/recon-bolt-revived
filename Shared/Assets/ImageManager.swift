@@ -1,384 +1,638 @@
 import SwiftUI
+import UIKit
 import ImageIO
-import HandyOperators
-import UserDefault
 import Combine
 
-@MainActor
-final class ImageManager: ObservableObject {
-	private var states: [AssetImage: ImageState] = [:]
-	private var requestedDownloads: Set<AssetImage> = []
-	private var requestedOutlines: Set<OutlinedKey> = []
-	private var largeImageTasks: [AssetImage: Task<UIImage?, Never>] = [:]
-	private let largeImages = NSCache<NSURL, UIImage>() <- {
-		$0.countLimit = 12
+enum ImageBucket: Int, Hashable, CaseIterable, Sendable {
+	case icon = 256
+	case banner = 960
+	case medium = 1024
+	case full = 2048
+	
+	var maxPixelSize: Int { rawValue }
+}
+
+final class ImageManager: @unchecked Sendable {
+	static let shared = ImageManager()
+	
+	private let memoryCache = ImageMemoryCache()
+	private let pipeline: Pipeline
+	private let didUpdateSubject = PassthroughSubject<AssetImage?, Never>()
+	
+	var imageDidUpdate: AnyPublisher<AssetImage?, Never> {
+		didUpdateSubject.eraseToAnyPublisher()
 	}
 	
-	private let cache: ImageCache
-	private let updater: Updater
-	private var stateUpdateToken: AnyCancellable?
-	
-	// can't have a nonisolated wrapped property
-	private enum VersionHolder {
-		@UserDefault("ImageManager.version")
-		static var version = ""
-	}
-	
-	@MainActor
 	init() {
-		cache = .init()
-		updater = .init(cache: cache)
-		stateUpdateToken = updater.stateUpdates
-			.collect(.byTime(RunLoop.main, .milliseconds(50)))
-			.sink { [weak self] updates in
-				self?.apply(updates)
+		let subject = didUpdateSubject
+		self.pipeline = Pipeline(memoryCache: memoryCache) { replacedImage in
+			Task { @MainActor in
+				subject.send(replacedImage)
 			}
+		}
 	}
 	
 	func setVersion(_ version: AssetVersion) {
-		guard version.riotClientVersion != VersionHolder.version else { return }
-		VersionHolder.version = version.riotClientVersion
-		states = [:] // make images re-check for the new version
-		requestedDownloads = []
-		requestedOutlines = []
-		largeImageTasks.values.forEach { $0.cancel() }
-		largeImageTasks = [:]
-		largeImages.removeAllObjects()
-		cache.reset()
-		Task { await updater.resetCompleted() }
-	}
-	
-	func state(for image: AssetImage) -> ImageState? {
-		states[image]
-	}
-	
-	/// Starts a download task at most once per image without mutating published state during view body evaluation.
-	func ensureDownloadStarted(for image: AssetImage, retrying: Bool = false) {
-		if retrying {
-			requestedDownloads.remove(image)
-		}
-		guard shouldDownload(image), requestedDownloads.insert(image).inserted else { return }
-		Task { await updater.download(image) }
-	}
-	
-	func ensureOutlinedPrepared(for image: AssetImage, radius: CGFloat) {
-		let key = OutlinedKey(image: image, radiusTenths: Int((radius * 10).rounded()))
-		guard cache.outlinedImage(for: key) == nil else { return }
-		guard requestedOutlines.insert(key).inserted else { return }
-		Task {
-			await updater.prepareOutlined(image: image, key: key, radius: radius)
+		let versionString = version.riotClientVersion
+		Task.detached(priority: .utility) { [pipeline] in
+			await pipeline.setVersion(versionString)
 		}
 	}
 	
-	func outlinedImage(for image: AssetImage, radius: CGFloat) -> UIImage? {
-		let key = OutlinedKey(image: image, radiusTenths: Int((radius * 10).rounded()))
-		return cache.outlinedImage(for: key)
+	func cachedImage(
+		for image: AssetImage,
+		bucket: ImageBucket,
+		outlineRadius: CGFloat? = nil
+	) -> UIImage? {
+		memoryCache.image(for: image, bucket: bucket, outlineRadius: outlineRadius)
 	}
 	
-	func largeImage(for image: AssetImage) -> UIImage? {
-		largeImages.object(forKey: image.localURL as NSURL)
-	}
-	
-	func loadLargeImage(for image: AssetImage) async -> UIImage? {
-		let cacheKey = image.localURL as NSURL
-		if let cached = largeImages.object(forKey: cacheKey) {
+	/// Synchronous helper restricted to Xcode/SwiftUI Previews.
+	func syncPreviewImage(
+		for image: AssetImage,
+		bucket: ImageBucket,
+		outlineRadius: CGFloat? = nil
+	) -> UIImage? {
+		if let cached = memoryCache.image(for: image, bucket: bucket, outlineRadius: outlineRadius) {
 			return cached
 		}
-		if let existingTask = largeImageTasks[image] {
-			return await existingTask.value
-		}
-		let task = Task.detached(priority: .userInitiated) { () -> UIImage? in
-			guard let loaded = image.load() else { return nil }
-			return loaded.preparingForDisplay() ?? loaded
-		}
-		largeImageTasks[image] = task
-		let loaded = await task.value
-		largeImageTasks[image] = nil
-		if let loaded, !Task.isCancelled {
-			largeImages.setObject(loaded, forKey: cacheKey)
-		}
-		return loaded
-	}
-	
-	/// gets an image's current state and starts a download task if appropriate
-	func image(for image: AssetImage?) -> UIImage? {
-		guard let image else { return nil }
-		ensureDownloadStarted(for: image)
-		
-		switch cache.state(for: image) {
-		case .cached(let image):
-			return image
-		case .tooLarge:
-			return largeImage(for: image) ?? image.load()
-		case .missing, nil:
+		guard let decoded = ImageDecoder.decode(at: image.localURL, bucket: bucket) else {
 			return nil
 		}
+		memoryCache.store(decoded, for: image, bucket: bucket)
+		if let outlineRadius {
+			let radiusTenths = Int((outlineRadius * 10).rounded())
+			let outlined = ImageDecoder.renderOutlined(decoded, radius: outlineRadius)
+			memoryCache.storeOutlined(outlined, for: image, radiusTenths: radiusTenths)
+			return outlined
+		}
+		return decoded
 	}
 	
-	func download(_ image: AssetImage) async {
-		guard shouldDownload(image) else { return }
-		await updater.download(image)
+	func loadImage(
+		for image: AssetImage,
+		bucket: ImageBucket,
+		outlineRadius: CGFloat? = nil,
+		forceRetry: Bool = false,
+		onDownloadStart: (@Sendable () -> Void)? = nil
+	) async throws -> UIImage? {
+		try await pipeline.loadImage(
+			for: image,
+			bucket: bucket,
+			outlineRadius: outlineRadius,
+			forceRetry: forceRetry,
+			onDownloadStart: onDownloadStart
+		)
 	}
 	
-	func shouldDownload(_ image: AssetImage) -> Bool {
-		switch state(for: image) {
-		case nil, .errored:
-			return true
-		case .downloading, .available:
-			return false
+	func scheduleRevalidationIfNeeded(for image: AssetImage) {
+		Task.detached(priority: .utility) { [pipeline] in
+			await pipeline.scheduleRevalidationIfNeeded(for: image)
 		}
 	}
 	
-	func awaitImage(for image: AssetImage?) async -> UIImage? {
+	func awaitImage(for image: AssetImage?, bucket: ImageBucket = .full) async -> UIImage? {
 		guard let image else { return nil }
-		await download(image)
-		return self.image(for: image)
+		return try? await loadImage(for: image, bucket: bucket)
 	}
 	
-	func cacheState(for image: AssetImage, loadImmediately: Bool = false) -> CacheState? {
-		if loadImmediately, cache.state(for: image) == nil {
-			cache.updateState(for: image, forceUpdate: false)
-		}
-		return cache.state(for: image)
-	}
-	
-	private func apply(_ updates: some Sequence<StateUpdate>) {
-		// batch updates to reduce CA commits
-		objectWillChange.send()
-		for update in updates {
-			states[update.image] = update.state
-			if case .errored = update.state {
-				requestedDownloads.remove(update.image)
-			}
-		}
-	}
-	
-	@MainActor
-	func clear() {
-		states = [:]
-		requestedDownloads = []
-		requestedOutlines = []
-		largeImageTasks.values.forEach { $0.cancel() }
-		largeImageTasks = [:]
-		largeImages.removeAllObjects()
-		cache.reset()
-		try? AssetImage.removeCachedFiles()
-		Task { await updater.resetCompleted() }
-		// if any loads are in progress, they might still set the state right after this, but i've decided i don't care
-	}
-	
-	enum ImageState {
-		case downloading
-		case errored(Error)
-		case available
-	}
-	
-	enum CacheState: Equatable {
-		case missing
-		case cached(UIImage)
-		case tooLarge
-	}
-	
-	private struct StateUpdate {
-		var image: AssetImage
-		var state: ImageState
-	}
-	
-	struct OutlinedKey: Hashable {
-		var image: AssetImage
-		var radiusTenths: Int
-	}
-	
-	@MainActor
-	private final class ImageCache {
-		// caching these helps a lot with performance
-		private var cached: [AssetImage: CacheState] = [:]
-		private var outlined: [OutlinedKey: UIImage] = [:]
+	func prewarmHotAssets(from assets: AssetCollection) {
+		var items: [(AssetImage, ImageBucket)] = []
+		items.reserveCapacity(assets.maps.count + assets.agents.count + 48)
+		var seen: Set<AssetImage> = []
 		
-		private nonisolated static let cacheSizeLimit = 256 * 256 // pixels
-		private nonisolated static let maxDownsampledSourcePixels = 1024 * 1024 // downsamples e.g. 1024x1024 agent icons
-		private nonisolated static let downsampleMaxPixelEdge = 256
-		
-		func state(for image: AssetImage) -> CacheState? {
-			cached[image]
+		func appendIfNew(_ asset: AssetImage?, bucket: ImageBucket) {
+			guard let asset, seen.insert(asset).inserted else { return }
+			items.append((asset, bucket))
 		}
 		
-		func outlinedImage(for key: OutlinedKey) -> UIImage? {
-			outlined[key]
+		for map in assets.maps.values {
+			appendIfNew(map.listViewIcon, bucket: .banner)
 		}
-		
-		func storeOutlined(_ image: UIImage, for key: OutlinedKey) {
-			outlined[key] = image
+		for agent in assets.agents.values {
+			appendIfNew(agent.displayIcon, bucket: .icon)
 		}
-		
-		func store(_ state: CacheState, for image: AssetImage, forceUpdate: Bool) {
-			if !forceUpdate, cached[image] != nil { return }
-			cached[image] = state
-			if forceUpdate {
-				outlined = outlined.filter { $0.key.image != image }
+		if let latestAct = assets.seasons.actsInOrder.last {
+			for tier in assets.seasons.tiers(in: latestAct).tiers.values {
+				appendIfNew(tier.icon, bucket: .icon)
+				appendIfNew(tier.rankTriangleUpwards, bucket: .icon)
 			}
 		}
 		
-		func updateState(for image: AssetImage, forceUpdate: Bool) {
-			if !forceUpdate, cached[image] != nil { return }
-			store(Self.loadStateOffMain(for: image), for: image, forceUpdate: forceUpdate)
+		Task.detached(priority: .utility) { [pipeline] in
+			await pipeline.prewarm(items: items)
 		}
-		
-		nonisolated static func loadStateOffMain(for image: AssetImage) -> CacheState {
-			let fileURL = image.localURL as CFURL
-			if
-				let source = CGImageSourceCreateWithURL(fileURL, nil),
-				let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-				let width = properties[kCGImagePropertyPixelWidth] as? Int,
-				let height = properties[kCGImagePropertyPixelHeight] as? Int
-			{
-				let pixels = width * height
-				if pixels <= Self.cacheSizeLimit {
-					guard let loaded = image.load() else { return .missing }
-					return .cached(loaded.preparingForDisplay() ?? loaded)
-				} else if pixels <= Self.maxDownsampledSourcePixels {
+	}
+	
+	func clear() async {
+		await pipeline.clear()
+	}
+}
+
+extension EnvironmentValues {
+	var imageManager: ImageManager {
+		get { self[ImageManagerKey.self] }
+		set { self[ImageManagerKey.self] = newValue }
+	}
+	
+	private enum ImageManagerKey: EnvironmentKey {
+		static let defaultValue = ImageManager.shared
+	}
+}
+
+// MARK: - Memory Cache
+
+private final class ImageMemoryCache: @unchecked Sendable {
+	private let hotCache: NSCache<NSString, UIImage> = {
+		let cache = NSCache<NSString, UIImage>()
+		cache.countLimit = 400
+		cache.totalCostLimit = 48 * 1024 * 1024
+		return cache
+	}()
+	
+	private let largeCache: NSCache<NSString, UIImage> = {
+		let cache = NSCache<NSString, UIImage>()
+		cache.countLimit = 24
+		cache.totalCostLimit = 64 * 1024 * 1024
+		return cache
+	}()
+	
+	private let outlinedCache: NSCache<NSString, UIImage> = {
+		let cache = NSCache<NSString, UIImage>()
+		cache.countLimit = 100
+		cache.totalCostLimit = 12 * 1024 * 1024
+		return cache
+	}()
+	
+	private nonisolated(unsafe) var memoryWarningObserver: NSObjectProtocol?
+	
+	init() {
+#if canImport(UIKit) && !WIDGETS
+		memoryWarningObserver = NotificationCenter.default.addObserver(
+			forName: UIApplication.didReceiveMemoryWarningNotification,
+			object: nil,
+			queue: nil
+		) { [weak self] _ in
+			self?.handleMemoryWarning()
+		}
+#endif
+	}
+	
+	deinit {
+		if let memoryWarningObserver {
+			NotificationCenter.default.removeObserver(memoryWarningObserver)
+		}
+	}
+	
+	private func handleMemoryWarning() {
+		largeCache.removeAllObjects()
+		outlinedCache.removeAllObjects()
+	}
+	
+	func image(for image: AssetImage, bucket: ImageBucket, outlineRadius: CGFloat?) -> UIImage? {
+		if let outlineRadius {
+			let radiusTenths = Int((outlineRadius * 10).rounded())
+			return outlinedCache.object(forKey: Self.outlinedKey(for: image, radiusTenths: radiusTenths))
+		}
+		let cache = (bucket == .full) ? largeCache : hotCache
+		return cache.object(forKey: Self.key(for: image, bucket: bucket))
+	}
+	
+	func store(_ uiImage: UIImage, for image: AssetImage, bucket: ImageBucket) {
+		let cache = (bucket == .full) ? largeCache : hotCache
+		cache.setObject(uiImage, forKey: Self.key(for: image, bucket: bucket), cost: Self.cost(of: uiImage))
+	}
+	
+	func storeOutlined(_ uiImage: UIImage, for image: AssetImage, radiusTenths: Int) {
+		outlinedCache.setObject(
+			uiImage,
+			forKey: Self.outlinedKey(for: image, radiusTenths: radiusTenths),
+			cost: Self.cost(of: uiImage)
+		)
+	}
+	
+	func removeImages(for image: AssetImage) {
+		for bucket in ImageBucket.allCases {
+			let cache = (bucket == .full) ? largeCache : hotCache
+			cache.removeObject(forKey: Self.key(for: image, bucket: bucket))
+		}
+		outlinedCache.removeAllObjects()
+	}
+	
+	func removeAll() {
+		hotCache.removeAllObjects()
+		largeCache.removeAllObjects()
+		outlinedCache.removeAllObjects()
+	}
+	
+	private static func key(for image: AssetImage, bucket: ImageBucket) -> NSString {
+		"\(image.url.absoluteString)#b\(bucket.rawValue)" as NSString
+	}
+	
+	private static func outlinedKey(for image: AssetImage, radiusTenths: Int) -> NSString {
+		"\(image.url.absoluteString)#o\(radiusTenths)" as NSString
+	}
+	
+	private static func cost(of image: UIImage) -> Int {
+		if let cgImage = image.cgImage {
+			return max(1, cgImage.bytesPerRow * cgImage.height)
+		}
+		let width = Int((image.size.width * image.scale).rounded(.up))
+		let height = Int((image.size.height * image.scale).rounded(.up))
+		return max(1, width * height * 4)
+	}
+}
+
+// MARK: - Image Decoder
+
+private enum ImageDecoder {
+	static func decode(at fileURL: URL, bucket: ImageBucket) -> UIImage? {
+		PerfMonitor.measure("ImageDecode \(fileURL.lastPathComponent)", warnOverMs: 4.0) {
+			let cfURL = fileURL as CFURL
+			if let source = CGImageSourceCreateWithURL(cfURL, nil) {
+				let props = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]
+				let width = props?[kCGImagePropertyPixelWidth] as? Int ?? 0
+				let height = props?[kCGImagePropertyPixelHeight] as? Int ?? 0
+				let maxEdge = max(width, height)
+				
+				if maxEdge > bucket.maxPixelSize {
 					let options: [CFString: Any] = [
 						kCGImageSourceCreateThumbnailFromImageAlways: true,
-						kCGImageSourceThumbnailMaxPixelSize: Self.downsampleMaxPixelEdge,
+						kCGImageSourceThumbnailMaxPixelSize: bucket.maxPixelSize,
 						kCGImageSourceCreateThumbnailWithTransform: true,
 						kCGImageSourceShouldCacheImmediately: true,
 					]
 					if let cgThumb = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
-						return .cached(UIImage(cgImage: cgThumb))
+						return UIImage(cgImage: cgThumb, scale: 1, orientation: .up)
 					}
-					return .tooLarge
-				} else {
-					return .tooLarge
+				} else if maxEdge > 0 {
+					let options: [CFString: Any] = [
+						kCGImageSourceShouldCacheImmediately: true,
+					]
+					if let cgImage = CGImageSourceCreateImageAtIndex(source, 0, options as CFDictionary) {
+						let rawOrientation = (props?[kCGImagePropertyOrientation] as? NSNumber)?.uint32Value
+						return UIImage(cgImage: cgImage, scale: 1, orientation: Self.uiOrientation(from: rawOrientation))
+					}
 				}
 			}
-			guard let loaded = image.load() else { return .missing }
-			guard let raw = loaded.cgImage, raw.width * raw.height <= Self.cacheSizeLimit else {
-				return .tooLarge
-			}
-			return .cached(loaded.preparingForDisplay() ?? loaded)
-		}
-		
-		nonisolated static func renderOutlined(_ image: UIImage, radius: CGFloat) -> UIImage {
-			let size = image.size
-			guard size.width > 0, size.height > 0 else { return image }
-			let strokePx = max(2, (radius / 40.0) * min(size.width, size.height)).rounded()
-			let format = UIGraphicsImageRendererFormat()
-			format.scale = image.scale
-			format.opaque = false
-			let mask = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
-				let rect = CGRect(origin: .zero, size: size)
-				image.draw(in: rect)
-				UIColor.white.setFill()
-				ctx.fill(rect, blendMode: .sourceIn)
-			}
-			let rendered = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-				let rect = CGRect(origin: .zero, size: size)
-				let steps = 12
-				for step in 0..<steps {
-					let angle = (CGFloat(step) / CGFloat(steps)) * (.pi * 2)
-					mask.draw(in: rect.offsetBy(dx: cos(angle) * strokePx, dy: sin(angle) * strokePx))
-				}
-				image.draw(in: rect)
-			}
-			return rendered
-		}
-		
-		func reset() {
-			cached = [:]
-			outlined = [:]
+			guard let loaded = UIImage(contentsOfFile: fileURL.path) else { return nil }
+			return loaded.preparingForDisplay() ?? loaded
 		}
 	}
 	
-	private final actor Updater {
-		private var inProgress: [AssetImage: [CheckedContinuation<Void, Never>]] = [:]
-		private var completed: Set<AssetImage> = []
+	private static func uiOrientation(from cgValue: UInt32?) -> UIImage.Orientation {
+		guard let cgValue, let cgOrientation = CGImagePropertyOrientation(rawValue: cgValue) else {
+			return .up
+		}
+		switch cgOrientation {
+		case .up: return .up
+		case .down: return .down
+		case .left: return .left
+		case .right: return .right
+		case .upMirrored: return .upMirrored
+		case .downMirrored: return .downMirrored
+		case .leftMirrored: return .leftMirrored
+		case .rightMirrored: return .rightMirrored
+		}
+	}
+	
+	static func renderOutlined(_ image: UIImage, radius: CGFloat) -> UIImage {
+		let size = image.size
+		guard size.width > 0, size.height > 0 else { return image }
+		let strokePx = max(2, (radius / 40.0) * min(size.width, size.height)).rounded()
+		let format = UIGraphicsImageRendererFormat()
+		format.scale = image.scale
+		format.opaque = false
+		let mask = UIGraphicsImageRenderer(size: size, format: format).image { ctx in
+			let rect = CGRect(origin: .zero, size: size)
+			image.draw(in: rect)
+			UIColor.white.setFill()
+			ctx.fill(rect, blendMode: .sourceIn)
+		}
+		return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+			let rect = CGRect(origin: .zero, size: size)
+			let steps = 12
+			for step in 0..<steps {
+				let angle = (CGFloat(step) / CGFloat(steps)) * (.pi * 2)
+				mask.draw(in: rect.offsetBy(dx: cos(angle) * strokePx, dy: sin(angle) * strokePx))
+			}
+			image.draw(in: rect)
+		}
+	}
+}
+
+// MARK: - Actor Pipeline
+
+private enum ImageLoadError: Error {
+	case decodeFailed
+}
+
+private actor Pipeline {
+	private struct DecodeKey: Hashable {
+		let image: AssetImage
+		let bucket: ImageBucket
+		let radiusTenths: Int?
+	}
+	
+	private static let versionDefaultsKey = "ImageManager.version"
+	private static let maxConcurrentRevalidations = 3
+	
+	private let memoryCache: ImageMemoryCache
+	private let onImageReplaced: @Sendable (AssetImage?) -> Void
+	
+	private var currentVersion: String
+	private var clearGeneration: UInt64 = 0
+	private var inFlightDownloads: [AssetImage: Task<Void, Error>] = [:]
+	private var inFlightDecodes: [DecodeKey: Task<UIImage?, Never>] = [:]
+	
+	private var revalidated: Set<AssetImage> = []
+	private var revalidating: Set<AssetImage> = []
+	private var revalidationQueue: [AssetImage] = []
+	private var activeRevalidations = 0
+	private var prewarmTask: Task<Void, Never>?
+	
+	init(
+		memoryCache: ImageMemoryCache,
+		onImageReplaced: @escaping @Sendable (AssetImage?) -> Void
+	) {
+		self.memoryCache = memoryCache
+		self.onImageReplaced = onImageReplaced
+		self.currentVersion = UserDefaults.standard.string(forKey: Self.versionDefaultsKey) ?? ""
+	}
+	
+	func setVersion(_ newVersion: String) {
+		guard newVersion != currentVersion else { return }
+		currentVersion = newVersion
+		UserDefaults.standard.set(newVersion, forKey: Self.versionDefaultsKey)
+		revalidated.removeAll()
+		revalidating.removeAll()
+		revalidationQueue.removeAll()
+	}
+	
+	func loadImage(
+		for image: AssetImage,
+		bucket: ImageBucket,
+		outlineRadius: CGFloat?,
+		forceRetry: Bool,
+		onDownloadStart: (@Sendable () -> Void)?
+	) async throws -> UIImage? {
+		try Task.checkCancellation()
+		let radiusTenths = outlineRadius.map { Int(($0 * 10).rounded()) }
 		
-		let stateUpdates = PassthroughSubject<StateUpdate, Never>()
-		let cache: ImageCache
-		
-		init(cache: ImageCache) {
-			self.cache = cache
+		if !forceRetry, let cached = memoryCache.image(for: image, bucket: bucket, outlineRadius: outlineRadius) {
+			scheduleRevalidationIfNeeded(for: image)
+			return cached
 		}
 		
-		func resetCompleted() {
-			completed = []
+		if !forceRetry {
+			let diskExists = await Task.detached(priority: .userInitiated) {
+				FileManager.default.fileExists(atPath: image.localURL.path)
+			}.value
+			try Task.checkCancellation()
+			if diskExists {
+				if let decoded = await decodeCoalesced(
+					image: image,
+					bucket: bucket,
+					outlineRadius: outlineRadius,
+					radiusTenths: radiusTenths
+				) {
+					scheduleRevalidationIfNeeded(for: image)
+					return decoded
+				}
+				// Corrupt file on disk: clean it up before downloading again.
+				await Task.detached(priority: .utility) {
+					try? FileManager.default.removeItem(at: image.localURL)
+					try? FileManager.default.removeItem(at: image.metadataURL)
+				}.value
+				try Task.checkCancellation()
+			}
+		} else {
+			memoryCache.removeImages(for: image)
 		}
 		
-		func prepareOutlined(image: AssetImage, key: OutlinedKey, radius: CGFloat) async {
-			var cacheState = await cache.state(for: image)
-			if cacheState == nil {
-				await download(image)
-				cacheState = await cache.state(for: image)
-			}
-			guard case .cached(let base) = cacheState else { return }
-			let outlined = ImageCache.renderOutlined(base, radius: radius)
-			await cache.storeOutlined(outlined, for: key)
-			enqueueUpdate(of: image, to: .available)
-		}
+		onDownloadStart?()
+		try await downloadCoalesced(image: image)
+		try Task.checkCancellation()
 		
-		func download(_ image: AssetImage) async {
-			guard !completed.contains(image) else { return }
-			if inProgress[image] != nil {
-				await withCheckedContinuation {
-					inProgress[image]!.append($0)
-				}
-				return
-			}
-			inProgress[image] = []
-			defer {
-				let toMark = inProgress[image]!
-				inProgress[image] = nil
-				for continuation in toMark {
-					continuation.resume()
-				}
-			}
-			
-			if image.hasMetadata {
-				do {
-					let meta = try image.loadMetadata()
-					// already checked against this version
-					if meta.lastVersionCheckedAgainst == VersionHolder.version {
-						let predecoded = ImageCache.loadStateOffMain(for: image)
-						await cache.store(predecoded, for: image, forceUpdate: false)
-						enqueueUpdate(of: image, to: .available)
-						completed.insert(image)
-						return
-					}
-				} catch {
-					print("could not load metadata for \(image): \(error)")
-				}
-			}
-			
-			do {
-				enqueueUpdate(of: image, to: .downloading)
-				let wasReplaced = try await image.ensureDownloaded()
-				let predecoded = ImageCache.loadStateOffMain(for: image)
-				await cache.store(predecoded, for: image, forceUpdate: wasReplaced)
-				enqueueUpdate(of: image, to: .available)
-			} catch {
-				print("error loading image from \(image.url) stored at \(image.localURL):")
-				dump(error)
-				enqueueUpdate(of: image, to: .errored(error))
-				return
-			}
-			
-			completed.insert(image)
-			
-			var meta = (try? image.loadMetadata()) ?? .init(
-				versionDownloaded: VersionHolder.version,
-				lastVersionCheckedAgainst: VersionHolder.version
+		let decoded = await decodeCoalesced(
+			image: image,
+			bucket: bucket,
+			outlineRadius: outlineRadius,
+			radiusTenths: radiusTenths
+		)
+		guard let decoded else {
+			throw ImageLoadError.decodeFailed
+		}
+		return decoded
+	}
+	
+	private func decodeCoalesced(
+		image: AssetImage,
+		bucket: ImageBucket,
+		outlineRadius: CGFloat?,
+		radiusTenths: Int?
+	) async -> UIImage? {
+		if let cached = memoryCache.image(for: image, bucket: bucket, outlineRadius: outlineRadius) {
+			return cached
+		}
+		let key = DecodeKey(image: image, bucket: bucket, radiusTenths: radiusTenths)
+		if let existing = inFlightDecodes[key] {
+			return await existing.value
+		}
+		let task = Task<UIImage?, Never> {
+			await self.performDecode(
+				key: key,
+				outlineRadius: outlineRadius
 			)
-			meta.lastVersionCheckedAgainst = VersionHolder.version
-			do {
-				try image.save(meta)
-			} catch {
-				print("could not save metadata for \(image): \(error)")
+		}
+		inFlightDecodes[key] = task
+		return await task.value
+	}
+	
+	private func performDecode(key: DecodeKey, outlineRadius: CGFloat?) async -> UIImage? {
+		defer { inFlightDecodes[key] = nil }
+		
+		let image = key.image
+		let bucket = key.bucket
+		let radiusTenths = key.radiusTenths
+		let baseCached = memoryCache.image(for: image, bucket: bucket, outlineRadius: nil)
+		
+		let baseImage: UIImage?
+		if let baseCached {
+			baseImage = baseCached
+		} else {
+			let decoded = await Task.detached(priority: .userInitiated) {
+				ImageDecoder.decode(at: image.localURL, bucket: bucket)
+			}.value
+			if let decoded {
+				memoryCache.store(decoded, for: image, bucket: bucket)
 			}
+			baseImage = decoded
 		}
 		
-		private func enqueueUpdate(of image: AssetImage, to state: ImageState) {
-			stateUpdates.send(.init(image: image, state: state))
+		guard let baseImage else { return nil }
+		guard let outlineRadius, let radiusTenths else {
+			return baseImage
 		}
+		
+		if let existingOutlined = memoryCache.image(for: image, bucket: bucket, outlineRadius: outlineRadius) {
+			return existingOutlined
+		}
+		let outlined = await Task.detached(priority: .userInitiated) {
+			ImageDecoder.renderOutlined(baseImage, radius: outlineRadius)
+		}.value
+		memoryCache.storeOutlined(outlined, for: image, radiusTenths: radiusTenths)
+		return outlined
+	}
+	
+	private func downloadCoalesced(image: AssetImage) async throws {
+		if let existing = inFlightDownloads[image] {
+			try await existing.value
+			try Task.checkCancellation()
+			return
+		}
+		let task = Task<Void, Error> {
+			try await self.performDownload(image: image)
+		}
+		inFlightDownloads[image] = task
+		try await task.value
+		try Task.checkCancellation()
+	}
+	
+	private func performDownload(image: AssetImage) async throws {
+		defer { inFlightDownloads[image] = nil }
+		try await image.downloadToDisk()
+		memoryCache.removeImages(for: image)
+		let version = currentVersion
+		if !version.isEmpty {
+			await Task.detached(priority: .utility) {
+				let meta = ImageMetadata(versionDownloaded: version, lastVersionCheckedAgainst: version)
+				try? image.save(meta)
+			}.value
+			revalidated.insert(image)
+		}
+	}
+	
+	func scheduleRevalidationIfNeeded(for image: AssetImage) {
+		guard !currentVersion.isEmpty else { return }
+		guard !revalidated.contains(image), !revalidating.contains(image) else { return }
+		revalidating.insert(image)
+		revalidationQueue.append(image)
+		drainRevalidationQueue()
+	}
+	
+	private func drainRevalidationQueue() {
+		while activeRevalidations < Self.maxConcurrentRevalidations, !revalidationQueue.isEmpty {
+			let next = revalidationQueue.removeFirst()
+			let expectedVersion = currentVersion
+			let generation = clearGeneration
+			activeRevalidations += 1
+			Task.detached(priority: .utility) { [weak self] in
+				await self?.runRevalidation(
+					for: next,
+					expectedVersion: expectedVersion,
+					expectedGeneration: generation
+				)
+			}
+		}
+	}
+	
+	private nonisolated func runRevalidation(
+		for image: AssetImage,
+		expectedVersion: String,
+		expectedGeneration: UInt64
+	) async {
+		var wasReplaced = false
+		do {
+			if let meta = try? image.loadMetadata(), meta.lastVersionCheckedAgainst == expectedVersion {
+				await finishRevalidation(for: image, expectedGeneration: expectedGeneration, replaced: false)
+				return
+			}
+			guard let existingSize = FileManager.default.sizeOfItem(atPath: image.localURL.path) else {
+				await finishRevalidation(for: image, expectedGeneration: expectedGeneration, replaced: false)
+				return
+			}
+			let remoteSize = try await AssetImageClient.shared.sizeOfImage(at: image.url)
+			let stillValidGen = await isSameGeneration(expectedGeneration)
+			guard stillValidGen else {
+				await finishRevalidation(for: image, expectedGeneration: expectedGeneration, replaced: false)
+				return
+			}
+			if let remoteSize, remoteSize != existingSize {
+				try await image.downloadToDisk()
+				let stillValidAfterDownload = await isSameGeneration(expectedGeneration)
+				if stillValidAfterDownload {
+					let meta = ImageMetadata(versionDownloaded: expectedVersion, lastVersionCheckedAgainst: expectedVersion)
+					try? image.save(meta)
+					memoryCache.removeImages(for: image)
+					wasReplaced = true
+				}
+			} else {
+				var meta = (try? image.loadMetadata()) ?? ImageMetadata(
+					versionDownloaded: expectedVersion,
+					lastVersionCheckedAgainst: expectedVersion
+				)
+				meta.lastVersionCheckedAgainst = expectedVersion
+				try? image.save(meta)
+			}
+		} catch {
+			// Background check: keep displaying cached disk image silently.
+		}
+		await finishRevalidation(for: image, expectedGeneration: expectedGeneration, replaced: wasReplaced)
+	}
+	
+	private func isSameGeneration(_ expected: UInt64) -> Bool {
+		clearGeneration == expected
+	}
+	
+	private func finishRevalidation(
+		for image: AssetImage,
+		expectedGeneration: UInt64,
+		replaced: Bool
+	) {
+		activeRevalidations = max(0, activeRevalidations - 1)
+		if clearGeneration == expectedGeneration {
+			revalidating.remove(image)
+			revalidated.insert(image)
+			if replaced {
+				onImageReplaced(image)
+			}
+			drainRevalidationQueue()
+		}
+	}
+	
+	func prewarm(items: [(AssetImage, ImageBucket)]) {
+		prewarmTask?.cancel()
+		let cache = memoryCache
+		prewarmTask = Task.detached(priority: .utility) {
+			for (image, bucket) in items {
+				if Task.isCancelled { break }
+				if cache.image(for: image, bucket: bucket, outlineRadius: nil) != nil {
+					continue
+				}
+				guard FileManager.default.fileExists(atPath: image.localURL.path) else {
+					continue
+				}
+				if let decoded = ImageDecoder.decode(at: image.localURL, bucket: bucket) {
+					cache.store(decoded, for: image, bucket: bucket)
+				}
+				await Task.yield()
+			}
+		}
+	}
+	
+	func clear() async {
+		clearGeneration &+= 1
+		prewarmTask?.cancel()
+		prewarmTask = nil
+		revalidated.removeAll()
+		revalidating.removeAll()
+		revalidationQueue.removeAll()
+		memoryCache.removeAll()
+		await Task.detached(priority: .utility) {
+			try? AssetImage.removeCachedFiles()
+		}.value
+		onImageReplaced(nil)
 	}
 }
 
@@ -392,28 +646,11 @@ private extension AssetImage {
 		localURL.deletingPathExtension().appendingPathExtension("json")
 	}
 	
-	var hasMetadata: Bool {
-		FileManager.default.fileExists(atPath: metadataURL.path)
-	}
-	
 	func loadMetadata() throws -> ImageMetadata {
 		try JSONDecoder().decode(ImageMetadata.self, from: Data(contentsOf: metadataURL))
 	}
 	
 	func save(_ metadata: ImageMetadata) throws {
 		try JSONEncoder().encode(metadata).write(to: metadataURL, options: .atomic)
-	}
-}
-
-extension ImageManager.CacheState: CustomStringConvertible {
-	var description: String {
-		switch self {
-		case .missing:
-			return "CacheState.missing"
-		case .tooLarge:
-			return "CacheState.tooLarge"
-		case .cached:
-			return "CacheState.cached"
-		}
 	}
 }

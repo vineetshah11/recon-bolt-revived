@@ -9,6 +9,7 @@ final class AssetManager: ObservableObject {
 	@Published private(set) var assets: AssetCollection?
 	@Published private(set) var error: Error?
 	private var isDownloading = false
+	private var initialDiskLoadTask: Task<Void, Never>?
 	
 	var languageOverride: String? {
 		storage.languageOverride
@@ -22,24 +23,63 @@ final class AssetManager: ObservableObject {
 		FileManager.default.fileExists(atPath: Self.backupFileURL.path)
 	}
 	
-	@Published private var storage = Storage()
+	@Published private var storage: Storage
+	
+	private nonisolated static let legacyStoredDefaultsKey = "AssetManager.stored"
+	
+	nonisolated static var storedFileURL: URL {
+		FolderLocations.localData.appendingPathComponent("AssetCollection.json", isDirectory: false)
+	}
 	
 	nonisolated static var backupFileURL: URL {
 		FolderLocations.localData.appendingPathComponent("AssetBackup.bin", isDirectory: false)
 	}
 	
 	init() {
-		let storage = Storage()
+		let storage = PerfMonitor.measure("AssetManager.init", warnOverMs: 0) {
+			Storage()
+		}
 		self.storage = storage
-		self.assets = storage.assets
-		if storage.assets != nil, storage.installedAt == nil {
+		
+#if WIDGETS
+		let loaded = Self.loadStoredAssetsFromDiskOrMigrate()
+		self.assets = loaded
+		if loaded != nil, storage.installedAt == nil {
 			self.storage.installedAt = Date()
 		}
-		
 		Task { await tryLoadAssets() }
+#else
+		if isInSwiftUIPreview {
+			let loaded = Self.loadStoredAssetsFromDiskOrMigrate()
+			self.assets = loaded
+			if loaded != nil, storage.installedAt == nil {
+				self.storage.installedAt = Date()
+			}
+			Task { await tryLoadAssets() }
+		} else {
+			let loadTask = Task { @MainActor [weak self] in
+				let loaded = await Task.detached(priority: .userInitiated) {
+					Self.loadStoredAssetsFromDiskOrMigrate()
+				}.value
+				guard let self else { return }
+				if self.assets == nil, let loaded {
+					self.assets = loaded
+					if self.storage.installedAt == nil {
+						self.storage.installedAt = Date()
+					}
+				}
+			}
+			self.initialDiskLoadTask = loadTask
+			Task { [weak self] in
+				await loadTask.value
+				await self?.tryLoadAssets()
+			}
+		}
+#endif
 	}
 	
 	private init(assets: AssetCollection?) {
+		self.storage = Storage()
 		self.assets = assets
 		
 		Task { await tryLoadAssets() }
@@ -52,6 +92,7 @@ final class AssetManager: ObservableObject {
 	}
 	
 	func tryLoadAssets() async {
+		await initialDiskLoadTask?.value
 		guard !isDownloading else { return }
 		isDownloading = true
 		defer { isDownloading = false }
@@ -61,7 +102,7 @@ final class AssetManager: ObservableObject {
 		if self.error != nil { self.error = nil }
 		do {
 			let loaded = try await loadAssets()
-			if let current = assets, current.version == loaded.version, current.language == loaded.language, !current.flex.isEmpty, !current.levelBorders.isEmpty {
+			if let current = assets, current.version == loaded.version, current.language == loaded.language, !current.flex.isEmpty, !current.levelBorders.isEmpty, !current.gamePods.isEmpty {
 				return
 			}
 			assets = loaded
@@ -74,6 +115,7 @@ final class AssetManager: ObservableObject {
 	/// - returns: `true` if new assets were downloaded, `false` if already up to date.
 	@discardableResult
 	func checkForUpdates() async throws -> Bool {
+		await initialDiskLoadTask?.value
 		guard !isDownloading else { return false }
 		isDownloading = true
 		defer { isDownloading = false }
@@ -83,7 +125,7 @@ final class AssetManager: ObservableObject {
 		let client = AssetClient(language: language)
 		let newest = try await client.getCurrentVersion()
 		
-		if let current = assets, current.version == newest, current.language == language, !current.flex.isEmpty, !current.levelBorders.isEmpty {
+		if let current = assets, current.version == newest, current.language == language, !current.flex.isEmpty, !current.levelBorders.isEmpty, !current.gamePods.isEmpty {
 			return false
 		}
 		
@@ -92,27 +134,78 @@ final class AssetManager: ObservableObject {
 		return true
 	}
 	
-	func repairAssets(imageManager: ImageManager) async {
-		imageManager.clear()
-		error = nil
-		assets = nil
-		storage.assets = nil
+	func repairAssets(imageManager: ImageManager = .shared) async {
+		await imageManager.clear()
+		await reset()
 		await tryLoadAssets()
 	}
 	
 	func reset() async {
+		await initialDiskLoadTask?.value
 		error = nil
 		assets = nil
-		storage.assets = nil
+		storage.schemaVersion = 0
+		await Task.detached(priority: .utility) {
+			try? FileManager.default.removeItem(at: Self.storedFileURL)
+			UserDefaults.shared.removeObject(forKey: Self.legacyStoredDefaultsKey)
+		}.value
 	}
 	
-	func storageSizes() -> (installedBytes: Int64, backupBytes: Int64, widgetBytes: Int64) {
-		let storedData = (UserDefaults.shared.array(forKey: "AssetManager.stored") as? [Data])?.first
-			?? UserDefaults.shared.data(forKey: "AssetManager.stored")
-		let installedBytes = Int64(storedData?.count ?? 0)
-		let backupBytes = Int64(FileManager.default.sizeOfItem(atPath: Self.backupFileURL.path) ?? 0)
-		let widgetBytes = Self.computeWidgetBytes()
-		return (installedBytes, backupBytes, widgetBytes)
+	nonisolated static func computeStorageSizes() async -> (installedBytes: Int64, backupBytes: Int64, widgetBytes: Int64) {
+		await Task.detached(priority: .userInitiated) {
+			let fileBytes = FileManager.default.sizeOfItem(atPath: Self.storedFileURL.path)
+			let installedBytes = Int64(fileBytes ?? Self.legacyStoredDefaultsData()?.count ?? 0)
+			let backupBytes = Int64(FileManager.default.sizeOfItem(atPath: Self.backupFileURL.path) ?? 0)
+			let widgetBytes = Self.computeWidgetBytes()
+			return (installedBytes, backupBytes, widgetBytes)
+		}.value
+	}
+	
+	private nonisolated static func legacyStoredDefaultsData() -> Data? {
+		(UserDefaults.shared.array(forKey: legacyStoredDefaultsKey) as? [Data])?.first
+			?? UserDefaults.shared.data(forKey: legacyStoredDefaultsKey)
+	}
+	
+	private nonisolated static func loadStoredAssetsFromDiskOrMigrate() -> AssetCollection? {
+		PerfMonitor.measure("AssetManager.loadStoredAssets", warnOverMs: 5.0) {
+			let fm = FileManager.default
+			let decoder = JSONDecoder()
+			
+			if fm.fileExists(atPath: storedFileURL.path) {
+				if let data = try? Data(contentsOf: storedFileURL),
+				   let decoded = try? decoder.decode(AssetCollection.self, from: data) {
+					return decoded
+				}
+				if fm.fileExists(atPath: backupFileURL.path),
+				   let backupData = try? Data(contentsOf: backupFileURL),
+				   let decodedBackup = try? decoder.decode(AssetCollection.self, from: backupData) {
+					return decodedBackup
+				}
+				return nil
+			}
+			
+			if let legacyData = legacyStoredDefaultsData(),
+			   let decoded = try? decoder.decode(AssetCollection.self, from: legacyData) {
+				do {
+					try fm.createDirectory(
+						at: storedFileURL.deletingLastPathComponent(),
+						withIntermediateDirectories: true
+					)
+					try legacyData.write(to: storedFileURL, options: .atomic)
+					UserDefaults.shared.removeObject(forKey: legacyStoredDefaultsKey)
+				} catch {
+					print("Failed to migrate AssetCollection to file:", error)
+				}
+				return decoded
+			}
+			
+			if fm.fileExists(atPath: backupFileURL.path),
+			   let backupData = try? Data(contentsOf: backupFileURL),
+			   let decodedBackup = try? decoder.decode(AssetCollection.self, from: backupData) {
+				return decodedBackup
+			}
+			return nil
+		}
 	}
 	
 	private nonisolated static func computeWidgetBytes() -> Int64 {
@@ -152,7 +245,7 @@ final class AssetManager: ObservableObject {
 	static let mockEmpty = AssetManager(assets: nil)
 	#endif
 	
-	private static let currentSchemaVersion = 5
+	private static let currentSchemaVersion = 6
 	
 	var resolvedLanguage: String {
 		languageOverride
@@ -167,11 +260,12 @@ final class AssetManager: ObservableObject {
 		let version = try await client.getCurrentVersion()
 		if
 			storage.schemaVersion == Self.currentSchemaVersion,
-			let stored = storage.assets,
+			let stored = self.assets,
 			stored.version == version,
 			stored.language == language,
 			!stored.flex.isEmpty,
-			!stored.levelBorders.isEmpty
+			!stored.levelBorders.isEmpty,
+			!stored.gamePods.isEmpty
 		{
 			return stored
 		} else {
@@ -181,24 +275,28 @@ final class AssetManager: ObservableObject {
 	
 	private func downloadAndStore(client: AssetClient, version: AssetVersion) async throws -> AssetCollection {
 		let downloaded = try await client.collectAssets(for: version)
-		if let existingData = (UserDefaults.shared.array(forKey: "AssetManager.stored") as? [Data])?.first
-			?? UserDefaults.shared.data(forKey: "AssetManager.stored")
-		{
-			try? FileManager.default.createDirectory(
-				at: Self.backupFileURL.deletingLastPathComponent(),
+		try await Task.detached(priority: .userInitiated) {
+			let fm = FileManager.default
+			try fm.createDirectory(
+				at: Self.storedFileURL.deletingLastPathComponent(),
 				withIntermediateDirectories: true
 			)
-			try? existingData.write(to: Self.backupFileURL, options: .atomic)
-		}
-		storage.assets = downloaded
+			if fm.fileExists(atPath: Self.storedFileURL.path),
+			   let existingData = try? Data(contentsOf: Self.storedFileURL) {
+				try? existingData.write(to: Self.backupFileURL, options: .atomic)
+			} else if let legacyData = Self.legacyStoredDefaultsData() {
+				try? legacyData.write(to: Self.backupFileURL, options: .atomic)
+			}
+			let encoded = try JSONEncoder().encode(downloaded)
+			try encoded.write(to: Self.storedFileURL, options: .atomic)
+			UserDefaults.shared.removeObject(forKey: Self.legacyStoredDefaultsKey)
+		}.value
 		storage.schemaVersion = Self.currentSchemaVersion
 		storage.installedAt = Date()
 		return downloaded
 	}
 	
 	private struct Storage {
-		@UserDefault("AssetManager.stored", defaults: .shared)
-		var assets: AssetCollection?
 		@UserDefault("AssetManager.languageOverride", defaults: .shared)
 		var languageOverride: String?
 		@UserDefault("AssetManager.schemaVersion", defaults: .shared)
@@ -207,8 +305,6 @@ final class AssetManager: ObservableObject {
 		var installedAt: Date?
 	}
 }
-
-extension AssetCollection: DefaultsValueConvertible {}
 
 extension EnvironmentValues {
 	var assets: AssetCollection? {

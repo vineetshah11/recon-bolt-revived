@@ -1,6 +1,28 @@
 import SwiftUI
 import ValorantAPI
 import ArrayBuilder
+import UserDefault
+
+@MainActor
+final class MatchListFilterStore: ObservableObject {
+	static let shared = MatchListFilterStore()
+	
+	private var storage: Storage
+	@Published var filter: MatchListFilter {
+		didSet { storage.filter = filter }
+	}
+	
+	private init() {
+		let storage = Storage()
+		self.storage = storage
+		self.filter = storage.filter
+	}
+	
+	private struct Storage {
+		@UserDefault("MatchListView.filter")
+		var filter = MatchListFilter()
+	}
+}
 
 struct MatchListFilter: Codable {
 	var queues = AllowList<QueueID>()

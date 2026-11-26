@@ -23,7 +23,6 @@ struct RoundData: Animatable {
 		get { currentPosition }
 		set {
 			currentPosition = newValue
-			fatalError() // this isn't even called…
 		}
 	}
 	

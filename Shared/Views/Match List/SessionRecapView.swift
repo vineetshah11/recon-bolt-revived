@@ -3,20 +3,32 @@ import ValorantAPI
 
 struct SessionRecapView: View {
 	var userID: User.ID
-	var sessions: [PlaySession]
+	private let lazySource: (matches: [CompetitiveUpdate], detailsByID: [Match.ID: MatchDetails])?
 	
 	@LocalData var user: User?
 	@LocalData var identity: Player.Identity?
 	
 	@Environment(\.assets) private var assets
-	@EnvironmentObject private var imageManager: ImageManager
 	
+	@State private var sessions: [PlaySession]
+	@State private var isBuildingSessions: Bool
 	@State private var selectedIndex = 0
 	@State private var sharingSession: PlaySession?
 	
 	init(userID: User.ID, sessions: [PlaySession]) {
 		self.userID = userID
-		self.sessions = sessions
+		self.lazySource = nil
+		self._sessions = State(initialValue: sessions)
+		self._isBuildingSessions = State(initialValue: false)
+		self._user = .init(id: userID)
+		self._identity = .init(id: userID)
+	}
+	
+	init(userID: User.ID, matches: [CompetitiveUpdate], detailsByID: [Match.ID: MatchDetails]) {
+		self.userID = userID
+		self.lazySource = (matches, detailsByID)
+		self._sessions = State(initialValue: [])
+		self._isBuildingSessions = State(initialValue: true)
 		self._user = .init(id: userID)
 		self._identity = .init(id: userID)
 	}
@@ -30,7 +42,17 @@ struct SessionRecapView: View {
 	var body: some View {
 		ScrollView {
 			VStack(alignment: .leading, spacing: 18) {
-				if sessions.isEmpty {
+				if isBuildingSessions {
+					VStack(spacing: 12) {
+						ProgressView()
+						Text("Building session recaps...")
+							.font(.subheadline)
+							.foregroundStyle(.secondary)
+					}
+					.frame(maxWidth: .infinity)
+					.padding(32)
+					.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+				} else if sessions.isEmpty {
 					VStack(spacing: 10) {
 						Image(systemName: "clock.badge.checkmark")
 							.font(.system(size: 38, weight: .light))
@@ -101,6 +123,18 @@ struct SessionRecapView: View {
 		}
 		.withLocalData($user, id: userID)
 		.withLocalData($identity, id: userID)
+		.task {
+			guard let lazySource else { return }
+			let uid = userID
+			let matches = lazySource.matches
+			let detailsByID = lazySource.detailsByID
+			let built = await Task.detached(priority: .userInitiated) {
+				SessionRecapBuilder.buildSessions(userID: uid, matches: matches, detailsByID: detailsByID)
+			}.value
+			guard !Task.isCancelled else { return }
+			sessions = built
+			isBuildingSessions = false
+		}
 	}
 	
 	private var sessionSelectorBar: some View {
@@ -513,7 +547,7 @@ private struct SessionRecapShareSheet: View {
 	
 	@Environment(\.assets) private var assets
 	@Environment(\.dismiss) private var dismiss
-	@EnvironmentObject private var imageManager: ImageManager
+	@Environment(\.imageManager) private var imageManager
 	
 	@State private var renderedImage: UIImage?
 	@State private var isRendering = false
@@ -569,20 +603,10 @@ private struct SessionRecapShareSheet: View {
 	private func renderSnapshot() async {
 		isRendering = true
 		if let cardID, let cardAsset = assets?.playerCards[cardID]?.smallArt {
-			if let cached = cardAsset.load() {
-				preloadedCard = cached
-			} else {
-				_ = try? await cardAsset.ensureDownloaded()
-				preloadedCard = cardAsset.load()
-			}
+			preloadedCard = await imageManager.awaitImage(for: cardAsset, bucket: .icon)
 		}
 		if let aid = session.topAgentID, let agentAsset = assets?.agents[aid]?.displayIcon {
-			if let cached = agentAsset.load() {
-				preloadedAgent = cached
-			} else {
-				_ = try? await agentAsset.ensureDownloaded()
-				preloadedAgent = agentAsset.load()
-			}
+			preloadedAgent = await imageManager.awaitImage(for: agentAsset, bucket: .icon)
 		}
 		
 		let renderer = ImageRenderer(
@@ -595,7 +619,7 @@ private struct SessionRecapShareSheet: View {
 				preloadedAgentImage: preloadedAgent
 			)
 			.environment(\.assets, assets)
-			.environmentObject(imageManager)
+			.environment(\.imageManager, imageManager)
 			.frame(width: 375)
 			.padding(16)
 			.background(Color.groupedBackground)

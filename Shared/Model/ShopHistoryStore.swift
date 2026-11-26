@@ -44,14 +44,23 @@ final class ShopHistoryStore: ObservableObject {
 	private static let dayFormatter: DateFormatter = {
 		let formatter = DateFormatter()
 		formatter.locale = Locale(identifier: "en_US_POSIX")
+		formatter.timeZone = TimeZone(secondsFromGMT: 0)!
 		formatter.dateFormat = "yyyy-MM-dd"
 		return formatter
 	}()
 	
+	private static let expiryMatchTolerance: TimeInterval = 7_200 // 2h leeway for clock drift
+	private static let offerDuplicateWindow: TimeInterval = 26 * 3_600
+	
 	init() {
-		days = LocalJSONStore.load([ShopHistoryDay].self, from: filename) ?? []
+		let loaded = LocalJSONStore.load([ShopHistoryDay].self, from: filename) ?? []
+		let deduplicated = Self.deduplicateRotations(loaded)
+		days = deduplicated
 		lastDailyCheckAt = UserDefaults.standard.object(forKey: Self.lastCheckAtKey) as? Date
 		lastDailyCheckAccountCount = UserDefaults.standard.integer(forKey: Self.lastCheckCountKey)
+		if deduplicated != loaded {
+			persist()
+		}
 	}
 	
 	func days(for accountID: User.ID?) -> [ShopHistoryDay] {
@@ -83,18 +92,28 @@ final class ShopHistoryStore: ObservableObject {
 		}
 		let remaining = storefront.dailySkinStore.remainingDuration
 		let now = Date()
-		let dayKey = Self.dayFormatter.string(from: now)
+		let dayKey = Self.rotationKey(now: now, remainingDuration: remaining)
 		
-		if let existingIdx = days.firstIndex(where: { $0.accountID == accountID && $0.id == dayKey }) {
+		if let existingIdx = days.firstIndex(where: {
+			$0.accountID == accountID
+			&& Self.isSameRotation(
+				$0,
+				now: now,
+				remaining: remaining,
+				offerLevels: offerLevels,
+				targetKey: dayKey
+			)
+		}) {
 			let unchanged = days[existingIdx].offerSkinLevelIDs == offerLevels
 				&& days[existingIdx].nightMarketLevelIDs == nmLevels
 				&& days[existingIdx].accessoryOffers == accessories
+			days[existingIdx].id = dayKey
 			days[existingIdx].dailyRemainingDuration = remaining
-			days[existingIdx].date = now
+			days[existingIdx].date = max(days[existingIdx].date, now)
 			if !unchanged {
 				days[existingIdx].offerSkinLevelIDs = offerLevels
-				days[existingIdx].nightMarketLevelIDs = nmLevels
-				days[existingIdx].accessoryOffers = accessories
+				days[existingIdx].nightMarketLevelIDs = nmLevels ?? days[existingIdx].nightMarketLevelIDs
+				days[existingIdx].accessoryOffers = accessories ?? days[existingIdx].accessoryOffers
 			}
 		} else {
 			days.insert(
@@ -110,6 +129,8 @@ final class ShopHistoryStore: ObservableObject {
 				at: 0
 			)
 		}
+		
+		days = Self.deduplicateRotations(days)
 		
 		lastDailyCheckAt = now
 		if lastDailyCheckAccountCount == 0 {
@@ -219,7 +240,138 @@ final class ShopHistoryStore: ObservableObject {
 		}
 	}
 	
+	func exportDays(for playerIDs: Set<User.ID>?) -> [ShopHistoryDay] {
+		guard let playerIDs else { return days }
+		return days.filter { playerIDs.contains($0.accountID) }
+	}
+	
+	@discardableResult
+	func importDays(_ incoming: [ShopHistoryDay], replaceAll: Bool) async -> Int {
+		var working = replaceAll ? [] : days
+		var changedCount = 0
+		
+		for day in incoming {
+			if let idx = working.firstIndex(where: { $0.accountID == day.accountID && $0.id == day.id }) {
+				if day.date > working[idx].date {
+					working[idx] = day
+					changedCount += 1
+				}
+			} else {
+				working.append(day)
+				changedCount += 1
+			}
+		}
+		
+		working = Self.deduplicateRotations(working)
+		days = working
+		await LocalJSONStore.saveAndWait(days, to: filename)
+		return replaceAll ? working.count : changedCount
+	}
+	
+	static func rotationKey(now: Date, remainingDuration: TimeInterval?) -> String {
+		if let remaining = remainingDuration, remaining > 0, remaining <= 172_800 {
+			let expiry = now.addingTimeInterval(remaining)
+			// Anchoring 12h before expiry maps every timestamp inside a 24h UTC shop window to the same yyyy-MM-dd key.
+			let midpoint = expiry.addingTimeInterval(-43_200)
+			return dayFormatter.string(from: midpoint)
+		}
+		return dayFormatter.string(from: now)
+	}
+	
+	private static func isSameRotation(
+		_ existing: ShopHistoryDay,
+		now: Date,
+		remaining: TimeInterval?,
+		offerLevels: [Weapon.Skin.Level.ID],
+		targetKey: String
+	) -> Bool {
+		let existingNormalizedKey = existing.dailyRemainingDuration.map {
+			rotationKey(now: existing.date, remainingDuration: $0)
+		} ?? existing.id
+		if existing.id == targetKey || existingNormalizedKey == targetKey {
+			return true
+		}
+		if let existingRemaining = existing.dailyRemainingDuration, existingRemaining > 0,
+		   let remaining, remaining > 0 {
+			let existingExpiry = existing.date.addingTimeInterval(existingRemaining)
+			let newExpiry = now.addingTimeInterval(remaining)
+			if abs(existingExpiry.timeIntervalSince(newExpiry)) <= expiryMatchTolerance {
+				return true
+			}
+		}
+		if !offerLevels.isEmpty,
+		   existing.offerSkinLevelIDs.count == offerLevels.count,
+		   Set(existing.offerSkinLevelIDs) == Set(offerLevels),
+		   abs(now.timeIntervalSince(existing.date)) <= offerDuplicateWindow {
+			return true
+		}
+		return false
+	}
+	
+	private static func deduplicateRotations(_ input: [ShopHistoryDay]) -> [ShopHistoryDay] {
+		var result: [ShopHistoryDay] = []
+		let chronological = input.sorted { $0.date < $1.date }
+		
+		for var entry in chronological {
+			let normalizedKey: String
+			if let remaining = entry.dailyRemainingDuration, remaining > 0 {
+				normalizedKey = rotationKey(now: entry.date, remainingDuration: remaining)
+				entry.id = normalizedKey
+			} else {
+				normalizedKey = entry.id
+			}
+			
+			if let matchIdx = result.firstIndex(where: { existing in
+				existing.accountID == entry.accountID
+				&& isSameRotation(
+					existing,
+					now: entry.date,
+					remaining: entry.dailyRemainingDuration,
+					offerLevels: entry.offerSkinLevelIDs,
+					targetKey: normalizedKey
+				)
+			}) {
+				let older = result[matchIdx]
+				var merged = entry.date >= older.date ? entry : older
+				merged.id = normalizedKey.count == 10 ? normalizedKey : merged.id
+				merged.nightMarketLevelIDs = entry.nightMarketLevelIDs ?? older.nightMarketLevelIDs
+				merged.accessoryOffers = entry.accessoryOffers ?? older.accessoryOffers
+				if merged.dailyRemainingDuration == nil {
+					merged.dailyRemainingDuration = older.dailyRemainingDuration
+				}
+				result[matchIdx] = merged
+			} else {
+				result.append(entry)
+			}
+		}
+		
+		return result.sorted { $0.date > $1.date }
+	}
+	
 	private func persist() {
 		LocalJSONStore.save(days, to: filename)
+	}
+}
+
+extension ShopHistoryDay {
+	private static let utcParser: DateFormatter = {
+		let formatter = DateFormatter()
+		formatter.locale = Locale(identifier: "en_US_POSIX")
+		formatter.timeZone = TimeZone(secondsFromGMT: 0)!
+		formatter.dateFormat = "yyyy-MM-dd"
+		return formatter
+	}()
+	
+	/// Calendar-friendly date matching the UTC rotation ID (`yyyy-MM-dd`), avoiding local post-midnight shifts.
+	var rotationDisplayDate: Date {
+		if id.count == 10, let parsedUTC = Self.utcParser.date(from: id) {
+			var utcCal = Calendar(identifier: .gregorian)
+			utcCal.timeZone = TimeZone(secondsFromGMT: 0)!
+			let utcComps = utcCal.dateComponents([.year, .month, .day], from: parsedUTC)
+			if let localDate = Calendar.current.date(from: utcComps) {
+				return localDate
+			}
+		}
+		return date
 	}
 }

@@ -67,7 +67,7 @@ struct RankInfoView: View {
 	func tierIcon(info: CompetitiveTier?) -> some View {
 		CompetitiveTierImage(tierInfo: info)
 			.opacity(shouldFadeUnranked && info?.number == 0 ? 0.5 : 1)
-			.dynamicallyStroked(radius: unit, color: .white.opacity(0.5), blendMode: .plusLighter, avoidClipping: true)
+			.shadow(color: .white.opacity(0.35), radius: max(0.5, unit * 0.75))
 			.shadow(color: .black.opacity(0.2), radius: 2 * unit, x: 0, y: 2 * unit)
 	}
 	
@@ -209,7 +209,6 @@ struct RankInfoView_Previews: PreviewProvider, PreviewProviderWithAssets {
 			.previewDisplayName("Grid")
 		}
 		.previewLayout(.sizeThatFits)
-		.environmentObject(ImageManager())
 	}
 }
 #endif

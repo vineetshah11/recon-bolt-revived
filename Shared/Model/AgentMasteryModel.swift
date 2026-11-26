@@ -36,6 +36,10 @@ struct AgentMasterySummary: Identifiable {
 		guard nextLevelMPNeeded > 0 else { return 1 }
 		return min(1, max(0, Double(xpInCurrentLevel) / Double(nextLevelMPNeeded)))
 	}
+	
+	var hasMasteryActivity: Bool {
+		currentActLevel > 0 || currentActMP > 0 || lastActLevel > 0 || lifetimeLevel > 0
+	}
 }
 
 struct AgentMasteryPortraitMilestone: Identifiable {
@@ -380,6 +384,9 @@ enum AgentMasteryCalculator {
 	}
 	
 	private static func sortComparator(_ lhs: AgentMasterySummary, _ rhs: AgentMasterySummary) -> Bool {
+		if lhs.lifetimeLevel != rhs.lifetimeLevel {
+			return lhs.lifetimeLevel > rhs.lifetimeLevel
+		}
 		if lhs.currentActLevel != rhs.currentActLevel {
 			return lhs.currentActLevel > rhs.currentActLevel
 		}
@@ -389,9 +396,6 @@ enum AgentMasteryCalculator {
 		if lhs.lastActLevel != rhs.lastActLevel {
 			return lhs.lastActLevel > rhs.lastActLevel
 		}
-		if lhs.lifetimeLevel != rhs.lifetimeLevel {
-			return lhs.lifetimeLevel > rhs.lifetimeLevel
-		}
-		return lhs.displayName < rhs.displayName
+		return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
 	}
 }

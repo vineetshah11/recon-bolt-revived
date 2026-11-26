@@ -9,14 +9,26 @@ struct ActRankView: View {
 	var isShowingAllWins = false
 	
 	@Environment(\.seasons) private var seasons
-	@EnvironmentObject private var imageManager: ImageManager
+	@Environment(\.imageManager) private var imageManager
+	
+	@State private var triangleImages: [AssetImage: UIImage] = [:]
+	@State private var reloadToken = 0
+	
+	private var triangleTaskKey: String {
+		let winsKey = (seasonInfo.winsByTier ?? [:])
+			.filter { $0.key > 0 && $0.value > 0 }
+			.sorted { $0.key < $1.key }
+			.map { "\($0.key)" }
+			.joined(separator: ",")
+		return "\(reloadToken):\(seasonInfo.seasonID.description):\(winsKey):\(seasons != nil)"
+	}
 	
 	var body: some View {
 		let idealSize = isIcon ? 80 : 160.0
 		let standardRowCount = isIcon ? 3 : 7
+		let actInfo = seasons?.act(seasonInfo.seasonID)
 		
 		ZStack {
-			let actInfo = seasons?.act(seasonInfo.seasonID)
 			let border = actInfo?.borders.last { seasonInfo.winCount >= $0.winsRequired }
 			if let border {
 				let winsByTier = seasonInfo.winsByTier ?? [:]
@@ -96,11 +108,60 @@ struct ActRankView: View {
 		}
 		.aspectRatio(1, contentMode: .fit)
 		.frame(idealWidth: idealSize, idealHeight: idealSize)
+		.task(id: triangleTaskKey) {
+			await loadMissingTriangles(actInfo: actInfo)
+		}
+		.onReceive(imageManager.imageDidUpdate) { updated in
+			guard updated == nil || triangleImages[updated!] != nil else { return }
+			triangleImages.removeAll()
+			reloadToken &+= 1
+		}
+	}
+	
+	private func loadMissingTriangles(actInfo: Act?) async {
+		let winsByTier = seasonInfo.winsByTier ?? [:]
+		var targets: Set<AssetImage> = []
+		for (tier, count) in winsByTier where tier > 0 && count > 0 {
+			let tierInfo = seasons?.tierInfo(number: tier, in: actInfo)
+			if let up = tierInfo?.rankTriangleUpwards { targets.insert(up) }
+			if let down = tierInfo?.rankTriangleDownwards { targets.insert(down) }
+		}
+		var loaded: [AssetImage: UIImage] = [:]
+		var missing: [AssetImage] = []
+		for img in targets {
+			if let existing = triangleImages[img] ?? imageManager.cachedImage(for: img, bucket: .icon) {
+				loaded[img] = existing
+			} else {
+				missing.append(img)
+			}
+		}
+		if !missing.isEmpty {
+			await withTaskGroup(of: (AssetImage, UIImage?).self) { group in
+				for img in missing {
+					group.addTask { [imageManager] in
+						let uiImage = await imageManager.awaitImage(for: img, bucket: .icon)
+						return (img, uiImage)
+					}
+				}
+				for await (img, uiImage) in group {
+					if let uiImage {
+						loaded[img] = uiImage
+					}
+				}
+			}
+		}
+		guard !Task.isCancelled else { return }
+		if loaded.count != triangleImages.count || loaded.keys.contains(where: { triangleImages[$0] !== loaded[$0] }) {
+			triangleImages = loaded
+		}
 	}
 	
 	func resolve(_ image: AssetImage?, using context: GraphicsContext) -> GraphicsContext.ResolvedImage? {
-		imageManager.image(for: image)
-			.map { context.resolve(Image(uiImage: $0)) }
+		guard let image else { return nil }
+		guard let uiImage = triangleImages[image] ?? imageManager.cachedImage(for: image, bucket: .icon) else {
+			return nil
+		}
+		return context.resolve(Image(uiImage: uiImage))
 	}
 }
 
@@ -121,11 +182,9 @@ struct ActRankView_Previews: PreviewProvider {
 		}
 		.fixedSize()
 		.previewLayout(.sizeThatFits)
-		.environmentObject(ImageManager())
 		
 		ActRankView(seasonInfo: bySeason[currentAct.id]!, isShowingAllWins: true)
 			.preferredColorScheme(.dark)
-			.environmentObject(ImageManager())
 	}
 	
 	static func preview(for act: Act) -> some View {

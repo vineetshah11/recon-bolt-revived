@@ -1,7 +1,6 @@
 import SwiftUI
 
 struct CompetitiveTierImage: View {
-	@EnvironmentObject private var imageManager: ImageManager
 	@Environment(\.seasons) private var seasons
 	
 	var tier: Int
@@ -46,7 +45,6 @@ struct CompetitiveTierImage_Previews: PreviewProvider {
 		}
 		.fixedSize()
 		.padding()
-		.environmentObject(ImageManager())
 		.background(Color(.darkGray))
 		.previewLayout(.sizeThatFits)
 	}

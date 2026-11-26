@@ -54,6 +54,7 @@ struct MatchCell: View {
 			.withLocalData($matchDetails, id: match.id)
 			.task(id: match.id) {
 				guard autoDownloadMatches, matchDetails == nil, match.mapID != nil else { return }
+				guard await !LocalDataProvider.shared.matchDetailsManager.hasCachedFile(for: match.id) else { return }
 				await load { client in
 					_ = try? await client.fetchMatchDetails(for: match.id)
 				}

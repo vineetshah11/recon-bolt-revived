@@ -127,13 +127,21 @@ struct ShopHistoryView: View {
 				
 				if let remaining = day.dailyRemainingDuration {
 					let expiry = day.date.addingTimeInterval(remaining)
-					if expiry > Date() {
-						let hoursLeft = max(1, Int(ceil(expiry.timeIntervalSinceNow / Double(3600))))
-						Label("Ends in \(hoursLeft) hr\(hoursLeft == 1 ? "" : "s")", systemImage: "clock")
-							.font(.caption.weight(.medium))
-							.foregroundStyle(.secondary)
+					let secondsLeft = expiry.timeIntervalSinceNow
+					if secondsLeft > 0 {
+						if secondsLeft < 3600 {
+							let minsLeft = max(1, Int(ceil(secondsLeft / Double(60))))
+							Label("Ends in \(minsLeft) min", systemImage: "clock")
+								.font(.caption.weight(.medium))
+								.foregroundStyle(.secondary)
+						} else {
+							let hoursLeft = max(1, Int(ceil(secondsLeft / Double(3600))))
+							Label("Ends in \(hoursLeft) hr\(hoursLeft == 1 ? "" : "s")", systemImage: "clock")
+								.font(.caption.weight(.medium))
+								.foregroundStyle(.secondary)
+						}
 					} else {
-						Text(day.date.formatted(date: .abbreviated, time: .omitted))
+						Text(day.rotationDisplayDate.formatted(date: .abbreviated, time: .omitted))
 							.font(.caption)
 							.foregroundStyle(.secondary)
 					}
@@ -285,7 +293,7 @@ struct ShopHistoryView: View {
 			ForEach(days) { day in
 				VStack(alignment: .leading, spacing: 10) {
 					HStack {
-						Text(day.date.formatted(date: .complete, time: .omitted))
+						Text(day.rotationDisplayDate.formatted(date: .complete, time: .omitted))
 							.font(.subheadline.weight(.semibold))
 						Spacer()
 						if let nm = day.nightMarketLevelIDs, !nm.isEmpty {

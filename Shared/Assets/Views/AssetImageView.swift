@@ -20,6 +20,7 @@ struct AssetImageView<Provider: AssetImageProvider>: View {
 	var outlineRadius: CGFloat? = nil
 	var preferFullResolution = false
 	var shouldLoadImmediately = false
+	var bucket: ImageBucket? = nil
 	var getImage: (Provider.Asset) -> AssetImage?
 	
 	var body: some View {
@@ -33,7 +34,8 @@ struct AssetImageView<Provider: AssetImageProvider>: View {
 				aspectRatio: aspectRatio,
 				outlineRadius: outlineRadius,
 				preferFullResolution: preferFullResolution,
-				shouldLoadImmediately: shouldLoadImmediately
+				shouldLoadImmediately: shouldLoadImmediately,
+				bucket: bucket
 			)
 		} else if let id, let fallback = UIImage.bundledAsset(named: "\(id)".uppercased()) {
 			Image(uiImage: fallback)
@@ -56,6 +58,7 @@ extension AssetImageView {
 		outlineRadius: CGFloat? = nil,
 		preferFullResolution: Bool = false,
 		shouldLoadImmediately: Bool = false,
+		bucket: ImageBucket? = nil,
 		getImage: @escaping (Provider.Asset) -> AssetImage
 	) {
 		self.init(
@@ -64,7 +67,8 @@ extension AssetImageView {
 			aspectRatio: aspectRatio,
 			outlineRadius: outlineRadius,
 			preferFullResolution: preferFullResolution,
-			shouldLoadImmediately: shouldLoadImmediately
+			shouldLoadImmediately: shouldLoadImmediately,
+			bucket: bucket
 		) { getImage($0) } // optional promotion
 	}
 }

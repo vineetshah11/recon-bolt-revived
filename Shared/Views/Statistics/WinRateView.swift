@@ -535,7 +535,12 @@ private enum MatchOutcomeKey: Plottable {
 	case wins, draws, losses
 	
 	init?(primitivePlottable: String) {
-		fatalError()
+		switch primitivePlottable {
+		case Self.wins.primitivePlottable: self = .wins
+		case Self.draws.primitivePlottable: self = .draws
+		case Self.losses.primitivePlottable: self = .losses
+		default: return nil
+		}
 	}
 	
 	var primitivePlottable: String {

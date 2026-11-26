@@ -2,7 +2,7 @@ import SwiftUI
 
 struct AssetStorageView: View {
 	@ObservedObject var assetManager: AssetManager
-	@EnvironmentObject private var imageManager: ImageManager
+	@Environment(\.imageManager) private var imageManager
 	
 	@State private var newestVersion: AssetVersion?
 	@State private var isCheckingUpdates = false
@@ -55,7 +55,7 @@ struct AssetStorageView: View {
 								.frame(width: 24)
 							
 							VStack(alignment: .leading, spacing: 2) {
-								Text("Don't Delete Vantage to Fix This")
+								Text("Don't Delete Recon Bolt to Fix This")
 									.font(.body.weight(.semibold))
 									.foregroundStyle(.primary)
 								
@@ -86,8 +86,10 @@ struct AssetStorageView: View {
 						SettingsRowDivider(leadingInset: 16)
 						
 						Button {
-							imageManager.clear()
-							Task { await refreshSizes() }
+							Task {
+								await imageManager.clear()
+								await refreshSizes()
+							}
 						} label: {
 							HStack {
 								Text("Clear Cached Images")
@@ -102,7 +104,7 @@ struct AssetStorageView: View {
 						.buttonStyle(.plain)
 					}
 					
-					SettingsFooter("The backup is the previous version of the game assets. Vantage switches to it if the installed version can't be read.")
+					SettingsFooter("The backup is the previous version of the game assets. Recon Bolt switches to it if the installed version can't be read.")
 				}
 				
 				VStack(alignment: .leading, spacing: 8) {
@@ -326,8 +328,9 @@ struct AssetStorageView: View {
 	
 	@MainActor
 	private func refreshSizes() async {
-		let assetSizes = assetManager.storageSizes()
-		let breakdown = await StorageBreakdown.compute(assetManager: assetManager)
+		async let assetSizesTask = AssetManager.computeStorageSizes()
+		async let breakdownTask = StorageBreakdown.compute(assetManager: assetManager)
+		let (assetSizes, breakdown) = await (assetSizesTask, breakdownTask)
 		installedBytes = assetSizes.installedBytes
 		backupBytes = assetSizes.backupBytes
 		widgetBytes = assetSizes.widgetBytes
@@ -337,7 +340,7 @@ struct AssetStorageView: View {
 
 struct RepairGameAssetsView: View {
 	@ObservedObject var assetManager: AssetManager
-	@EnvironmentObject private var imageManager: ImageManager
+	@Environment(\.imageManager) private var imageManager
 	@State private var isRepairing = false
 	@State private var repairFinished = false
 	
@@ -363,7 +366,7 @@ struct RepairGameAssetsView: View {
 					.padding(.bottom, 8)
 					
 					VStack(alignment: .leading, spacing: 8) {
-						SettingsSectionHeader("If You Delete Vantage Instead")
+						SettingsSectionHeader("If You Delete Recon Bolt Instead")
 						
 						SettingsCard {
 							consequenceRow(icon: "person.crop.circle", title: "Accounts", status: "Signed Out")

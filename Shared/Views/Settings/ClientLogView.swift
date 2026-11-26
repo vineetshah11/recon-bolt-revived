@@ -27,12 +27,12 @@ struct ClientLogView: View {
 							ExchangeView(exchange: exchange)
 						} label: {
 							VStack(spacing: 4) {
-								Text(exchange.request.url!.description)
+								Text(exchange.request.url?.description ?? "")
 									.frame(maxWidth: .infinity, alignment: .leading)
 									.font(.footnote)
 								
 								HStack(alignment: .lastTextBaseline) {
-									Text(exchange.request.httpMethod!)
+									Text(exchange.request.httpMethod ?? "GET")
 										.fontWeight(.medium)
 									
 									if let code = exchange.statusCode {
@@ -66,6 +66,7 @@ struct ClientLogView: View {
 	
 	struct ExchangeView: View {
 		var exchange: ClientLog.Exchange
+		@Environment(\.openURL) private var openURL
 		
 		var body: some View {
 			Form {
@@ -74,8 +75,8 @@ struct ClientLogView: View {
 				}
 				
 				Section(header: Text("Request", comment: "Request Log: header")) {
-					LabeledRow(Text("Method", comment: "Request Log"), describing: exchange.request.httpMethod!)
-					LabeledRow(Text("URL", comment: "Request Log"), describing: exchange.request.url!)
+					LabeledRow(Text("Method", comment: "Request Log"), describing: exchange.request.httpMethod ?? "GET")
+					LabeledRow(Text("URL", comment: "Request Log"), describing: exchange.request.url?.description ?? "")
 					
 					bodyDetailsView(for: exchange.request.httpBody)
 				}
@@ -83,7 +84,7 @@ struct ClientLogView: View {
 				Section(header: Text("Response", comment: "Request Log: header")) {
 					switch exchange.result {
 					case .success(let response):
-						LabeledRow("Response Code", describing: response.httpMetadata!.statusCode)
+						LabeledRow("Response Code", describing: response.httpMetadata?.statusCode ?? 0)
 						
 						bodyDetailsView(for: response.body)
 					case .failure(let error):
@@ -102,21 +103,8 @@ struct ClientLogView: View {
 					}
 				}
 				
-				let info = ExchangeInfo(exchange)
-				let encodedInfo = try! JSONEncoder().encode(info)
-				let infoString = String(bytes: encodedInfo, encoding: .utf8)!
-				let mailBody = String(
-					localized: "Feedback Email Body",
-					defaultValue: """
-					What went wrong? Tell me about the error you just encountered:
-
-					YOUR BUG REPORT HERE
-
-					\(infoString)
-					""", comment: "Request Log: placeholder is replaced by error dump."
-				)
-				
 				Button {
+					guard let encodedInfo = try? JSONEncoder().encode(ExchangeInfo(exchange)) else { return }
 					UIPasteboard.general.setData(
 						encodedInfo,
 						forPasteboardType: UTType.json.identifier
@@ -125,14 +113,30 @@ struct ClientLogView: View {
 					Label("Copy to Clipboard", systemImage: "doc.on.doc")
 				}
 				
-				Link(destination: mailtoLink(body: mailBody)) {
+				Button {
+					guard
+						let encodedInfo = try? JSONEncoder().encode(ExchangeInfo(exchange)),
+						let infoString = String(bytes: encodedInfo, encoding: .utf8),
+						let url = mailtoLink(body: String(
+							localized: "Feedback Email Body",
+							defaultValue: """
+							What went wrong? Tell me about the error you just encountered:
+
+							YOUR BUG REPORT HERE
+
+							\(infoString)
+							""", comment: "Request Log: placeholder is replaced by error dump."
+						))
+					else { return }
+					openURL(url)
+				} label: {
 					Label("Send to Developer", systemImage: "envelope")
 				}
 			}
 			.navigationTitle(Text("Exchange", comment: "Request Log: title for an exchange"))
 		}
 		
-		func mailtoLink(body: String) -> URL {
+		func mailtoLink(body: String) -> URL? {
 			(URLComponents() <- {
 				$0.scheme = "mailto"
 				$0.queryItems = [
@@ -141,41 +145,13 @@ struct ClientLogView: View {
 					.init(name: "body", value: body),
 				]
 			})
-			.url!
+			.url
 		}
 		
 		func bodyDetailsView(for data: Data?) -> some View {
 			let body = data ?? .init()
-			let string = String(bytes: body, encoding: .utf8)
 			return NavigationLink {
-				ScrollView {
-					Group {
-						if let string {
-							Text(string)
-								.font(.footnote.monospaced())
-								.frame(maxWidth: .infinity, alignment: .leading)
-						} else {
-							Text("Binary Data", comment: "Request Log: shown for bodies that are not decodable to text")
-								.foregroundStyle(.secondary)
-						}
-					}
-					.padding()
-				}
-				.navigationTitle(String(
-					localized: "Exchange Body", defaultValue: "Body",
-					comment: "Request Log: title for detailed view of request body/contents"
-				))
-				.toolbar {
-					Button {
-						if let string {
-							UIPasteboard.general.string = string
-						} else {
-							UIPasteboard.general.setData(body, forPasteboardType: UTType.data.identifier)
-						}
-					} label: {
-						Label(String(localized: "Copy Body", comment: "Request Log: button to copy the request's body/contents (accessibility label)"), systemImage: "doc.on.doc")
-					}
-				}
+				BodyDetailView(data: body)
 			} label: {
 				LabeledRow(Text(String(
 					localized: "Exchange Body", defaultValue: "Body",
@@ -183,6 +159,42 @@ struct ClientLogView: View {
 				)), value: Text(Int64(body.count), format: .byteCount(style: .file)))
 			}
 			.disabled(body.isEmpty)
+		}
+	}
+	
+	private struct BodyDetailView: View {
+		let data: Data
+		
+		var body: some View {
+			let string = String(bytes: data, encoding: .utf8)
+			ScrollView {
+				Group {
+					if let string {
+						Text(string)
+							.font(.footnote.monospaced())
+							.frame(maxWidth: .infinity, alignment: .leading)
+					} else {
+						Text("Binary Data", comment: "Request Log: shown for bodies that are not decodable to text")
+							.foregroundStyle(.secondary)
+					}
+				}
+				.padding()
+			}
+			.navigationTitle(String(
+				localized: "Exchange Body", defaultValue: "Body",
+				comment: "Request Log: title for detailed view of request body/contents"
+			))
+			.toolbar {
+				Button {
+					if let string {
+						UIPasteboard.general.string = string
+					} else {
+						UIPasteboard.general.setData(data, forPasteboardType: UTType.data.identifier)
+					}
+				} label: {
+					Label(String(localized: "Copy Body", comment: "Request Log: button to copy the request's body/contents (accessibility label)"), systemImage: "doc.on.doc")
+				}
+			}
 		}
 	}
 }
@@ -202,13 +214,13 @@ struct ExchangeInfo: Encodable {
 	
 	struct Request: Encodable {
 		var method: String
-		var url: URL
+		var url: URL?
 		var headers: [String: String]
 		var body: Data
 		
 		init(_ raw: URLRequest) {
-			method = raw.httpMethod!
-			url = raw.url!
+			method = raw.httpMethod ?? "GET"
+			url = raw.url
 			headers = raw.allHTTPHeaderFields ?? [:]
 			body = raw.httpBody ?? .init()
 		}
@@ -234,7 +246,7 @@ struct ExchangeInfo: Encodable {
 		var body: Data
 		
 		init(_ raw: Protoresponse) {
-			statusCode = raw.httpMetadata!.statusCode
+			statusCode = raw.httpMetadata?.statusCode ?? 0
 			let rawHeaders = raw.httpMetadata?.allHeaderFields ?? [:]
 			headers = .init(uniqueKeysWithValues: rawHeaders.map {
 				(String(describing: $0), String(describing: $1))

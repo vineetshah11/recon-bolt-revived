@@ -29,12 +29,13 @@ struct HenrikAPIError: Error, LocalizedError {
 }
 
 private struct HenrikResponse<Body>: Decodable where Body: Decodable {
-	var status: Int
+	var status: Int?
 	var data: Body?
 	var errors: [HenrikError]?
 	
 	struct HenrikError: Codable {
 		var code: Int?
+		var status: Int?
 		var message: String?
 		var details: String?
 	}
@@ -48,13 +49,28 @@ private let responseDecoder = JSONDecoder() <- {
 
 extension HenrikRequest {
 	func decodeResponse(from raw: Protoresponse) throws -> Response {
-		let response = try raw.decodeJSON(as: HenrikResponse<Response>.self, using: responseDecoder)
+		let response: HenrikResponse<Response>
+		do {
+			response = try raw.decodeJSON(as: HenrikResponse<Response>.self, using: responseDecoder)
+		} catch {
+			if let httpStatus = raw.httpMetadata?.statusCode, !(200..<300).contains(httpStatus) {
+				throw HenrikAPIError(
+					status: httpStatus,
+					message: HTTPURLResponse.localizedString(forStatusCode: httpStatus)
+				)
+			}
+			throw error
+		}
 		guard let data = response.data else {
 			let message = response.errors?.lazy
 				.flatMap { [$0.message, $0.details] }
 				.compacted()
 				.joined(separator: "\n") ?? ""
-			throw HenrikAPIError(status: response.status, message: message)
+			let resolvedStatus = response.status
+				?? response.errors?.first?.status
+				?? raw.httpMetadata?.statusCode
+				?? 0
+			throw HenrikAPIError(status: resolvedStatus, message: message)
 		}
 		return data
 	}
@@ -65,12 +81,12 @@ extension HenrikClient {
 		let response = try await send(PlayerLookupRequest(name: name, tag: tag))
 		let user = User(id: response.puuid, gameName: response.name, tagLine: response.tag)
 		let location = try Location.location(forRegion: response.region)
-		??? PlayerLookupError.invalidRegion(response.region)
+		??? HenrikPlayerLookupError.invalidRegion(response.region)
 		return (user, location)
 	}
 }
 
-enum PlayerLookupError: Error {
+enum HenrikPlayerLookupError: Error {
 	case invalidRegion(String)
 }
 

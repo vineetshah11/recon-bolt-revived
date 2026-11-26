@@ -44,10 +44,11 @@ struct UserCell: View {
 }
 
 extension UserCell {
-	init(userID: User.ID, isSelected: Binding<Bool>) {
+	init(userID: User.ID, isSelected: Binding<Bool>, shouldAutoUpdate: Bool = false) {
 		self.init(
 			userID: userID,
 			isSelected: isSelected,
+			shouldAutoUpdate: shouldAutoUpdate,
 			user: .init(id: userID),
 			identity: .init(id: userID),
 			summary: .init(id: userID)

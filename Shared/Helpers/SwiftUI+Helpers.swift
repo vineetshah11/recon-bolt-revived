@@ -57,32 +57,74 @@ extension View {
 	}
 }
 
-#if !SWIFT_PACKAGE
-extension Bundle {
-	/// SwiftPM synthesizes `Bundle.module` for package resources. The Xcode target copies the same
-	/// `BundledAssets` folder into the app bundle, so fall back to that bundle here.
-	static var module: Bundle { .main }
+private final class BundledAssetCache: @unchecked Sendable {
+	static let shared = BundledAssetCache()
+	
+	private let images: NSCache<NSString, UIImage> = {
+		let cache = NSCache<NSString, UIImage>()
+		cache.countLimit = 128
+		cache.totalCostLimit = 16 * 1024 * 1024
+		return cache
+	}()
+	private let lock = NSLock()
+	private var missingNames: Set<String> = []
+	
+	func lookup(_ name: String) -> (hit: Bool, image: UIImage?) {
+		if let cached = images.object(forKey: name as NSString) {
+			return (true, cached)
+		}
+		lock.lock()
+		let isMissing = missingNames.contains(name)
+		lock.unlock()
+		return isMissing ? (true, nil) : (false, nil)
+	}
+	
+	func store(_ image: UIImage?, for name: String) {
+		guard let image else {
+			lock.lock()
+			missingNames.insert(name)
+			lock.unlock()
+			return
+		}
+		let cost: Int
+		if let cgImage = image.cgImage {
+			cost = max(1, cgImage.bytesPerRow * cgImage.height)
+		} else {
+			cost = max(1, Int(image.size.width * image.scale) * Int(image.size.height * image.scale) * 4)
+		}
+		images.setObject(image, forKey: name as NSString, cost: cost)
+	}
 }
-#endif
 
 extension UIImage {
 	/// Loads an asset image from either the compiled asset catalog or `Bundle.module/BundledAssets`.
 	static func bundledAsset(named name: String) -> UIImage? {
+		let cached = BundledAssetCache.shared.lookup(name)
+		if cached.hit {
+			return cached.image
+		}
+		
+		let resolved: UIImage?
 		if let assetImage = UIImage(named: name) {
-			return assetImage
+			resolved = assetImage
+		} else if let baseURL = Bundle.module.url(forResource: "BundledAssets", withExtension: nil) {
+			let fileURL = baseURL.appendingPathComponent("\(name).png")
+			if let image = UIImage(contentsOfFile: fileURL.path) {
+				resolved = image
+			} else {
+				let scaledURL = baseURL.appendingPathComponent("\(name)@3x.png")
+				if let data = try? Data(contentsOf: scaledURL) {
+					resolved = UIImage(data: data, scale: 3)
+				} else {
+					resolved = nil
+				}
+			}
+		} else {
+			resolved = nil
 		}
-		guard let baseURL = Bundle.module.url(forResource: "BundledAssets", withExtension: nil) else {
-			return nil
-		}
-		let fileURL = baseURL.appendingPathComponent("\(name).png")
-		if let image = UIImage(contentsOfFile: fileURL.path) {
-			return image
-		}
-		let scaledURL = baseURL.appendingPathComponent("\(name)@3x.png")
-		if let data = try? Data(contentsOf: scaledURL) {
-			return UIImage(data: data, scale: 3)
-		}
-		return nil
+		
+		BundledAssetCache.shared.store(resolved, for: name)
+		return resolved
 	}
 }
 
@@ -139,11 +181,14 @@ private struct OnSceneActivationModifier: ViewModifier {
 	var task: () async -> Void
 	
 	@Environment(\.scenePhase) private var scenePhase
+	@State private var lastPhase: ScenePhase?
 	
 	func body(content: Content) -> some View {
 		content
 			.task(id: scenePhase) {
-				guard scenePhase == .active else { return }
+				let previous = lastPhase
+				lastPhase = scenePhase
+				guard scenePhase == .active, let previous, previous != .active else { return }
 				await task()
 			}
 	}

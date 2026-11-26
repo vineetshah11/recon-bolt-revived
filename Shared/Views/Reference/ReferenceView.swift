@@ -3,7 +3,6 @@ import ValorantAPI
 
 struct ReferenceView: View {
 	@EnvironmentObject private var accountManager: AccountManager
-	@EnvironmentObject private var socialManager: SocialManager
 	@EnvironmentObject private var wishlistManager: WishlistManager
 	
 	var body: some View {
@@ -14,9 +13,7 @@ struct ReferenceView: View {
 						FriendsView()
 					} label: {
 						hubRow(icon: "person.2.fill", title: "Friends") {
-							Text("\(socialManager.onlineCount)")
-								.foregroundStyle(.secondary)
-								.monospacedDigit()
+							FriendsOnlineCountView()
 						}
 					}
 					
@@ -66,6 +63,14 @@ struct ReferenceView: View {
 						ProgressTimelinesView()
 					} label: {
 						hubRow(icon: "chart.xyaxis.line", title: "Progress Timelines")
+					}
+					
+					if let userID = accountManager.activeAccount?.id {
+						NavigationLink {
+							MapRatingsView(userID: userID)
+						} label: {
+							hubRow(icon: "map.fill", title: "Map Ranks")
+						}
 					}
 				} header: {
 					Text("Progress")
@@ -154,12 +159,23 @@ struct ReferenceView: View {
 	}
 }
 
+private struct FriendsOnlineCountView: View {
+	@EnvironmentObject private var onlineCount: SocialOnlineCount
+	
+	var body: some View {
+		Text("\(onlineCount.count)")
+			.foregroundStyle(.secondary)
+			.monospacedDigit()
+	}
+}
+
 #if DEBUG
 struct ReferenceView_Previews: PreviewProvider {
 	static var previews: some View {
 		ReferenceView()
 			.environmentObject(AccountManager.mocked)
 			.environmentObject(SocialManager())
+			.environmentObject(SocialOnlineCount())
 			.environmentObject(WishlistManager())
 			.withToolbar()
 	}

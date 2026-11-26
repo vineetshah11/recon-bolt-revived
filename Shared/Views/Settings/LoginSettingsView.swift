@@ -18,7 +18,7 @@ struct LoginSettingsView: View {
 					icon: "arrow.3.trianglepath",
 					title: "Clear Web Sign-In Data on Open",
 					isOn: $settings.clearWebSignInDataOnOpen,
-					footer: "When enabled, Vantage clears cookies and other website data (like local and session storage) each time you open the sign-in screen. This helps when switching third-party accounts or fixing sign-in issues. It doesn't remove your Vantage accounts and doesn't sign you out."
+					footer: "When enabled, Recon Bolt clears cookies and other website data (like local and session storage) each time you open the sign-in screen. This helps when switching third-party accounts or fixing sign-in issues. It doesn't remove your Recon Bolt accounts and doesn't sign you out."
 				)
 				
 				VStack(alignment: .leading, spacing: 8) {
@@ -56,7 +56,7 @@ struct LoginSettingsView: View {
 						.disabled(isClearingNow)
 					}
 					
-					SettingsFooter("Removes saved website data immediately. Use this if a sign-in page can't connect or if you want to switch to a different third-party account. Vantage accounts are unaffected.")
+					SettingsFooter("Removes saved website data immediately. Use this if a sign-in page can't connect or if you want to switch to a different third-party account. Recon Bolt accounts are unaffected.")
 				}
 			}
 			.padding(.horizontal, 16)
@@ -68,7 +68,7 @@ struct LoginSettingsView: View {
 		.alert("Web Sign-In Data Cleared", isPresented: $didClearNow) {
 			Button("OK", role: .cancel) {}
 		} message: {
-			Text("Saved cookies and website data for Riot sign-in pages have been removed. Your Vantage accounts are unaffected.")
+			Text("Saved cookies and website data for Riot sign-in pages have been removed. Your Recon Bolt accounts are unaffected.")
 		}
 	}
 }

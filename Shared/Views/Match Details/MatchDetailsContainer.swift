@@ -16,7 +16,12 @@ struct MatchDetailsContainer: View {
 	var body: some View {
 		Group {
 			if let details {
-				MatchDetailsView(data: .init(details: details, userID: userID))
+				if details.players.isEmpty {
+					Text("Match data unavailable.")
+						.foregroundStyle(.secondary)
+				} else {
+					MatchDetailsView(data: .init(details: details, userID: userID))
+				}
 			} else {
 				ProgressView()
 			}

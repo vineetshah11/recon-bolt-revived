@@ -193,31 +193,144 @@ enum XMPPEvent {
 	case archiveReceived(peerJID: String, messages: [XMPPChatMessage])
 }
 
+private final class ContinuationBox<Value: Sendable>: @unchecked Sendable {
+	private let lock = NSLock()
+	private var continuation: CheckedContinuation<Value, Error>?
+	private var pendingResult: Result<Value, Error>?
+	private var isResolved = false
+	private var waitingTimer: DispatchWorkItem?
+	
+	func setContinuation(_ continuation: CheckedContinuation<Value, Error>) {
+		let immediateResult: Result<Value, Error>?
+		lock.lock()
+		if let pending = pendingResult {
+			self.pendingResult = nil
+			immediateResult = pending
+		} else {
+			self.continuation = continuation
+			immediateResult = nil
+		}
+		lock.unlock()
+		if let immediateResult {
+			continuation.resume(with: immediateResult)
+		}
+	}
+	
+	@discardableResult
+	func resolve(with result: Result<Value, Error>) -> Bool {
+		let cont: CheckedContinuation<Value, Error>?
+		let timerToCancel: DispatchWorkItem?
+		lock.lock()
+		if isResolved {
+			lock.unlock()
+			return false
+		}
+		isResolved = true
+		timerToCancel = waitingTimer
+		waitingTimer = nil
+		if let existing = continuation {
+			continuation = nil
+			cont = existing
+		} else {
+			pendingResult = result
+			cont = nil
+		}
+		lock.unlock()
+		timerToCancel?.cancel()
+		if let cont {
+			cont.resume(with: result)
+		}
+		return true
+	}
+	
+	func scheduleWaitingGrace(
+		on queue: DispatchQueue,
+		delay: TimeInterval,
+		action: @escaping @Sendable () -> Void
+	) {
+		lock.lock()
+		if isResolved || waitingTimer != nil {
+			lock.unlock()
+			return
+		}
+		let item = DispatchWorkItem(block: action)
+		waitingTimer = item
+		lock.unlock()
+		queue.asyncAfter(deadline: .now() + delay, execute: item)
+	}
+	
+	func cancelWaitingGrace() {
+		lock.lock()
+		let item = waitingTimer
+		waitingTimer = nil
+		lock.unlock()
+		item?.cancel()
+	}
+}
+
 actor XMPPClient {
 	private var connection: NWConnection?
 	private var buffer = ""
+	private var pendingUTF8Bytes = Data()
 	private var region: XMPPRegion?
 	private var myJID = ""
 	private var isRunning = false
+	private var generation: UInt64 = 0
 	private var receiveTask: Task<Void, Never>?
+	private var keepaliveTask: Task<Void, Never>?
 	private var eventHandler: (@Sendable (XMPPEvent) async -> Void)?
 	private var pendingArchivePeerByIQID: [String: String] = [:]
 	
 	private let queue = DispatchQueue(label: "com.reconbolt.xmpp")
 	private let maxBufferBytes = 2_000_000
 	
+	private let riotMilliDateFormatter: DateFormatter = {
+		let f = DateFormatter()
+		f.locale = Locale(identifier: "en_US_POSIX")
+		f.timeZone = TimeZone(secondsFromGMT: 0)
+		f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+		return f
+	}()
+	
+	private let riotDateFormatter: DateFormatter = {
+		let f = DateFormatter()
+		f.locale = Locale(identifier: "en_US_POSIX")
+		f.timeZone = TimeZone(secondsFromGMT: 0)
+		f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+		return f
+	}()
+	
+	private let xmppFractionalDateStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+	private let xmppDateStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
+	
+	private func clearBuffer() {
+		buffer = ""
+		pendingUTF8Bytes.removeAll(keepingCapacity: true)
+	}
+	
+	private func ensureActiveGeneration(_ expectedGeneration: UInt64) throws {
+		try Task.checkCancellation()
+		guard generation == expectedGeneration else {
+			throw CancellationError()
+		}
+	}
+	
 	func connect(
 		client: ValorantClient,
 		onEvent: @escaping @Sendable (XMPPEvent) async -> Void
 	) async throws {
 		disconnect()
+		let gen = self.generation
 		eventHandler = onEvent
 		
-		async let accessToken = client.getAccessToken()
+		let rso = try await client.getAccessToken()
+		try ensureActiveGeneration(gen)
+		
 		async let entitlementsToken = client.getEntitlementsToken()
 		async let pasToken = client.getChatPASToken()
+		let (ent, pas) = try await (entitlementsToken, pasToken)
+		try ensureActiveGeneration(gen)
 		
-		let (rso, ent, pas) = try await (accessToken, entitlementsToken, pasToken)
 		let resolvedRegion = XMPPRegion.fromPASToken(pas, fallbackLocation: client.location)
 		self.region = resolvedRegion
 		
@@ -228,61 +341,122 @@ actor XMPPClient {
 		)
 		self.connection = conn
 		
-		try await awaitReady(connection: conn)
-		isRunning = true
-		
-		// 1. Open XMPP stream & SASL auth
-		try await openStream(region: resolvedRegion)
-		let featuresResp = try await readUntil(contains: "</stream:features>")
-		guard featuresResp.contains("X-Riot-RSO-PAS") else {
-			throw XMPPError.authenticationFailed
-		}
-		buffer = ""
-		
-		let authStanza = "<auth mechanism=\"X-Riot-RSO-PAS\" xmlns=\"urn:ietf:params:xml:ns:xmpp-sasl\"><rso_token>\(escapeXML(rso))</rso_token><pas_token>\(escapeXML(pas))</pas_token></auth>"
-		try await sendRaw(authStanza)
-		let authResp = try await readUntil(anyOf: ["<success", "<failure"])
-		if authResp.contains("<failure") {
-			throw XMPPError.authenticationFailed
-		}
-		buffer = ""
-		
-		// 2. Restart stream -> Bind -> Session -> Entitlements
-		try await openStream(region: resolvedRegion)
-		_ = try await readUntil(contains: "</stream:features>")
-		buffer = ""
-		
-		try await sendRaw("<iq id=\"_xmpp_bind1\" type=\"set\"><bind xmlns=\"urn:ietf:params:xml:ns:xmpp-bind\"><puuid-mode enabled=\"true\"/><resource>RC-VALORANT-SWIFT</resource></bind></iq>")
-		let bindResp = try await readIQResponse(id: "_xmpp_bind1")
-		if let extractedJID = extractTagContent(from: bindResp, tag: "jid") {
-			self.myJID = extractedJID.components(separatedBy: "/").first ?? extractedJID
-		}
-		
-		try await sendRaw("<iq id=\"_xmpp_session1\" type=\"set\"><session xmlns=\"urn:ietf:params:xml:ns:xmpp-session\"/></iq>")
-		_ = try await readIQResponse(id: "_xmpp_session1")
-		
-		try await sendRaw("<iq id=\"xmpp_entitlements_0\" type=\"set\"><entitlements xmlns=\"urn:riotgames:entitlements\"><token xmlns=\"\">\(escapeXML(ent))</token></entitlements></iq>")
-		_ = try await readIQResponse(id: "xmpp_entitlements_0")
-		
-		await onEvent(.connected(myJID: myJID))
-		
-		// 3. Request roster & announce initial presence
-		try await sendRaw("<iq type=\"get\" id=\"roster_request\"><query xmlns=\"jabber:iq:riotgames:roster\" last_state=\"true\" /></iq>")
-		try await sendRaw("<presence/>")
-		
-		receiveTask = Task { [weak self] in
-			await self?.runReceiveLoop()
+		do {
+			try await awaitReady(connection: conn, host: resolvedRegion.host)
+			try ensureActiveGeneration(gen)
+			isRunning = true
+			
+			// 1. Open XMPP stream & SASL auth
+			try await openStream(region: resolvedRegion, on: conn)
+			try ensureActiveGeneration(gen)
+			let featuresResp = try await readUntil(contains: "</stream:features>", on: conn)
+			try ensureActiveGeneration(gen)
+			guard featuresResp.contains("X-Riot-RSO-PAS") else {
+				throw XMPPError.authenticationFailed
+			}
+			clearBuffer()
+			
+			let authStanza = "<auth mechanism=\"X-Riot-RSO-PAS\" xmlns=\"urn:ietf:params:xml:ns:xmpp-sasl\"><rso_token>\(escapeXML(rso))</rso_token><pas_token>\(escapeXML(pas))</pas_token></auth>"
+			try await sendRaw(authStanza, on: conn)
+			let authResp = try await readUntil(anyOf: ["<success", "<failure"], on: conn)
+			try ensureActiveGeneration(gen)
+			if authResp.contains("<failure") {
+				throw XMPPError.authenticationFailed
+			}
+			clearBuffer()
+			
+			// 2. Restart stream -> Bind -> Session -> Entitlements
+			try await openStream(region: resolvedRegion, on: conn)
+			_ = try await readUntil(contains: "</stream:features>", on: conn)
+			try ensureActiveGeneration(gen)
+			clearBuffer()
+			
+			try await sendRaw("<iq id=\"_xmpp_bind1\" type=\"set\"><bind xmlns=\"urn:ietf:params:xml:ns:xmpp-bind\"><puuid-mode enabled=\"true\"/><resource>RC-VALORANT-SWIFT</resource></bind></iq>", on: conn)
+			let bindResp = try await readIQResponse(id: "_xmpp_bind1", on: conn)
+			try ensureActiveGeneration(gen)
+			if let extractedJID = extractTagContent(from: bindResp, tag: "jid") {
+				self.myJID = extractedJID.components(separatedBy: "/").first ?? extractedJID
+			}
+			
+			try await sendRaw("<iq id=\"_xmpp_session1\" type=\"set\"><session xmlns=\"urn:ietf:params:xml:ns:xmpp-session\"/></iq>", on: conn)
+			_ = try await readIQResponse(id: "_xmpp_session1", on: conn)
+			try ensureActiveGeneration(gen)
+			
+			try await sendRaw("<iq id=\"xmpp_entitlements_0\" type=\"set\"><entitlements xmlns=\"urn:riotgames:entitlements\"><token xmlns=\"\">\(escapeXML(ent))</token></entitlements></iq>", on: conn)
+			_ = try await readIQResponse(id: "xmpp_entitlements_0", on: conn)
+			try ensureActiveGeneration(gen)
+			
+			await onEvent(.connected(myJID: myJID))
+			try ensureActiveGeneration(gen)
+			
+			// 3. Request roster & announce initial presence
+			try await sendRaw("<iq type=\"get\" id=\"roster_request\"><query xmlns=\"jabber:iq:riotgames:roster\" last_state=\"true\" /></iq>", on: conn)
+			try await sendRaw("<presence/>", on: conn)
+			try ensureActiveGeneration(gen)
+			
+			receiveTask = Task { [weak self] in
+				await self?.runReceiveLoop(generation: gen, connection: conn)
+			}
+			keepaliveTask = Task { [weak self] in
+				await self?.runKeepaliveLoop(generation: gen, connection: conn)
+			}
+		} catch {
+			if generation == gen {
+				disconnect()
+			} else {
+				conn.cancel()
+			}
+			if case XMPPError.authenticationFailed = error {
+				await client.invalidateChatPASToken()
+			}
+			throw error
 		}
 	}
 	
 	func disconnect() {
+		generation &+= 1
 		isRunning = false
 		receiveTask?.cancel()
 		receiveTask = nil
+		keepaliveTask?.cancel()
+		keepaliveTask = nil
 		pendingArchivePeerByIQID.removeAll()
 		connection?.cancel()
 		connection = nil
-		buffer = ""
+		clearBuffer()
+	}
+	
+	func ping(timeout: TimeInterval = 4) async -> Bool {
+		guard isRunning, let conn = connection, conn.state == .ready else {
+			return false
+		}
+		let box = ContinuationBox<Void>()
+		let timeoutItem = DispatchWorkItem {
+			if box.resolve(with: .failure(XMPPError.timedOut("pinging Riot Chat"))) {
+				conn.cancel()
+			}
+		}
+		defer { timeoutItem.cancel() }
+		do {
+			try await withTaskCancellationHandler {
+				try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+					queue.asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
+					conn.send(content: Data(" ".utf8), completion: .contentProcessed { error in
+						if let error {
+							box.resolve(with: .failure(XMPPError.connectionFailed(error.localizedDescription)))
+						} else {
+							box.resolve(with: .success(()))
+						}
+					})
+					box.setContinuation(continuation)
+				}
+			} onCancel: {
+				_ = box.resolve(with: .failure(CancellationError()))
+			}
+			return true
+		} catch {
+			return false
+		}
 	}
 	
 	func requestRosterRefresh() async throws {
@@ -336,107 +510,140 @@ actor XMPPClient {
 	
 	// MARK: - Networking Helpers
 	
-	private func openStream(region: XMPPRegion) async throws {
+	private func openStream(region: XMPPRegion, on connection: NWConnection) async throws {
 		let open = "<?xml version='1.0'?><stream:stream to='\(region.domain).pvp.net' version='1.0' xmlns='jabber:client' xmlns:stream='http://etherx.jabber.org/streams'>"
-		try await sendRaw(open)
+		try await sendRaw(open, on: connection)
 	}
 	
-	private func awaitReady(connection: NWConnection, timeout: TimeInterval = 12) async throws {
-		final class StateBox: @unchecked Sendable {
-			let lock = NSLock()
-			var resolved = false
-			func resolve() -> Bool {
-				lock.lock(); defer { lock.unlock() }
-				if resolved { return false }
-				resolved = true
-				return true
+	private func awaitReady(connection: NWConnection, host: String, timeout: TimeInterval = 12) async throws {
+		let box = ContinuationBox<Void>()
+		let overallTimeout = DispatchWorkItem {
+			if box.resolve(with: .failure(XMPPError.timedOut("connecting to \(host)"))) {
+				connection.cancel()
 			}
 		}
-		let box = StateBox()
-		let host = region?.host ?? "chat server"
-		try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-			connection.stateUpdateHandler = { state in
-				switch state {
-				case .ready:
-					if box.resolve() { continuation.resume() }
-				case .failed(let err):
-					if box.resolve() { continuation.resume(throwing: XMPPError.connectionFailed(err.localizedDescription)) }
-				case .waiting(let err):
-					// e.g. DNS failure: NWConnection would otherwise wait forever
-					if box.resolve() {
-						connection.cancel()
-						continuation.resume(throwing: XMPPError.connectionFailed("\(host): \(err.localizedDescription)"))
+		defer { overallTimeout.cancel() }
+		
+		try await withTaskCancellationHandler {
+			try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+				connection.stateUpdateHandler = { [queue] state in
+					switch state {
+					case .ready:
+						_ = box.resolve(with: .success(()))
+					case .failed(let err):
+						_ = box.resolve(with: .failure(XMPPError.connectionFailed(err.localizedDescription)))
+					case .waiting(let err):
+						// Allow brief network transitions (e.g. Wi-Fi <-> cellular) before failing.
+						box.scheduleWaitingGrace(on: queue, delay: 4) {
+							if box.resolve(with: .failure(XMPPError.connectionFailed("\(host): \(err.localizedDescription)"))) {
+								connection.cancel()
+							}
+						}
+					case .preparing, .setup:
+						box.cancelWaitingGrace()
+					case .cancelled:
+						_ = box.resolve(with: .failure(XMPPError.connectionClosed))
+					@unknown default:
+						break
 					}
-				case .cancelled:
-					if box.resolve() { continuation.resume(throwing: XMPPError.connectionClosed) }
-				default:
-					break
 				}
+				queue.asyncAfter(deadline: .now() + timeout, execute: overallTimeout)
+				connection.start(queue: queue)
+				box.setContinuation(continuation)
 			}
-			connection.start(queue: queue)
-			queue.asyncAfter(deadline: .now() + timeout) {
-				if box.resolve() {
-					connection.cancel()
-					continuation.resume(throwing: XMPPError.timedOut("connecting to \(host)"))
-				}
+		} onCancel: {
+			if box.resolve(with: .failure(CancellationError())) {
+				connection.cancel()
 			}
 		}
 	}
 	
-	private func sendRaw(_ string: String) async throws {
-		guard let connection, let data = string.data(using: .utf8) else {
+	private func sendRaw(_ string: String, on targetConnection: NWConnection? = nil) async throws {
+		guard let conn = targetConnection ?? connection, let data = string.data(using: .utf8) else {
 			throw XMPPError.notConnected
 		}
-		try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-			connection.send(content: data, completion: .contentProcessed { error in
-				if let error {
-					continuation.resume(throwing: XMPPError.connectionFailed(error.localizedDescription))
-				} else {
-					continuation.resume()
-				}
-			})
-		}
-	}
-	
-	/// Receives with a deadline: if nothing arrives in time the connection is cancelled, which fails the pending receive.
-	private func receiveChunk(timeout: TimeInterval) async throws -> String {
-		guard let connection else { throw XMPPError.connectionClosed }
-		let timer = DispatchWorkItem { connection.cancel() }
-		queue.asyncAfter(deadline: .now() + timeout, execute: timer)
-		defer { timer.cancel() }
-		do {
-			return try await receiveChunk()
-		} catch {
-			if timer.isCancelled == false, connection.state == .cancelled {
-				throw XMPPError.timedOut("reading from Riot Chat")
+		let box = ContinuationBox<Void>()
+		try await withTaskCancellationHandler {
+			try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+				conn.send(content: data, completion: .contentProcessed { error in
+					if let error {
+						box.resolve(with: .failure(XMPPError.connectionFailed(error.localizedDescription)))
+					} else {
+						box.resolve(with: .success(()))
+					}
+				})
+				box.setContinuation(continuation)
 			}
-			throw error
+		} onCancel: {
+			_ = box.resolve(with: .failure(CancellationError()))
 		}
 	}
 	
-	private func receiveChunk() async throws -> String {
-		guard let connection else { throw XMPPError.connectionClosed }
-		return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
-			connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
-				if let error {
-					continuation.resume(throwing: XMPPError.connectionFailed(error.localizedDescription))
-				} else if let data, !data.isEmpty {
-					let text = String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
-					continuation.resume(returning: text)
-				} else if isComplete {
-					continuation.resume(throwing: XMPPError.connectionClosed)
-				} else {
-					continuation.resume(throwing: XMPPError.connectionClosed)
+	private func receiveChunk(on connection: NWConnection, timeout: TimeInterval? = nil) async throws -> Data {
+		let box = ContinuationBox<Data>()
+		let timeoutItem: DispatchWorkItem? = timeout.map { _ in
+			DispatchWorkItem {
+				if box.resolve(with: .failure(XMPPError.timedOut("reading from Riot Chat"))) {
+					connection.cancel()
 				}
 			}
 		}
+		defer { timeoutItem?.cancel() }
+		
+		return try await withTaskCancellationHandler {
+			try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
+				if let timeoutItem, let timeout {
+					queue.asyncAfter(deadline: .now() + timeout, execute: timeoutItem)
+				}
+				connection.receive(minimumIncompleteLength: 1, maximumLength: 65536) { data, _, isComplete, error in
+					if let error {
+						box.resolve(with: .failure(XMPPError.connectionFailed(error.localizedDescription)))
+					} else if let data, !data.isEmpty {
+						box.resolve(with: .success(data))
+					} else if isComplete {
+						box.resolve(with: .failure(XMPPError.connectionClosed))
+					} else {
+						box.resolve(with: .failure(XMPPError.connectionClosed))
+					}
+				}
+				box.setContinuation(continuation)
+			}
+		} onCancel: {
+			if box.resolve(with: .failure(CancellationError())) {
+				connection.cancel()
+			}
+		}
 	}
 	
-	private func readUntil(contains marker: String) async throws -> String {
-		try await readUntil(anyOf: [marker])
+	private func appendUTF8Chunk(_ data: Data) {
+		guard !data.isEmpty else { return }
+		pendingUTF8Bytes.append(data)
+		
+		if let fullText = String(data: pendingUTF8Bytes, encoding: .utf8) {
+			buffer.append(fullText)
+			pendingUTF8Bytes.removeAll(keepingCapacity: true)
+			return
+		}
+		
+		let count = pendingUTF8Bytes.count
+		for trim in 1...min(3, count) {
+			let prefix = pendingUTF8Bytes.prefix(count - trim)
+			if let text = String(data: prefix, encoding: .utf8) {
+				buffer.append(text)
+				pendingUTF8Bytes = Data(pendingUTF8Bytes.suffix(trim))
+				return
+			}
+		}
+		
+		buffer.append(String(decoding: pendingUTF8Bytes, as: UTF8.self))
+		pendingUTF8Bytes.removeAll(keepingCapacity: true)
 	}
 	
-	private func readUntil(anyOf markers: [String], timeout: TimeInterval = 12) async throws -> String {
+	private func readUntil(contains marker: String, on connection: NWConnection) async throws -> String {
+		try await readUntil(anyOf: [marker], on: connection)
+	}
+	
+	private func readUntil(anyOf markers: [String], on connection: NWConnection, timeout: TimeInterval = 12) async throws -> String {
 		let deadline = Date().addingTimeInterval(timeout)
 		while !markers.contains(where: { buffer.contains($0) }) {
 			if buffer.contains("<stream:error") || buffer.contains("</stream:stream>") {
@@ -444,34 +651,39 @@ actor XMPPClient {
 			}
 			let remaining = deadline.timeIntervalSinceNow
 			guard remaining > 0 else { throw XMPPError.timedOut("waiting for \(markers.first ?? "response")") }
-			let chunk = try await receiveChunk(timeout: remaining)
-			buffer.append(chunk)
-			if buffer.utf8.count > maxBufferBytes {
+			let chunk = try await receiveChunk(on: connection, timeout: remaining)
+			appendUTF8Chunk(chunk)
+			if buffer.utf8.count + pendingUTF8Bytes.count > maxBufferBytes {
 				throw XMPPError.bufferOverflow
 			}
 		}
 		return buffer
 	}
 	
-	private func readIQResponse(id: String, timeout: TimeInterval = 12) async throws -> String {
+	private func readIQResponse(id: String, on connection: NWConnection, timeout: TimeInterval = 12) async throws -> String {
 		let deadline = Date().addingTimeInterval(timeout)
 		while true {
 			if let iqStart = findIQStart(containingID: id, in: buffer) {
-				let searchRange = iqStart..<buffer.endIndex
 				let closeRange: Range<String.Index>? = {
-					if let closeIQ = buffer.range(of: "</iq>", range: searchRange) {
-						return closeIQ
-					}
-					if let selfClose = buffer.range(of: "/>", range: searchRange),
-					   let firstGT = buffer.range(of: ">", range: searchRange),
-					   selfClose.upperBound == firstGT.upperBound {
-						return selfClose
+					if let openTagEnd = findTagEnd(in: buffer, from: iqStart) {
+						if openTagEnd > iqStart && buffer[buffer.index(before: openTagEnd)] == "/" {
+							let slashIdx = buffer.index(before: openTagEnd)
+							return slashIdx..<buffer.index(after: openTagEnd)
+						}
+						if let closeIQ = buffer.range(of: "</iq>", range: buffer.index(after: openTagEnd)..<buffer.endIndex) {
+							return closeIQ
+						}
 					}
 					return nil
 				}()
 				if let closeRange {
 					let stanza = String(buffer[iqStart..<closeRange.upperBound])
-					buffer.removeSubrange(buffer.startIndex..<closeRange.upperBound)
+					buffer.removeSubrange(iqStart..<closeRange.upperBound)
+					if extractAttribute("type", from: stanza) == "error" {
+						throw id == "xmpp_entitlements_0"
+							? XMPPError.authenticationFailed
+							: XMPPError.connectionFailed("XMPP IQ error for \(id)")
+					}
 					return stanza
 				}
 			}
@@ -480,9 +692,9 @@ actor XMPPClient {
 			}
 			let remaining = deadline.timeIntervalSinceNow
 			guard remaining > 0 else { throw XMPPError.timedOut("waiting for \(id)") }
-			let chunk = try await receiveChunk(timeout: remaining)
-			buffer.append(chunk)
-			if buffer.utf8.count > maxBufferBytes {
+			let chunk = try await receiveChunk(on: connection, timeout: remaining)
+			appendUTF8Chunk(chunk)
+			if buffer.utf8.count + pendingUTF8Bytes.count > maxBufferBytes {
 				throw XMPPError.bufferOverflow
 			}
 		}
@@ -493,15 +705,30 @@ actor XMPPClient {
 		return xml.range(of: "<iq", options: .backwards, range: xml.startIndex..<idRange.lowerBound)?.lowerBound
 	}
 	
-	private func runReceiveLoop() async {
-		while isRunning && !Task.isCancelled {
+	private func runKeepaliveLoop(generation expectedGeneration: UInt64, connection: NWConnection) async {
+		while isRunning && generation == expectedGeneration && !Task.isCancelled {
+			try? await Task.sleep(for: .seconds(45))
+			guard isRunning && generation == expectedGeneration && !Task.isCancelled else { break }
+			do {
+				try await sendRaw(" ", on: connection)
+			} catch {
+				if isRunning && generation == expectedGeneration {
+					connection.cancel()
+				}
+				break
+			}
+		}
+	}
+	
+	private func runReceiveLoop(generation expectedGeneration: UInt64, connection: NWConnection) async {
+		while isRunning && generation == expectedGeneration && !Task.isCancelled {
 			do {
 				while let stanza = popNextStanza() {
 					await handleStanza(stanza)
 				}
-				let chunk = try await receiveChunk()
-				buffer.append(chunk)
-				if buffer.utf8.count > maxBufferBytes {
+				let chunk = try await receiveChunk(on: connection, timeout: nil)
+				appendUTF8Chunk(chunk)
+				if buffer.utf8.count + pendingUTF8Bytes.count > maxBufferBytes {
 					throw XMPPError.bufferOverflow
 				}
 				if buffer.contains("</stream:stream>") {
@@ -511,8 +738,10 @@ actor XMPPClient {
 					await handleStanza(stanza)
 				}
 			} catch {
-				if isRunning {
+				if isRunning && generation == expectedGeneration {
 					isRunning = false
+					keepaliveTask?.cancel()
+					keepaliveTask = nil
 					await eventHandler?(.disconnected(error))
 				}
 				break
@@ -521,6 +750,23 @@ actor XMPPClient {
 	}
 	
 	// MARK: - Stanza Extraction & Parsing
+	
+	private func findTagEnd(in string: String, from start: String.Index) -> String.Index? {
+		var quote: Character?
+		var idx = start
+		while idx < string.endIndex {
+			let ch = string[idx]
+			if let q = quote {
+				if ch == q { quote = nil }
+			} else if ch == "\"" || ch == "'" {
+				quote = ch
+			} else if ch == ">" {
+				return idx
+			}
+			idx = string.index(after: idx)
+		}
+		return nil
+	}
 	
 	private func popNextStanza() -> String? {
 		let trimmed = buffer.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -570,7 +816,7 @@ actor XMPPClient {
 				if afterName < buffer.endIndex {
 					let next = buffer[afterName]
 					if next == " " || next == ">" || next == "/" {
-						guard let gtIndex = buffer.range(of: ">", range: afterName..<buffer.endIndex)?.lowerBound else {
+						guard let gtIndex = findTagEnd(in: buffer, from: afterName) else {
 							return nil
 						}
 						let isSelfClosing = gtIndex > afterName && buffer[buffer.index(before: gtIndex)] == "/"
@@ -1007,36 +1253,21 @@ actor XMPPClient {
 			guard afterTag < xml.endIndex else { return nil }
 			let nextChar = xml[afterTag]
 			if nextChar == ">" || nextChar == " " {
-				guard let openEnd = xml.range(of: ">", range: afterTag..<xml.endIndex) else { return nil }
+				guard let openEnd = findTagEnd(in: xml, from: afterTag) else { return nil }
 				// Self-closing tag has no body
-				if xml[xml.index(before: openEnd.lowerBound)] == "/" {
+				if xml[xml.index(before: openEnd)] == "/" {
 					return nil
 				}
-				guard let closeStart = xml.range(of: "</\(tag)>", range: openEnd.upperBound..<xml.endIndex) else {
+				let contentStart = xml.index(after: openEnd)
+				guard let closeStart = xml.range(of: "</\(tag)>", range: contentStart..<xml.endIndex) else {
 					return nil
 				}
-				return String(xml[openEnd.upperBound..<closeStart.lowerBound])
+				return String(xml[contentStart..<closeStart.lowerBound])
 			}
 			searchStart = afterTag
 		}
 		return nil
 	}
-	
-	private static let riotMilliDateFormatter: DateFormatter = {
-		let f = DateFormatter()
-		f.locale = Locale(identifier: "en_US_POSIX")
-		f.timeZone = TimeZone(secondsFromGMT: 0)
-		f.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
-		return f
-	}()
-	
-	private static let riotDateFormatter: DateFormatter = {
-		let f = DateFormatter()
-		f.locale = Locale(identifier: "en_US_POSIX")
-		f.timeZone = TimeZone(secondsFromGMT: 0)
-		f.dateFormat = "yyyy-MM-dd HH:mm:ss"
-		return f
-	}()
 	
 	private func parseRiotTimestamp(_ raw: String?) -> Date? {
 		guard let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else {
@@ -1049,10 +1280,10 @@ actor XMPPClient {
 				return Date(timeIntervalSince1970: Double(num))
 			}
 		}
-		if let d = Self.riotMilliDateFormatter.date(from: trimmed) {
+		if let d = riotMilliDateFormatter.date(from: trimmed) {
 			return d
 		}
-		if let d = Self.riotDateFormatter.date(from: trimmed) {
+		if let d = riotDateFormatter.date(from: trimmed) {
 			return d
 		}
 		return parseXMPPDate(trimmed)
@@ -1071,8 +1302,8 @@ actor XMPPClient {
 	
 	private func extractNestedAttribute(_ tag: String, attr: String, from xml: String) -> String? {
 		guard let start = xml.range(of: "<\(tag)"),
-			  let end = xml.range(of: ">", range: start.lowerBound..<xml.endIndex) else { return nil }
-		return extractAttribute(attr, from: String(xml[start.lowerBound..<end.upperBound]))
+			  let end = findTagEnd(in: xml, from: start.lowerBound) else { return nil }
+		return extractAttribute(attr, from: String(xml[start.lowerBound..<xml.index(after: end)]))
 	}
 	
 	private func escapeXML(_ string: String) -> String {
@@ -1094,9 +1325,7 @@ actor XMPPClient {
 	}
 	
 	private func parseXMPPDate(_ string: String) -> Date? {
-		let isoFractional = ISO8601DateFormatter()
-		isoFractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-		if let d = isoFractional.date(from: string) { return d }
-		return ISO8601DateFormatter().date(from: string)
+		if let d = try? Date(string, strategy: xmppFractionalDateStyle) { return d }
+		return try? Date(string, strategy: xmppDateStyle)
 	}
 }

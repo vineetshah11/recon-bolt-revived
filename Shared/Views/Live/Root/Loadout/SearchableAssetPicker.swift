@@ -11,10 +11,11 @@ struct SearchableAssetPicker<Item: SearchableAsset, RowContent: View, Deselector
 	@State private var search = ""
 	
 	var body: some View {
+		let matcher = makeSearchMatcher()
 		let results = ownedItems
 			.lazy
 			.compactMap { allItems[$0] }
-			.filter { searchAccepts($0.searchableText) }
+			.filter { matcher?($0.searchableText) ?? true }
 			.sorted(on: \.sortValue)
 		
 		List {
@@ -41,14 +42,21 @@ struct SearchableAssetPicker<Item: SearchableAsset, RowContent: View, Deselector
 		.searchable(text: $search)
 	}
 	
-	func searchAccepts(_ candidate: String) -> Bool {
+	private func makeSearchMatcher() -> ((String) -> Bool)? {
+		guard !search.isEmpty else { return nil }
 		if #available(iOS 16.1, *) { // due to a bug from apple, this crashes in 16.0
-			return candidate.firstMatch(of: Regex {
+			let regex = Regex {
 				Anchor.wordBoundary
 				search
-			}.ignoresCase()) != nil
+			}.ignoresCase()
+			return { candidate in
+				candidate.firstMatch(of: regex) != nil
+			}
 		} else {
-			return candidate.lowercased().starts(with: search.lowercased()) // basic fallback
+			let needle = search.lowercased()
+			return { candidate in
+				candidate.lowercased().starts(with: needle) // basic fallback
+			}
 		}
 	}
 }

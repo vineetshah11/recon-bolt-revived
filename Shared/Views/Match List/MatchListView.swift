@@ -11,9 +11,22 @@ struct MatchListView: View {
 	@LocalData var summary: CareerSummary?
 	@LocalData var identity: Player.Identity?
 	@State var isEditingFilter = false
-	@State private var isShowingShareSheet = false
 	@State private var agentMastery: AgentMastery? = nil
-	@UserDefault.State("MatchListView.filter") var filter = MatchListFilter()
+	@State private var showingProfileShare = false
+	@State private var masteryFetchTick = 0
+	@State private var matchCacheTick = 0
+	@State private var cachedDetailsSnapshot: [MatchDetails] = []
+	@State private var computedMastery: [AgentMasterySummary] = []
+	@State private var computedLatestSession: SessionRecapBuilder.LatestSessionPreview? = nil
+	@State private var computedGoalTrajectory: SeasonGoalTrajectory? = nil
+	@State private var computedMapRatings: [MapRatingReport] = []
+	@ObservedObject private var accoladesCache = AccoladesCacheStore.shared
+	@ObservedObject private var filterStore = MatchListFilterStore.shared
+	
+	private struct AccoladesSyncKey: Equatable {
+		var userID: User.ID
+		var matchIDs: [Match.ID]
+	}
 	
 	@Environment(\.valorantLoad) private var load
 	@Environment(\.shouldAnonymize) private var shouldAnonymize
@@ -25,194 +38,184 @@ struct MatchListView: View {
 	@EnvironmentObject private var progressTimelineStore: ProgressTimelineStore
 	@EnvironmentObject private var accountManager: AccountManager
 	@EnvironmentObject private var settings: AppSettings
-	@EnvironmentObject private var socialManager: SocialManager
 	
 	private var shownMatches: [CompetitiveUpdate] {
 		matchList?.matches ?? []
 	}
 	
 	private var currentSeasonProgressKey: String {
-		guard let currentAct = seasons?.currentAct() else { return "" }
-		guard let info = summary?.competitiveInfo?.inSeason(currentAct.id) else { return "" }
-		let tier = info.competitiveTier
-		let rating = info.adjustedRankedRating
-		let leaderboard = info.leaderboardRank
-		return "\(tier)-\(rating)-\(leaderboard)"
-	}
-	
-	private struct ProgressSnapshotKey: Equatable {
-		var accountLevel: Int?
-		var seasonCount: Int
-		var seasonProgress: String
-	}
-	
-	private var progressSnapshotKey: ProgressSnapshotKey {
-		ProgressSnapshotKey(
-			accountLevel: identity?.accountLevel,
-			seasonCount: summary?.competitiveInfo?.bySeason?.count ?? 0,
-			seasonProgress: currentSeasonProgressKey
-		)
-	}
-	
-	private var cachedMatchDetails: [MatchDetails] {
-		shownMatches.prefix(40).compactMap {
-			LocalDataProvider.shared.matchDetailsManager.loadedObject(for: $0.id)
+		guard let currentAct = seasons?.currentAct(),
+			  let info = summary?.competitiveInfo?.inSeason(currentAct.id) else {
+			return ""
 		}
+		return "\(info.competitiveTier)-\(info.adjustedRankedRating)-\(info.leaderboardRank)"
 	}
 	
-	private var detailsByID: [Match.ID: MatchDetails] {
-		Dictionary(uniqueKeysWithValues: cachedMatchDetails.map { ($0.id, $0) })
+	private struct CareerComputeKey: Equatable {
+		var userID: User.ID
+		var matchIDs: [Match.ID]
+		var totalMatchCount: Int
+		var cacheTick: Int
+		var masteryTick: Int
+		var currentActID: Act.ID?
+		var summarySeasonCount: Int
+		var summaryLatestID: Match.ID?
+		var activeGoal: SeasonGoal?
+		var assetsVersion: AssetVersion?
 	}
 	
 	var body: some View {
 		let currentAct = seasons?.currentAct()
 		let prevAct = assets?.seasons.actBefore(currentAct)
-		let mastery = AgentMasteryCalculator.buildFromRiot(
-			agentMastery,
+		let activeGoal: SeasonGoal? = {
+			guard userID == accountManager.activeAccount?.id else { return nil }
+			let goal = goalStore.goal(for: userID, actID: currentAct?.id)
+			return (goal?.showsOnProfile == true) ? goal : nil
+		}()
+		let computeKey = CareerComputeKey(
 			userID: userID,
-			matches: cachedMatchDetails,
-			assets: assets,
-			contractsDetails: nil,
-			currentAct: currentAct,
-			previousAct: prevAct
-		)
-		let accolades = AccoladesCalculator.compute(
-			userID: userID,
-			matches: cachedMatchDetails,
-			act: currentAct,
-			seasons: seasons
-		)
-		let sessions = SessionRecapBuilder.buildSessions(
-			userID: userID,
-			matches: shownMatches,
-			detailsByID: detailsByID
+			matchIDs: shownMatches.prefix(40).map(\.id),
+			totalMatchCount: shownMatches.count,
+			cacheTick: matchCacheTick,
+			masteryTick: masteryFetchTick,
+			currentActID: currentAct?.id,
+			summarySeasonCount: summary?.competitiveInfo?.bySeason?.count ?? 0,
+			summaryLatestID: summary?.latestUpdate?.id,
+			activeGoal: activeGoal,
+			assetsVersion: assets?.version
 		)
 		
 		ScrollView {
-			LazyVStack(spacing: 14) {
-				VStack(spacing: 0) {
-					PlayerIdentityCell(user: user, identity: identity)
-					CompetitiveSummaryCell(summary: summary, showThisActFooter: false)
-						.padding(.horizontal, 12)
-						.buttonStyle(.plain)
-				}
-				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-				.clipped()
-				
-				CareerSummaryCollapsibleCard(summary: summary)
-				
-				AgentMasterySummaryBox(summaries: mastery, actEndDate: currentAct?.timeSpan.end)
-				
-				AccoladesSummaryBox(userID: userID, matches: cachedMatchDetails, report: accolades)
-				
-				if userID == accountManager.activeAccount?.id,
-				   let activeGoal = goalStore.goal(for: userID, actID: currentAct?.id),
-				   activeGoal.showsOnProfile {
-					let trajectory = SeasonGoalStore.compute(
-						goal: activeGoal,
-						summary: summary,
-						matchList: matchList,
-						currentAct: currentAct,
-						seasons: seasons
+			LazyVStack(spacing: settings.isCompactListStyle ? 4 : 12) {
+				VStack(spacing: 14) {
+					VStack(spacing: 0) {
+						PlayerIdentityCell(user: user, identity: identity)
+						CompetitiveSummaryCell(summary: summary, showThisActFooter: false)
+							.padding(.horizontal, 12)
+							.buttonStyle(.plain)
+					}
+					.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+					.clipped()
+					
+					CareerSummaryCollapsibleCard(summary: summary)
+					
+					AgentMasterySummaryBox(summaries: computedMastery, actEndDate: currentAct?.timeSpan.end)
+					
+					AccoladesSummaryBox(
+						userID: userID,
+						knownMatchIDs: shownMatches.map(\.id),
+						report: accoladesCache.report(for: userID, act: currentAct, seasons: seasons)
 					)
-					SeasonGoalProgressModule(goal: activeGoal, trajectory: trajectory, currentAct: currentAct)
-				}
-				
-				HStack(spacing: 12) {
-					NavigationLink {
-						SessionRecapView(userID: userID, sessions: sessions)
-					} label: {
-						VStack(alignment: .leading, spacing: 6) {
-							HStack(spacing: 6) {
-								Image(systemName: "clock.badge.checkmark")
-									.foregroundStyle(Color.accentColor)
-								Text("Session Recap")
-									.font(.subheadline.weight(.semibold))
-							}
-							if let latest = sessions.first {
-								Text(latest.startTime.formatted(.dateTime.day().month(.abbreviated)))
-									.font(.caption)
-									.foregroundStyle(.secondary)
-								HStack(spacing: 4) {
-									Text("\(latest.items.count) matches")
-										.foregroundStyle(.secondary)
-									if latest.netRRDelta != 0 {
-										Text("• \(latest.netRRDelta > 0 ? "+\(latest.netRRDelta)" : "\(latest.netRRDelta)") RR")
-											.foregroundStyle(latest.netRRDelta > 0 ? Color.green : Color.red)
-									}
-								}
-								.font(.caption.monospacedDigit())
-							} else {
-								Text("Open matches to build")
-									.font(.caption)
-									.foregroundStyle(.secondary)
-							}
-						}
-						.frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
-						.padding(12)
-						.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-					}
-					.buttonStyle(.plain)
 					
-					NavigationLink {
-						if let user, let matchList {
-							StatisticsContainer(user: user, matchList: matchList)
-						}
-					} label: {
-						VStack(alignment: .leading, spacing: 6) {
-							HStack(spacing: 6) {
-								Image(systemName: "chart.line.uptrend.xyaxis")
-									.foregroundStyle(Color.accentColor)
-								Text("View Stats")
-									.font(.subheadline.weight(.semibold))
-							}
-							Text("Win rate, K/D & more")
-								.font(.caption)
-								.foregroundStyle(.secondary)
-							Spacer(minLength: 0)
-						}
-						.frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
-						.padding(12)
-						.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-					}
-					.buttonStyle(.plain)
-					.disabled(user == nil || matchList == nil)
-				}
-				
-				VStack(alignment: .leading, spacing: 10) {
-					Text("Matches", comment: "Match List: section")
-						.font(.subheadline.weight(.semibold))
-						.foregroundStyle(.secondary)
-						.padding(.leading, 4)
-						.padding(.top, 4)
+					MapRatingSummaryBox(
+						userID: userID,
+						reports: computedMapRatings,
+						allMatches: shownMatches,
+						detailsSnapshot: cachedDetailsSnapshot
+					)
 					
-					LazyVStack(spacing: settings.isCompactListStyle ? 4 : 12) {
-						ForEach(shownMatches) { match in
-							MatchCell(
-								match: match,
+					if let activeGoal, let trajectory = computedGoalTrajectory {
+						SeasonGoalProgressModule(goal: activeGoal, trajectory: trajectory, currentAct: currentAct)
+					}
+					
+					HStack(spacing: 12) {
+						NavigationLink {
+							SessionRecapView(
 								userID: userID,
-								filter: filter,
-								inList: false,
-								isCompact: settings.isCompactListStyle
+								matches: shownMatches,
+								detailsByID: Dictionary(uniqueKeysWithValues: cachedDetailsSnapshot.map { ($0.id, $0) })
 							)
-						}
-					}
-					
-					if matchList?.canLoadOlderMatches == true {
-						AsyncButton {
-							await updateMatchList(update: ValorantClient.loadOlderMatches)
 						} label: {
-							Label(
-								String(localized: "Load Older Matches", comment: "Match List"),
-								systemImage: "ellipsis"
-							)
-							.font(.subheadline.weight(.medium))
-							.frame(maxWidth: .infinity)
-							.padding(.vertical, 12)
+							VStack(alignment: .leading, spacing: 6) {
+								HStack(spacing: 6) {
+									Image(systemName: "clock.badge.checkmark")
+										.foregroundStyle(Color.accentColor)
+									Text("Session Recap")
+										.font(.subheadline.weight(.semibold))
+								}
+								if let latest = computedLatestSession {
+									Text(latest.startTime.formatted(.dateTime.day().month(.abbreviated)))
+										.font(.caption)
+										.foregroundStyle(.secondary)
+									HStack(spacing: 4) {
+										Text("\(latest.matchCount) matches")
+											.foregroundStyle(.secondary)
+										if latest.netRRDelta != 0 {
+											Text("• \(latest.netRRDelta > 0 ? "+\(latest.netRRDelta)" : "\(latest.netRRDelta)") RR")
+												.foregroundStyle(latest.netRRDelta > 0 ? Color.green : Color.red)
+										}
+									}
+									.font(.caption.monospacedDigit())
+								} else {
+									Text("Open matches to build")
+										.font(.caption)
+										.foregroundStyle(.secondary)
+								}
+							}
+							.frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
+							.padding(12)
 							.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
 						}
 						.buttonStyle(.plain)
+						
+						NavigationLink {
+							if let user, let matchList {
+								StatisticsContainer(user: user, matchList: matchList)
+							}
+						} label: {
+							VStack(alignment: .leading, spacing: 6) {
+								HStack(spacing: 6) {
+									Image(systemName: "chart.line.uptrend.xyaxis")
+										.foregroundStyle(Color.accentColor)
+									Text("View Stats")
+										.font(.subheadline.weight(.semibold))
+								}
+								Text("Win rate, K/D & more")
+									.font(.caption)
+									.foregroundStyle(.secondary)
+								Spacer(minLength: 0)
+							}
+							.frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
+							.padding(12)
+							.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+						}
+						.buttonStyle(.plain)
+						.disabled(user == nil || matchList == nil)
 					}
+				}
+				.padding(.bottom, 6)
+				
+				Text("Matches", comment: "Match List: section")
+					.font(.subheadline.weight(.semibold))
+					.foregroundStyle(.secondary)
+					.frame(maxWidth: .infinity, alignment: .leading)
+					.padding(.leading, 4)
+					.padding(.top, 4)
+				
+				ForEach(shownMatches) { match in
+					MatchCell(
+						match: match,
+						userID: userID,
+						filter: filterStore.filter,
+						inList: false,
+						isCompact: settings.isCompactListStyle
+					)
+				}
+				
+				if matchList?.canLoadOlderMatches == true {
+					AsyncButton {
+						await updateMatchList(update: ValorantClient.loadOlderMatches)
+					} label: {
+						Label(
+							String(localized: "Load Older Matches", comment: "Match List"),
+							systemImage: "ellipsis"
+						)
+						.font(.subheadline.weight(.medium))
+						.frame(maxWidth: .infinity)
+						.padding(.vertical, 12)
+						.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+					}
+					.buttonStyle(.plain)
 				}
 			}
 			.padding(.horizontal, 16)
@@ -246,27 +249,31 @@ struct MatchListView: View {
 						String(localized: "Edit Filter", comment: "Match List: accessibility label"),
 						systemImage: "line.horizontal.3.decrease.circle"
 					)
-					.symbolVariant(filter.isActive ? .fill : .none)
+					.symbolVariant(filterStore.filter.isActive ? .fill : .none)
 				}
 				
-				if !shouldAnonymize(userID) {
-					Button {
-						isShowingShareSheet = true
-					} label: {
-						Label(
-							String(localized: "Share Profile", comment: "Match List: accessibility label"),
-							systemImage: "square.and.arrow.up"
-						)
-					}
+				Button {
+					showingProfileShare = true
+				} label: {
+					Label(
+						String(localized: "Share Profile", comment: "Match List: accessibility label"),
+						systemImage: "square.and.arrow.up"
+					)
 				}
 			}
 		}
 		.refreshable { await refresh() }
 		.sheet(isPresented: $isEditingFilter) {
-			MatchListFilterEditor(filter: $filter)
+			MatchListFilterEditor(filter: $filterStore.filter)
 		}
-		.sheet(isPresented: $isShowingShareSheet) {
-			ProfileShareSheet(user: user, identity: identity, summary: summary)
+		.sheet(isPresented: $showingProfileShare) {
+			ShareProfileCardSheet(
+				user: user,
+				cardID: identity?.cardID,
+				titleID: identity?.titleID,
+				accountLevel: identity?.accountLevel ?? 0,
+				summary: summary
+			)
 		}
 		.withLocalData($user, id: userID, shouldAutoUpdate: true)
 		.withLocalData($matchList, id: userID, shouldAutoUpdate: true)
@@ -274,6 +281,79 @@ struct MatchListView: View {
 		.withLocalData($identity, id: userID, shouldAutoUpdate: true)
 		.valorantLoadTask(id: userID) { client in
 			agentMastery = try? await client.getAgentMastery(userID: userID)
+			masteryFetchTick += 1
+		}
+		.onReceive(
+			LocalDataProvider.shared.matchDetailsManager.changePublisher
+				.debounce(for: .milliseconds(250), scheduler: RunLoop.main)
+		) { _ in
+			matchCacheTick += 1
+			accoladesCache.ingestLoadedMatches(
+				for: userID,
+				matchIDs: shownMatches.prefix(40).map(\.id)
+			)
+		}
+		.task(id: computeKey) {
+			let manager = LocalDataProvider.shared.matchDetailsManager
+			let details = shownMatches.prefix(40).compactMap {
+				manager.loadedObject(for: $0.id)
+			}
+			let uid = userID
+			let allUpdates = shownMatches
+			let masterySnapshot = agentMastery
+			let assetsSnapshot = assets
+			let seasonsSnapshot = seasons
+			let currentActSnapshot = currentAct
+			let prevActSnapshot = prevAct
+			let goalSnapshot = activeGoal
+			let summarySnapshot = summary
+			let matchListSnapshot = matchList
+			
+			let computed = await Task.detached(priority: .userInitiated) {
+				PerfMonitor.measure("CareerModules.compute", warnOverMs: 2.0) {
+					let detailsMap = Dictionary(uniqueKeysWithValues: details.map { ($0.id, $0) })
+					let mastery = AgentMasteryCalculator.buildFromRiot(
+						masterySnapshot,
+						userID: uid,
+						matches: details,
+						assets: assetsSnapshot,
+						contractsDetails: nil,
+						currentAct: currentActSnapshot,
+						previousAct: prevActSnapshot
+					)
+					let latestSession = SessionRecapBuilder.latestSessionPreview(
+						matches: allUpdates,
+						detailsByID: detailsMap
+					)
+					let trajectory = goalSnapshot.map { goal in
+						SeasonGoalStore.compute(
+							goal: goal,
+							summary: summarySnapshot,
+							matchList: matchListSnapshot,
+							currentAct: currentActSnapshot,
+							seasons: seasonsSnapshot
+						)
+					}
+					let mapRatings = MapRatingCalculator.compute(
+						userID: uid,
+						matches: details,
+						selectedActID: nil,
+						seasons: seasonsSnapshot?.collection,
+						assets: assetsSnapshot
+					)
+					return (mastery, latestSession, trajectory, mapRatings)
+				}
+			}.value
+			
+			guard !Task.isCancelled else { return }
+			cachedDetailsSnapshot = details
+			computedMastery = computed.0
+			computedLatestSession = computed.1
+			computedGoalTrajectory = computed.2
+			computedMapRatings = computed.3
+		}
+		.task(id: AccoladesSyncKey(userID: userID, matchIDs: shownMatches.map(\.id))) {
+			await accoladesCache.syncMissingMatches(for: userID, matchIDs: shownMatches.map(\.id))
 		}
 		.onAppear {
 			cacheLoadedIdentityToSocial()
@@ -282,31 +362,21 @@ struct MatchListView: View {
 		.onChange(of: identity?.cardID) { _ in
 			cacheLoadedIdentityToSocial()
 		}
-		.onChange(of: cachedMatchDetails.count) { _ in
+		.onChange(of: identity?.accountLevel) { _ in
+			recordProgressIfOwnAccount()
+		}
+		.onChange(of: cachedDetailsSnapshot.count) { _ in
 			cacheLoadedIdentityToSocial()
 		}
 		.onChange(of: summary?.competitiveInfo?.bySeason?.count ?? 0) { _ in
 			cacheLoadedIdentityToSocial()
 			recordProgressIfOwnAccount()
 		}
-		.onChange(of: progressSnapshotKey) { _ in
+		.onChange(of: currentSeasonProgressKey) { _ in
 			recordProgressIfOwnAccount()
 		}
 		.anonymizing(additionally: shouldAnonymize(userID) ? .all : .none)
 		.navigationTitle(title)
-	}
-	
-	private func cacheLoadedIdentityToSocial() {
-		let fallbackMatch = cachedMatchDetails.lazy.compactMap { match -> (Player.Identity, Date)? in
-			guard let pIdentity = match.players.first(where: { $0.id == userID })?.identity else { return nil }
-			return (pIdentity, match.matchInfo.gameStart)
-		}.first
-		guard let resolvedIdentity = identity ?? fallbackMatch?.0 else { return }
-		let updateTime = identity != nil ? Date() : (fallbackMatch?.1 ?? .distantPast)
-		let currentActID = seasons?.currentAct()?.id
-		let tier = summary?.competitiveInfo?.inSeason(currentActID)?.competitiveTier
-			?? summary?.competitiveInfo?.bySeason?.values.first(where: { $0.competitiveTier >= 3 })?.competitiveTier
-		socialManager.cacheIdentity(resolvedIdentity, competitiveTier: tier, asOf: updateTime)
 	}
 	
 	private func recordProgressIfOwnAccount() {
@@ -317,6 +387,19 @@ struct MatchListView: View {
 		if let identity {
 			progressTimelineStore.record(identity: identity, for: userID)
 		}
+	}
+	
+	private func cacheLoadedIdentityToSocial() {
+		let fallbackMatch = cachedDetailsSnapshot.lazy.compactMap { match -> (Player.Identity, Date)? in
+			guard let pIdentity = match.players.first(where: { $0.id == userID })?.identity else { return nil }
+			return (pIdentity, match.matchInfo.gameStart)
+		}.first
+		guard let resolvedIdentity = identity ?? fallbackMatch?.0 else { return }
+		let updateTime = identity != nil ? Date() : (fallbackMatch?.1 ?? .distantPast)
+		let currentActID = seasons?.currentAct()?.id
+		let tier = summary?.competitiveInfo?.inSeason(currentActID)?.competitiveTier
+			?? summary?.competitiveInfo?.bySeason?.values.first(where: { $0.competitiveTier >= 3 })?.competitiveTier
+		LocalDataProvider.onIdentityAndTierResolved?(resolvedIdentity, tier, updateTime)
 	}
 	
 	var title: Text {
@@ -337,6 +420,7 @@ struct MatchListView: View {
 		}
 		async let masteryUpdate: Void = load {
 			agentMastery = try? await $0.getAgentMastery(userID: userID)
+			masteryFetchTick += 1
 		}
 		_ = await (matchListUpdate, summaryUpdate, identityUpdate, masteryUpdate)
 	}
@@ -720,329 +804,6 @@ private struct CareerSummaryCollapsibleCard: View {
 	}
 }
 
-// MARK: - Share Profile Sheet
-
-private struct ProfileShareSheet: View {
-	let user: User?
-	let identity: Player.Identity?
-	let summary: CareerSummary?
-	
-	@Environment(\.assets) private var assets
-	@Environment(\.seasons) private var seasons
-	@Environment(\.dismiss) private var dismiss
-	
-	@State private var renderedImage: UIImage?
-	@State private var showsRiotID = true
-	@State private var didCopy = false
-	
-	private static let cardWidth: CGFloat = 360
-	private let accent = Color(red: 0.518, green: 0.176, blue: 0.784)
-	
-	var body: some View {
-		NavigationView {
-			ScrollView {
-				VStack(spacing: 16) {
-					cardPreview
-					
-					showRiotIDToggle
-					
-					if let renderedImage {
-						ShareLink(
-							item: Image(uiImage: renderedImage),
-							preview: SharePreview("Player Profile", image: Image(uiImage: renderedImage))
-						) {
-							shareButtonLabel("Share Profile Card")
-						}
-						
-						Button {
-							UIPasteboard.general.image = renderedImage
-							didCopy = true
-							DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
-								didCopy = false
-							}
-						} label: {
-							copyButtonLabel(didCopy ? "Copied" : "Copy Image", systemImage: didCopy ? "checkmark" : "doc.on.doc")
-						}
-					}
-				}
-				.padding(16)
-			}
-			.background(Color.groupedBackground)
-			.navigationTitle("Share Profile")
-			.navigationBarTitleDisplayMode(.inline)
-			.toolbar {
-				ToolbarItem(placement: .cancellationAction) {
-					Button("Done") { dismiss() }
-				}
-			}
-		}
-		.task(id: showsRiotID) {
-			await renderCard()
-		}
-	}
-	
-	@ViewBuilder
-	private var cardPreview: some View {
-		if let renderedImage {
-			Image(uiImage: renderedImage)
-				.resizable()
-				.scaledToFit()
-				.frame(maxWidth: .infinity)
-				.clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-				.shadow(color: .black.opacity(0.35), radius: 14, y: 6)
-		} else {
-			RoundedRectangle(cornerRadius: 20, style: .continuous)
-				.fill(Color.secondaryGroupedBackground)
-				.aspectRatio(0.82, contentMode: .fit)
-				.overlay { ProgressView("Rendering profile…") }
-		}
-	}
-	
-	private var showRiotIDToggle: some View {
-		Toggle(isOn: $showsRiotID) {
-			VStack(alignment: .leading, spacing: 2) {
-				Text("Show Riot ID")
-					.font(.subheadline.weight(.medium))
-				Text("Include your #tag in the shared image")
-					.font(.caption)
-					.foregroundStyle(.secondary)
-			}
-		}
-		.tint(accent)
-		.padding(14)
-		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-	}
-	
-	private func shareButtonLabel(_ title: String) -> some View {
-		Label(title, systemImage: "square.and.arrow.up")
-			.font(.headline)
-			.foregroundStyle(.white)
-			.frame(maxWidth: .infinity)
-			.padding(.vertical, 15)
-			.background(accent, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-	}
-	
-	private func copyButtonLabel(_ title: String, systemImage: String) -> some View {
-		Label(title, systemImage: systemImage)
-			.font(.subheadline.weight(.semibold))
-			.foregroundStyle(accent)
-			.frame(maxWidth: .infinity)
-			.padding(.vertical, 13)
-			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-	}
-	
-	// MARK: Renderable Card
-	
-	private var profileName: String {
-		user?.gameName ?? "Player"
-	}
-	
-	private var profileTag: String {
-		user?.tagLine ?? ""
-	}
-	
-	@MainActor
-	private func renderCard() async {
-		let renderer = ImageRenderer(
-			content: card(showsRiotID: showsRiotID)
-				.environment(\.assets, assets)
-				.environment(\.colorScheme, .dark)
-		)
-		renderer.scale = 3.0
-		if let image = renderer.uiImage {
-			renderedImage = image
-		}
-	}
-	
-	private func card(showsRiotID: Bool) -> some View {
-		let act = seasons?.currentAct()
-		let currentInfo = summary?.competitiveInfo?.inSeason(act?.id)
-		let currentTier = currentInfo?.competitiveTier ?? 0
-		let currentTierInfo = seasons?.tierInfo(number: currentTier, in: act)
-		let currentIcon = currentTierInfo?.icon?.load()
-		
-		let peakRank = summary?.peakRank(seasons: seasons)
-		let peakTierInfo = peakRank.flatMap { seasons?.tierInfo($0) }
-		let peakIcon = peakTierInfo?.rankTriangleUpwards?.load()
-		
-		let totals = (summary?.competitiveInfo?.bySeason ?? [:]).values
-			.reduce((wins: 0, games: 0)) { ($0.wins + $1.winCountIncludingPlacements, $0.games + $1.gameCount) }
-		let games = currentInfo.map(\.gameCount) ?? totals.games
-		let wins = currentInfo.map(\.winCountIncludingPlacements) ?? totals.wins
-		let winRate = games > 0 ? Int((Double(wins) / Double(games) * 100).rounded()) : 0
-		
-		let cardID = identity?.cardID
-		let cardArt = cardID.flatMap { assets?.playerCards[$0]?.smallArt }?.load()
-		let title = identity.flatMap { assets?.playerTitles[$0.titleID]?.titleText }
-		
-		return VStack(alignment: .leading, spacing: 16) {
-			HStack(alignment: .top, spacing: 12) {
-				VStack(alignment: .leading, spacing: 4) {
-					Text("PLAYER PROFILE")
-						.font(.system(size: 9, weight: .heavy))
-						.tracking(1.4)
-						.foregroundStyle(.white.opacity(0.45))
-					
-					HStack(spacing: 2) {
-						Text(profileName)
-							.font(.title3.bold())
-							.foregroundStyle(.white)
-							.lineLimit(1)
-						if showsRiotID, !profileTag.isEmpty {
-							Text("#\(profileTag)")
-								.font(.subheadline)
-								.foregroundStyle(.white.opacity(0.5))
-								.lineLimit(1)
-						}
-					}
-					
-					if let title {
-						Text(title)
-							.font(.caption)
-							.foregroundStyle(.white.opacity(0.55))
-							.lineLimit(1)
-					}
-				}
-				
-				Spacer(minLength: 0)
-				
-				VStack(spacing: 1) {
-					Text("\(identity?.accountLevel ?? 0)")
-						.font(.title2.bold().monospacedDigit())
-						.foregroundStyle(.white)
-					Text("LEVEL")
-						.font(.system(size: 9, weight: .heavy))
-						.tracking(1)
-						.foregroundStyle(.white.opacity(0.45))
-				}
-			}
-			
-			HStack(alignment: .top, spacing: 12) {
-				Group {
-					if let cardArt {
-						Image(uiImage: cardArt)
-							.resizable()
-							.scaledToFill()
-					} else {
-						Color.white.opacity(0.08)
-					}
-				}
-				.frame(width: 100, height: 100)
-				.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-				
-				VStack(spacing: 8) {
-					rankBlock(
-						title: "CURRENT RANK",
-						icon: currentIcon,
-						name: currentTierInfo?.name ?? "Unranked",
-						detail: currentInfo.map { "\($0.adjustedRankedRating) RR" },
-						season: act?.id
-					)
-					
-					rankBlock(
-						title: "LIFETIME PEAK",
-						icon: peakIcon,
-						name: peakTierInfo?.name ?? "Unranked",
-						detail: nil,
-						season: peakRank?.season
-					)
-				}
-			}
-			
-			HStack(spacing: 0) {
-				profileStat("\(games)", label: "GAMES")
-				profileStat("\(wins)", label: "WINS")
-				profileStat("\(winRate) %", label: "WIN RATE")
-			}
-			.padding(.vertical, 12)
-			.background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-			
-			HStack {
-				Text("Vantage")
-					.font(.caption2.weight(.bold))
-					.foregroundStyle(.white.opacity(0.4))
-				Spacer()
-			}
-		}
-		.padding(18)
-		.frame(width: Self.cardWidth)
-		.background(
-			LinearGradient(
-				stops: [
-					.init(color: Color(red: 0.62, green: 0.19, blue: 0.86), location: 0),
-					.init(color: Color(red: 0.42, green: 0.14, blue: 0.68), location: 0.4),
-					.init(color: Color(red: 0.19, green: 0.07, blue: 0.35), location: 0.75),
-					.init(color: Color(red: 0.06, green: 0.06, blue: 0.09), location: 1)
-				],
-				startPoint: .topLeading,
-				endPoint: .bottomTrailing
-			),
-			in: RoundedRectangle(cornerRadius: 20, style: .continuous)
-		)
-	}
-	
-	private func rankBlock(
-		title: String,
-		icon: UIImage?,
-		name: String,
-		detail: String?,
-		season: Act.ID?
-	) -> some View {
-		HStack(spacing: 9) {
-			Group {
-				if let icon {
-					Image(uiImage: icon)
-						.resizable()
-						.scaledToFit()
-				} else {
-					Circle().fill(Color.white.opacity(0.1))
-				}
-			}
-			.frame(width: 34, height: 34)
-			
-			VStack(alignment: .leading, spacing: 1) {
-				Text(title)
-					.font(.system(size: 8, weight: .heavy))
-					.tracking(0.8)
-					.foregroundStyle(.white.opacity(0.45))
-				Text(name)
-					.font(.subheadline.bold())
-					.foregroundStyle(.white)
-					.lineLimit(1)
-				.minimumScaleFactor(0.8)
-				HStack(spacing: 4) {
-					if let detail {
-						Text(detail)
-							.font(.caption2)
-							.foregroundStyle(.white.opacity(0.55))
-					}
-					SeasonLabel(season: season)
-						.font(.caption2)
-				}
-			}
-			
-			Spacer(minLength: 0)
-		}
-		.padding(8)
-		.background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-	}
-	
-	private func profileStat(_ value: String, label: String) -> some View {
-		VStack(spacing: 3) {
-			Text(value)
-				.font(.title3.bold().monospacedDigit())
-				.foregroundStyle(.white)
-				.lineLimit(1)
-				.minimumScaleFactor(0.7)
-			Text(label)
-				.font(.system(size: 9, weight: .semibold))
-				.foregroundStyle(.white.opacity(0.5))
-				.lineLimit(1)
-		}
-		.frame(maxWidth: .infinity)
-	}
-}
-
 #if DEBUG
 struct MatchListView_Previews: PreviewProvider {
 	static var previews: some View {
@@ -1059,7 +820,6 @@ struct MatchListView_Previews: PreviewProvider {
 		.environmentObject(ProgressTimelineStore())
 		.environmentObject(AccountManager.mocked)
 		.environmentObject(AppSettings())
-		.environmentObject(SocialManager())
 	}
 }
 #endif

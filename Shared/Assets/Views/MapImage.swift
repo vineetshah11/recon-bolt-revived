@@ -15,7 +15,7 @@ extension MapImage {
 	}
 	
 	static func wideImage(_ id: MapID) -> Self {
-		Self(id: id, aspectRatio: 4.56, shouldLoadImmediately: true, getImage: \.listViewIcon)
+		Self(id: id, aspectRatio: 4.56, shouldLoadImmediately: true, bucket: .banner, getImage: \.listViewIcon)
 	}
 	
 	static func minimap(_ id: MapID) -> Self {

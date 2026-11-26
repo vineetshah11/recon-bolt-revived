@@ -48,6 +48,37 @@ final class PlayerSettingsSnapshotStore: ObservableObject {
 		persist()
 	}
 	
+	func exportSnapshots(for playerIDs: Set<User.ID>?) -> [PlayerSettingsSnapshot] {
+		guard let playerIDs else { return snapshots }
+		return snapshots.filter { snapshot in
+			guard let accountID = snapshot.accountID else { return !playerIDs.isEmpty }
+			return playerIDs.contains(accountID)
+		}
+	}
+	
+	@discardableResult
+	func importSnapshots(_ incoming: [PlayerSettingsSnapshot], replaceAll: Bool) async -> Int {
+		var working = replaceAll ? [] : snapshots
+		var changedCount = 0
+		
+		for snapshot in incoming {
+			if let idx = working.firstIndex(where: { $0.id == snapshot.id }) {
+				if snapshot.createdAt > working[idx].createdAt {
+					working[idx] = snapshot
+					changedCount += 1
+				}
+			} else {
+				working.append(snapshot)
+				changedCount += 1
+			}
+		}
+		
+		working.sort { $0.createdAt > $1.createdAt }
+		snapshots = working
+		await LocalJSONStore.saveAndWait(snapshots, to: filename)
+		return replaceAll ? working.count : changedCount
+	}
+	
 	private func persist() {
 		LocalJSONStore.save(snapshots, to: filename)
 	}

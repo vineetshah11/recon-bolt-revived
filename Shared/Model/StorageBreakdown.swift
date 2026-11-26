@@ -18,7 +18,6 @@ struct StorageBreakdown: Sendable {
 	
 	@MainActor
 	static func compute(assetManager: AssetManager) async -> StorageBreakdown {
-		let assetSizes = assetManager.storageSizes()
 		let matchListURL = LocalDataProvider.shared.matchListManager.folderURL
 		let matchDetailsURL = LocalDataProvider.shared.matchDetailsManager.folderURL
 		let summaryURL = LocalDataProvider.shared.careerSummaryManager.folderURL
@@ -33,10 +32,12 @@ struct StorageBreakdown: Sendable {
 			summaryURL.lastPathComponent,
 			userURL.lastPathComponent,
 			identityURL.lastPathComponent,
+			AssetManager.storedFileURL.lastPathComponent,
 			AssetManager.backupFileURL.lastPathComponent,
 		]
 		
 		return await Task.detached(priority: .userInitiated) {
+			let assetSizes = await AssetManager.computeStorageSizes()
 			let assets = assetSizes.installedBytes + assetSizes.backupBytes + assetSizes.widgetBytes
 			let matches = Self.directorySize(of: matchListURL) + Self.directorySize(of: matchDetailsURL)
 			let profiles = Self.directorySize(of: summaryURL)
@@ -160,6 +161,7 @@ enum MatchRetentionManager {
 		guard !candidateIDs.isEmpty else { return 0 }
 		do {
 			try await detailsManager.clearOut(idFilter: candidateIDs)
+			AccoladesCacheStore.shared.remove(matchIDs: candidateIDs)
 			return candidateIDs.count
 		} catch {
 			return 0
@@ -179,10 +181,12 @@ enum MatchRetentionManager {
 		let usage = try await detailsManager.diskUsage(for: linkedIDs)
 		guard !usage.unknownIDs.isEmpty else { return 0 }
 		try await detailsManager.clearOut(idFilter: usage.unknownIDs)
+		AccoladesCacheStore.shared.remove(matchIDs: usage.unknownIDs)
 		return usage.unknownIDs.count
 	}
 	
 	static func deleteAllMatches() async throws {
 		try await LocalDataProvider.shared.matchDetailsManager.clearOut()
+		AccoladesCacheStore.shared.clearAll()
 	}
 }

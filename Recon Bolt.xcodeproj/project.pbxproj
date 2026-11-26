@@ -7,6 +7,31 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		BF98BA27A52A719786114E5F /* PerfMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F91E400A68A6DE6A8131CFD7 /* PerfMonitor.swift */; };
+		F1863244FF77FF0AF9E9A16C /* AccoladesCacheStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 208BF486514E652445F27458 /* AccoladesCacheStore.swift */; };
+		2AF7601D45F91EB4C4582233 /* AccoladesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2E28C6318F29409F4119395 /* AccoladesModel.swift */; };
+		34C4AB4B0985B1D9BAB091E9 /* PerfMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F91E400A68A6DE6A8131CFD7 /* PerfMonitor.swift */; };
+		FEF0DBE5EA167189B3BF8BBE /* AccoladesCacheStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 208BF486514E652445F27458 /* AccoladesCacheStore.swift */; };
+		071E2279DA629331474573BB /* AccoladesModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2E28C6318F29409F4119395 /* AccoladesModel.swift */; };
+		D3604BD17B450BC8F6B45B80 /* GamePodAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = C744B6A7BED5FBE1DF771641 /* GamePodAssets.swift */; };
+		032B6AC8A136038C8677FCAE /* PerfMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F91E400A68A6DE6A8131CFD7 /* PerfMonitor.swift */; };
+		6ACCC7FA96492F17C1561E69 /* AccoladesCacheStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 208BF486514E652445F27458 /* AccoladesCacheStore.swift */; };
+		B95D9D46E9C81318559C2DB8 /* BackupContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D5E74730C87A87D75F0DA9F /* BackupContainer.swift */; };
+		902D0AC27FFB436FB72E3432 /* BackupCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02EB3F5648A966A02941CA0 /* BackupCrypto.swift */; };
+		868D46D9DE0D938731D31BE1 /* BackupFormat.swift in Sources */ = {isa = PBXBuildFile; fileRef = 98BB7218199F91D36496C601 /* BackupFormat.swift */; };
+		A44AE72B169F225915DED64B /* BackupSemanticValidator.swift in Sources */ = {isa = PBXBuildFile; fileRef = C86C27974913F09F2356C6C0 /* BackupSemanticValidator.swift */; };
+		88BAF55B04A04553344B04F1 /* BackupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 34FE46C083DB60D2CCC3F084 /* BackupService.swift */; };
+		811478A5E3D631F979535E41 /* MapRatingModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B034882380896829F1FBB5A /* MapRatingModel.swift */; };
+		058CF4D3CBA4CC8AFED14D82 /* PartyCodeSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F63E59985F5B9C4779DAB36 /* PartyCodeSheet.swift */; };
+		1AA7484894B78B0DA6477282 /* PartyCustomGameSettingsSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA2E52FC246BC25760E3075 /* PartyCustomGameSettingsSheet.swift */; };
+		DC3A3D9C4A4EA09B8A21135E /* PartyInviteFriendsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BA063D3564F66F3E388642D5 /* PartyInviteFriendsView.swift */; };
+		B7920FAFDC397033A52277E2 /* PartyServerSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E4B570916758434CFD9C320 /* PartyServerSelectionView.swift */; };
+		646FBAE5FF390EE83E79F819 /* PartySettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F1E2566CAAD86EA8943BFFE /* PartySettingsView.swift */; };
+		91782F6DCE09B5B01B198E81 /* AccoladeIconView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6DA7B56C0CB1C8642C80FEA5 /* AccoladeIconView.swift */; };
+		E1CC683B2D558039152418A6 /* MapRatingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A8E8227F5392157AE27AA175 /* MapRatingsView.swift */; };
+		8BEB612AAF240EA722E05281 /* BackupExportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F9C1721618B57CE480387F0 /* BackupExportView.swift */; };
+		7FBF5B35ED6F6EDAFB5E2E77 /* BackupImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3F80A6C53DB7318FF0BB271 /* BackupImportView.swift */; };
+		0F57FCAADF7FD2D15CABE7CC /* BackupPlayerPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F9C6781A0FD4B94A972DC4A /* BackupPlayerPickerView.swift */; };
 		640DE79522D207A602D71908 /* LevelBorderAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570540DA84E309E2A216FFFD /* LevelBorderAssets.swift */; };
 		0B2F49A99F3A7C76CCFBBF35 /* AdvancedSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EB84464E81492D302C3FB8A7 /* AdvancedSettingsView.swift */; };
 		1CF9E81CB07EBACB6DB16E4C /* PassPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = CFC9BE436118A0DA3F2E73CE /* PassPlanner.swift */; };
@@ -469,6 +494,25 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		C744B6A7BED5FBE1DF771641 /* GamePodAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = GamePodAssets.swift; path = "Shared/Assets/Concrete Assets/GamePodAssets.swift"; sourceTree = SOURCE_ROOT; };
+		F91E400A68A6DE6A8131CFD7 /* PerfMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PerfMonitor.swift; path = "Shared/Helpers/PerfMonitor.swift"; sourceTree = SOURCE_ROOT; };
+		208BF486514E652445F27458 /* AccoladesCacheStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AccoladesCacheStore.swift; path = "Shared/Model/AccoladesCacheStore.swift"; sourceTree = SOURCE_ROOT; };
+		1D5E74730C87A87D75F0DA9F /* BackupContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BackupContainer.swift; path = "Shared/Model/Backup/BackupContainer.swift"; sourceTree = SOURCE_ROOT; };
+		C02EB3F5648A966A02941CA0 /* BackupCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BackupCrypto.swift; path = "Shared/Model/Backup/BackupCrypto.swift"; sourceTree = SOURCE_ROOT; };
+		98BB7218199F91D36496C601 /* BackupFormat.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BackupFormat.swift; path = "Shared/Model/Backup/BackupFormat.swift"; sourceTree = SOURCE_ROOT; };
+		C86C27974913F09F2356C6C0 /* BackupSemanticValidator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BackupSemanticValidator.swift; path = "Shared/Model/Backup/BackupSemanticValidator.swift"; sourceTree = SOURCE_ROOT; };
+		34FE46C083DB60D2CCC3F084 /* BackupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BackupService.swift; path = "Shared/Model/Backup/BackupService.swift"; sourceTree = SOURCE_ROOT; };
+		5B034882380896829F1FBB5A /* MapRatingModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MapRatingModel.swift; path = "Shared/Model/MapRatingModel.swift"; sourceTree = SOURCE_ROOT; };
+		5F63E59985F5B9C4779DAB36 /* PartyCodeSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PartyCodeSheet.swift; path = "Shared/Views/Live/Root/Party/PartyCodeSheet.swift"; sourceTree = SOURCE_ROOT; };
+		7DA2E52FC246BC25760E3075 /* PartyCustomGameSettingsSheet.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PartyCustomGameSettingsSheet.swift; path = "Shared/Views/Live/Root/Party/PartyCustomGameSettingsSheet.swift"; sourceTree = SOURCE_ROOT; };
+		BA063D3564F66F3E388642D5 /* PartyInviteFriendsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PartyInviteFriendsView.swift; path = "Shared/Views/Live/Root/Party/PartyInviteFriendsView.swift"; sourceTree = SOURCE_ROOT; };
+		5E4B570916758434CFD9C320 /* PartyServerSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PartyServerSelectionView.swift; path = "Shared/Views/Live/Root/Party/PartyServerSelectionView.swift"; sourceTree = SOURCE_ROOT; };
+		9F1E2566CAAD86EA8943BFFE /* PartySettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = PartySettingsView.swift; path = "Shared/Views/Live/Root/Party/PartySettingsView.swift"; sourceTree = SOURCE_ROOT; };
+		6DA7B56C0CB1C8642C80FEA5 /* AccoladeIconView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = AccoladeIconView.swift; path = "Shared/Views/Match List/AccoladeIconView.swift"; sourceTree = SOURCE_ROOT; };
+		A8E8227F5392157AE27AA175 /* MapRatingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = MapRatingsView.swift; path = "Shared/Views/Match List/MapRatingsView.swift"; sourceTree = SOURCE_ROOT; };
+		7F9C1721618B57CE480387F0 /* BackupExportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BackupExportView.swift; path = "Shared/Views/Settings/Backup/BackupExportView.swift"; sourceTree = SOURCE_ROOT; };
+		E3F80A6C53DB7318FF0BB271 /* BackupImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BackupImportView.swift; path = "Shared/Views/Settings/Backup/BackupImportView.swift"; sourceTree = SOURCE_ROOT; };
+		7F9C6781A0FD4B94A972DC4A /* BackupPlayerPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BackupPlayerPickerView.swift; path = "Shared/Views/Settings/Backup/BackupPlayerPickerView.swift"; sourceTree = SOURCE_ROOT; };
 		028A713DB19A8EECAFD019BF /* WishlistView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WishlistView.swift; sourceTree = "<group>"; };
 		041445719EF68E8D96502946 /* SystemSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = SystemSettingsView.swift; path = Shared/Views/Settings/SystemSettingsView.swift; sourceTree = SOURCE_ROOT; };
 		04184AAEBE4930410D4BA992 /* InterfaceSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = InterfaceSettingsView.swift; path = Shared/Views/Settings/InterfaceSettingsView.swift; sourceTree = SOURCE_ROOT; };
@@ -1882,6 +1926,10 @@
 				B917FD1B29BD5F010082187F /* BookmarkList.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
+				34C4AB4B0985B1D9BAB091E9 /* PerfMonitor.swift in Sources */,
+				FEF0DBE5EA167189B3BF8BBE /* AccoladesCacheStore.swift in Sources */,
+				071E2279DA629331474573BB /* AccoladesModel.swift in Sources */,
+
 		};
 		B941B64625A5BC8A00F675C1 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -2113,6 +2161,26 @@
 				6E794B80BC502503133A295D /* SystemSettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
+				D3604BD17B450BC8F6B45B80 /* GamePodAssets.swift in Sources */,
+				032B6AC8A136038C8677FCAE /* PerfMonitor.swift in Sources */,
+				6ACCC7FA96492F17C1561E69 /* AccoladesCacheStore.swift in Sources */,
+				B95D9D46E9C81318559C2DB8 /* BackupContainer.swift in Sources */,
+				902D0AC27FFB436FB72E3432 /* BackupCrypto.swift in Sources */,
+				868D46D9DE0D938731D31BE1 /* BackupFormat.swift in Sources */,
+				A44AE72B169F225915DED64B /* BackupSemanticValidator.swift in Sources */,
+				88BAF55B04A04553344B04F1 /* BackupService.swift in Sources */,
+				811478A5E3D631F979535E41 /* MapRatingModel.swift in Sources */,
+				058CF4D3CBA4CC8AFED14D82 /* PartyCodeSheet.swift in Sources */,
+				1AA7484894B78B0DA6477282 /* PartyCustomGameSettingsSheet.swift in Sources */,
+				DC3A3D9C4A4EA09B8A21135E /* PartyInviteFriendsView.swift in Sources */,
+				B7920FAFDC397033A52277E2 /* PartyServerSelectionView.swift in Sources */,
+				646FBAE5FF390EE83E79F819 /* PartySettingsView.swift in Sources */,
+				91782F6DCE09B5B01B198E81 /* AccoladeIconView.swift in Sources */,
+				E1CC683B2D558039152418A6 /* MapRatingsView.swift in Sources */,
+				8BEB612AAF240EA722E05281 /* BackupExportView.swift in Sources */,
+				7FBF5B35ED6F6EDAFB5E2E77 /* BackupImportView.swift in Sources */,
+				0F57FCAADF7FD2D15CABE7CC /* BackupPlayerPickerView.swift in Sources */,
+
 		};
 		B9485F89264B639F00AC3456 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -2217,6 +2285,10 @@
 				640DE79522D207A602D71908 /* LevelBorderAssets.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
+				BF98BA27A52A719786114E5F /* PerfMonitor.swift in Sources */,
+				F1863244FF77FF0AF9E9A16C /* AccoladesCacheStore.swift in Sources */,
+				2AF7601D45F91EB4C4582233 /* AccoladesModel.swift in Sources */,
+
 		};
 /* End PBXSourcesBuildPhase section */
 

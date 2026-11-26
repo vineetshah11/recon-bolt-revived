@@ -107,7 +107,7 @@ struct LineupGuide: Identifiable, Codable, Equatable {
 		try container.encodeIfPresent(imageURL?.absoluteString, forKey: .imageUrl)
 		try container.encodeIfPresent(views, forKey: .views)
 		try container.encodeIfPresent(votes, forKey: .voteCount)
-		try container.encodeIfPresent(createdAt.map(Self.isoFormatter.string(from:)), forKey: .createdAt)
+		try container.encodeIfPresent(createdAt?.formatted(.iso8601), forKey: .createdAt)
 	}
 	
 	private static func absoluteURL(_ string: String) -> URL? {
@@ -119,20 +119,9 @@ struct LineupGuide: Identifiable, Codable, Equatable {
 		return URL(string: string, relativeTo: base)?.absoluteURL
 	}
 	
-	private static let isoFormatter: ISO8601DateFormatter = {
-		let formatter = ISO8601DateFormatter()
-		formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-		return formatter
-	}()
-	
-	private static let isoFormatterWithoutFraction: ISO8601DateFormatter = {
-		let formatter = ISO8601DateFormatter()
-		formatter.formatOptions = [.withInternetDateTime]
-		return formatter
-	}()
-	
 	private static func date(from string: String) -> Date? {
-		isoFormatter.date(from: string) ?? isoFormatterWithoutFraction.date(from: string)
+		(try? Date(string, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: true)))
+			?? (try? Date(string, strategy: Date.ISO8601FormatStyle(includingFractionalSeconds: false)))
 	}
 }
 
@@ -145,6 +134,7 @@ final class LineupsManager: ObservableObject {
 	
 	private let favoritesFilename = "LineupFavorites.v2.json"
 	private let endpoint = URL(string: "https://tricks.gg/api/lineups")!
+	private var fetchGeneration = 0
 	
 	init() {
 		favorites = LocalJSONStore.load([LineupGuide].self, from: favoritesFilename) ?? []
@@ -163,6 +153,28 @@ final class LineupsManager: ObservableObject {
 		LocalJSONStore.save(favorites, to: favoritesFilename)
 	}
 	
+	@discardableResult
+	func importFavorites(_ incoming: [LineupGuide], replaceAll: Bool) async -> Int {
+		var working = replaceAll ? [] : favorites
+		var changedCount = 0
+		
+		for guide in incoming {
+			if let idx = working.firstIndex(where: { $0.id == guide.id }) {
+				if working[idx] != guide {
+					working[idx] = guide
+					changedCount += 1
+				}
+			} else {
+				working.append(guide)
+				changedCount += 1
+			}
+		}
+		
+		favorites = working
+		await LocalJSONStore.saveAndWait(favorites, to: favoritesFilename)
+		return replaceAll ? working.count : changedCount
+	}
+	
 	func sortGuides(by sort: LineupSort) {
 		guides = sorted(guides, by: sort)
 	}
@@ -173,9 +185,15 @@ final class LineupsManager: ObservableObject {
 		side: LineupSide,
 		sort: LineupSort
 	) async {
+		fetchGeneration += 1
+		let gen = fetchGeneration
 		isLoading = true
 		errorMessage = nil
-		defer { isLoading = false }
+		defer {
+			if gen == fetchGeneration {
+				isLoading = false
+			}
+		}
 		
 		guard var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false) else {
 			errorMessage = "Invalid endpoint URL."
@@ -199,11 +217,12 @@ final class LineupsManager: ObservableObject {
 			return
 		}
 		
-		var request = URLRequest(url: url)
+		var request = URLRequest(url: url, timeoutInterval: 20)
 		request.setValue("application/json", forHTTPHeaderField: "Accept")
 		
 		do {
 			let (data, response) = try await URLSession.shared.data(for: request)
+			guard !Task.isCancelled, gen == fetchGeneration else { return }
 			if let http = response as? HTTPURLResponse {
 				if http.statusCode == 403 {
 					errorMessage = "Tricks.gg is blocking this network right now. You can still browse line-ups in Safari."
@@ -215,8 +234,13 @@ final class LineupsManager: ObservableObject {
 				}
 			}
 			let decoded = try JSONDecoder().decode(LineupResponse.self, from: data)
+			guard !Task.isCancelled, gen == fetchGeneration else { return }
 			guides = sorted(decoded.lineups, by: sort)
 		} catch {
+			guard !Task.isCancelled, gen == fetchGeneration else { return }
+			if error is CancellationError || (error as? URLError)?.code == .cancelled {
+				return
+			}
 			errorMessage = error.localizedDescription
 		}
 	}

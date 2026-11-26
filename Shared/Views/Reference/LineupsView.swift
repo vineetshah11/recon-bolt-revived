@@ -12,6 +12,25 @@ struct LineupsView: View {
 	@State private var sort: LineupSort = .top
 	@State private var favoritesOnly = false
 	@State private var search = ""
+	@State private var reloadToken = 0
+	
+	private struct FilterKey: Equatable {
+		let map: String?
+		let agent: String?
+		let side: LineupSide
+		let favoritesOnly: Bool
+		let reloadToken: Int
+	}
+	
+	private var filterKey: FilterKey {
+		FilterKey(
+			map: selectedMapName,
+			agent: selectedAgentName,
+			side: side,
+			favoritesOnly: favoritesOnly,
+			reloadToken: reloadToken
+		)
+	}
 	
 	var body: some View {
 		List {
@@ -39,7 +58,7 @@ struct LineupsView: View {
 							.foregroundStyle(.secondary)
 						HStack(spacing: 12) {
 							Button("Retry") {
-								Task { await reload() }
+								reloadToken &+= 1
 							}
 							Link("Open on Tricks.gg", destination: LineupGuide.siteURL)
 						}
@@ -65,14 +84,10 @@ struct LineupsView: View {
 		.refreshable {
 			await reload()
 		}
-		.task {
-			if lineupsManager.guides.isEmpty && !favoritesOnly {
-				await reload()
-			}
+		.task(id: filterKey) {
+			guard !favoritesOnly else { return }
+			await reload()
 		}
-		.onChange(of: selectedMapName) { _ in Task { await reload() } }
-		.onChange(of: selectedAgentName) { _ in Task { await reload() } }
-		.onChange(of: side) { _ in Task { await reload() } }
 		.onChange(of: sort) { newSort in
 			lineupsManager.sortGuides(by: newSort)
 		}

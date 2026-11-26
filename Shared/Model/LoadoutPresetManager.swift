@@ -379,6 +379,37 @@ final class LoadoutPresetManager: ObservableObject {
 		persistFavorites()
 	}
 	
+	func exportPresets(for playerIDs: Set<User.ID>?) -> [LoadoutPreset] {
+		guard let playerIDs else { return presets }
+		return presets.filter { preset in
+			guard let accountID = preset.accountID else { return !playerIDs.isEmpty }
+			return playerIDs.contains(accountID)
+		}
+	}
+	
+	@discardableResult
+	func importPresets(_ incoming: [LoadoutPreset], replaceAll: Bool) async -> Int {
+		var working = replaceAll ? [] : presets
+		var changedCount = 0
+		
+		for preset in incoming {
+			if let idx = working.firstIndex(where: { $0.id == preset.id }) {
+				if preset.updatedAt > working[idx].updatedAt {
+					working[idx] = preset
+					changedCount += 1
+				}
+			} else {
+				working.append(preset)
+				changedCount += 1
+			}
+		}
+		
+		working.sort { $0.updatedAt > $1.updatedAt }
+		presets = working
+		await LocalJSONStore.saveAndWait(presets, to: filename)
+		return replaceAll ? working.count : changedCount
+	}
+	
 	func exportFavoritesPresets(for playerIDs: Set<User.ID>?) -> [FavoritesPreset] {
 		guard let playerIDs else { return favoritesPresets }
 		return favoritesPresets.filter { preset in
@@ -406,9 +437,11 @@ final class LoadoutPresetManager: ObservableObject {
 		
 		working.sort { $0.updatedAt > $1.updatedAt }
 		favoritesPresets = working
-		LocalJSONStore.save(favoritesPresets, to: favoritesFilename)
+		await LocalJSONStore.saveAndWait(favoritesPresets, to: favoritesFavoritesFilename)
 		return replaceAll ? working.count : changedCount
 	}
+	
+	private var favoritesFavoritesFilename: String { favoritesFilename }
 	
 	private func persist() {
 		LocalJSONStore.save(presets, to: filename)
