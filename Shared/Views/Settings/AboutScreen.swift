@@ -211,11 +211,11 @@ struct AboutScreen: View {
 				ListLink("Discord", icon: "bubble.right", destination: "https://discord.gg/pG4an6bWQ")
 				ListLink("Vineet's GitHub", icon: "person.crop.circle", destination: "https://github.com/vineetshah11")
 				ListLink("DT's Page", icon: "person.crop.circle", destination: "https://guns.lol/dt.l21")
-				ListLink("Original Creator Page", destination: "https://juliand665.com/")
+				ListLink("Julian's Page", destination: "https://juliand665.com/")
 			}
 
 			Section(header: Text("Credits", comment: "About Screen: section")) {
-				Text("Originally created by [Julian Dunskus (juliand665)](https://juliand665.com/), who designed and built Recon Bolt and its API layer.")
+				Text("Originally created by [Julian Dunskus](https://juliand665.com/), who designed and built Recon Bolt and its API layer.")
 
 				Revived and maintained by DT & Vineet, who rebuilt the app, repaired the broken APIs, added newer weapons, agents, Gauntlet support and extended features for Basic and Pro versions.
 
