@@ -97,6 +97,15 @@ private final class BundledAssetCache: @unchecked Sendable {
 }
 
 extension UIImage {
+	/// `BundledAssets` is only shipped by the app target; extension targets compile this file too but have no bundle to look in.
+	private static var bundledAssetsBaseURL: URL? {
+		#if WIDGETS
+		return Bundle.main.url(forResource: "BundledAssets", withExtension: nil)
+		#else
+		return Bundle.module.url(forResource: "BundledAssets", withExtension: nil)
+		#endif
+	}
+	
 	/// Loads an asset image from either the compiled asset catalog or `Bundle.module/BundledAssets`.
 	static func bundledAsset(named name: String) -> UIImage? {
 		let cached = BundledAssetCache.shared.lookup(name)
@@ -107,7 +116,7 @@ extension UIImage {
 		let resolved: UIImage?
 		if let assetImage = UIImage(named: name) {
 			resolved = assetImage
-		} else if let baseURL = Bundle.module.url(forResource: "BundledAssets", withExtension: nil) {
+		} else if let baseURL = Self.bundledAssetsBaseURL {
 			let fileURL = baseURL.appendingPathComponent("\(name).png")
 			if let image = UIImage(contentsOfFile: fileURL.path) {
 				resolved = image

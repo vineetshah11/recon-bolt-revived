@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		90C6E68262F7B716239E083D /* MatchAnalytics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33FAC10A2EB2269275DF3DBF /* MatchAnalytics.swift */; };
+		47686C5572294AB6D92C52B5 /* GamePodAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7DBC8ACDC8C22FB60920805 /* GamePodAssets.swift */; };
 		8CC86261C1FCFF47BC1B0712 /* GamePodAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = A7DBC8ACDC8C22FB60920805 /* GamePodAssets.swift */; };
 		00244EC2D2B3FB91A14501A4 /* PerfMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E5725B596891B94AB110595 /* PerfMonitor.swift */; };
 		BF98BA27A52A719786114E5F /* PerfMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1E5725B596891B94AB110595 /* PerfMonitor.swift */; };
@@ -2280,6 +2282,8 @@
 				B9C2E913284E3B9F0007FC55 /* SearchableAssetPicker.swift in Sources */,
 				640DE79522D207A602D71908 /* LevelBorderAssets.swift in Sources */,
 				BF98BA27A52A719786114E5F /* PerfMonitor.swift in Sources */,
+				90C6E68262F7B716239E083D /* MatchAnalytics.swift in Sources */,
+				47686C5572294AB6D92C52B5 /* GamePodAssets.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
