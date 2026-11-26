@@ -208,7 +208,7 @@ struct AboutScreen: View {
 			)
 
 			Section(header: Text("Links", comment: "About Screen: section")) {
-				ListLink("Discord", icon: "bubble.left.and.bubble.right", destination: "https://discord.gg/pG4an6bWQ")
+				ListLink("Discord", icon: "bubble.right", destination: "https://discord.gg/pG4an6bWQ")
 				ListLink("Vineet's GitHub", icon: "person.crop.circle", destination: "https://github.com/vineetshah11")
 				ListLink("DT's Page", icon: "person.crop.circle", destination: "https://guns.lol/dt.l21")
 				ListLink("Original Creator Page", destination: "https://juliand665.com/")
@@ -217,7 +217,7 @@ struct AboutScreen: View {
 			Section(header: Text("Credits", comment: "About Screen: section")) {
 				Text("Originally created by [Julian Dunskus (juliand665)](https://juliand665.com/), who designed and built Recon Bolt and its API layer.")
 
-				Text("Revived and maintained by [DT (Timothy Maume)](https://guns.lol/dt.l21), who rebuilt Riot authentication with WebView OAuth and 2FA, repaired the broken API endpoints, and added the newer weapons, Gauntlet support, and Pro features.")
+				Revived and maintained by DT & Vineet, who rebuilt the app, repaired the broken APIs, added newer weapons, agents, Gauntlet support and extended features for Basic and Pro versions.
 
 				VStack(alignment: .leading, spacing: 8) {
 					Link("Valorant-API.com" as String, destination: URL(string: "https://valorant-api.com")!)
