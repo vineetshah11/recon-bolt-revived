@@ -596,8 +596,8 @@ private struct DetonationGIFView: UIViewRepresentable {
 		view.backgroundColor = .clear
 		
 		guard
-			let url = Bundle.module.url(forResource: "BundledAssets/DetonationImage", withExtension: "gif")
-				?? Bundle.module.url(forResource: "DetonationImage", withExtension: "gif"),
+			let url = Bundle.main.url(forResource: "BundledAssets/DetonationImage", withExtension: "gif")
+				?? Bundle.main.url(forResource: "DetonationImage", withExtension: "gif"),
 			let data = try? Data(contentsOf: url),
 			let source = CGImageSourceCreateWithData(data as CFData, nil)
 		else { return view }

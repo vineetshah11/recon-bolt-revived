@@ -325,7 +325,7 @@ enum BackupService {
 		discoveredIDs.formUnion(socialFriendPlayers)
 		discoveredIDs.formUnion(socialMessageCounts.keys)
 		
-		var players: [BackupSelectablePlayer] = discoveredIDs.map { id in
+		var players: [BackupSelectablePlayer] = discoveredIDs.map { (id: User.ID) -> BackupSelectablePlayer in
 			let role: BackupPlayerSummary.Role
 			if ownAccounts.contains(id) {
 				role = .account
@@ -334,19 +334,24 @@ enum BackupService {
 			} else {
 				role = .cached
 			}
-			
-			let cachedUser = usersByID[id]
+
+			let cachedUser: User? = usersByID[id]
 			let latestName = usernameHistory[id]?.max { $0.lastSeen < $1.lastSeen }
-			let gameName = (cachedUser?.gameName.isEmpty == false ? cachedUser?.gameName : nil) ?? latestName?.gameName ?? ""
-			let tagLine = (cachedUser?.tagLine.isEmpty == false ? cachedUser?.tagLine : nil) ?? latestName?.tagLine ?? ""
-			
-			let playerMatches = matchIDsByPlayer[id] ?? []
-			let cachedMatchesForPlayer = playerMatches.intersection(matchDetailIDs)
-			let estBytes = (matchListSizes[id] ?? 0)
+			let cachedGameName: String? = cachedUser?.gameName
+			let cachedTagLine: String? = cachedUser?.tagLine
+			let gameName: String = (cachedGameName?.isEmpty == false ? cachedGameName : nil) ?? latestName?.gameName ?? ""
+			let tagLine: String = (cachedTagLine?.isEmpty == false ? cachedTagLine : nil) ?? latestName?.tagLine ?? ""
+
+			let playerMatches: Set<Match.ID> = matchIDsByPlayer[id] ?? []
+			let cachedMatchesForPlayer: Set<Match.ID> = playerMatches.intersection(matchDetailIDs)
+			let cachedMatchBytes: Int64 = cachedMatchesForPlayer.reduce(Int64(0)) { (sum: Int64, matchID: Match.ID) -> Int64 in
+				sum + (matchDetailSizes[matchID] ?? 0)
+			}
+			let estBytes: Int64 = (matchListSizes[id] ?? 0)
 				+ (careerSizes[id] ?? 0)
 				+ (userSizes[id] ?? 0)
 				+ (identitySizes[id] ?? 0)
-				+ cachedMatchesForPlayer.reduce(0) { $0 + (matchDetailSizes[$1] ?? 0) }
+				+ cachedMatchBytes
 			
 			return BackupSelectablePlayer(
 				id: id,

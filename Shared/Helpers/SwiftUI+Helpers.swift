@@ -97,13 +97,9 @@ private final class BundledAssetCache: @unchecked Sendable {
 }
 
 extension UIImage {
-	/// `BundledAssets` is only shipped by the app target; extension targets compile this file too but have no bundle to look in.
+	/// `BundledAssets` ships as a folder reference in the app bundle, so look it up in the main bundle.
 	private static var bundledAssetsBaseURL: URL? {
-		#if WIDGETS
-		return Bundle.main.url(forResource: "BundledAssets", withExtension: nil)
-		#else
-		return Bundle.module.url(forResource: "BundledAssets", withExtension: nil)
-		#endif
+		Bundle.main.url(forResource: "BundledAssets", withExtension: nil)
 	}
 	
 	/// Loads an asset image from either the compiled asset catalog or `Bundle.module/BundledAssets`.
