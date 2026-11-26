@@ -86,7 +86,7 @@ struct SettingsView: View {
 					Text("When enabled, Vantage locks in the chosen agent as soon as Agent Select starts. This only works while the Agent Select screen is open (turn on auto-show for live matches to make it automatic), and only for agents you own.", comment: "Settings: instalock explanation")
 				}
 
-				Section(header: Text("About", comment: "Settings: section")) {
+				Section {
 					NavigationLink {
 						AboutScreen()
 					} label: {
@@ -97,6 +97,11 @@ struct SettingsView: View {
 								.foregroundStyle(.tint)
 						}
 					}
+					
+				} header: {
+					Text("About", comment: "Settings: section")
+				} footer: {
+					Text(AppVersion.display)
 				}
 				.id(storefrontID)
 			}
@@ -117,9 +122,13 @@ struct SettingsView: View {
 				loginWebViewModel.startNewSession(clearWebData: settings.clearWebSignInDataOnOpen)
 			}
 		}
+		.onChange(of: accountManager.activeAccount?.id) { _ in
+			settings.instalockAgent = nil
+		}
 		.navigationTitle("Settings")
-	}
-	
+}
+
+
 	@ViewBuilder
 	func mainSettings() -> some View {
 		Picker(selection: $settings.theme) {

@@ -79,6 +79,7 @@ struct ReconBoltApp: App {
 	}
 	
 	private func onLaunch() {
+		print("Vantage \(AppVersion.display) launched")
 		ReviewManager.registerUsage(points: 2)
 		AppSettings.applyGlobalTint(settings.effectiveAccentColor)
 		
