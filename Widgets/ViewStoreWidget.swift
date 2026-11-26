@@ -188,8 +188,8 @@ struct ViewStoreWidget_Previews: PreviewProvider {
 			name: "a long-ass testing name (yes)",
 			icon: Image("Example Skin"),
 			tierColor: tiers?[0].color,
-			tierIcon: tiers?[0].displayIcon
-				.flatMap { Managers.images.syncPreviewImage(for: $0, bucket: .icon) }
+			tierIcon: (tiers?[0])
+				.flatMap { Managers.images.syncPreviewImage(for: $0.displayIcon, bucket: .icon) }
 				.map(Image.init(uiImage:))
 		),
 		.init(
