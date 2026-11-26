@@ -217,7 +217,7 @@ struct AboutScreen: View {
 			Section(header: Text("Credits", comment: "About Screen: section")) {
 				Text("Originally created by [Julian Dunskus](https://juliand665.com/), who designed and built Recon Bolt and its API layer.")
 
-				Revived and maintained by DT & Vineet, who rebuilt the app, repaired the broken APIs, added newer weapons, agents, Gauntlet support and extended features for Basic and Pro versions.
+				Text("Revived and maintained by DT & Vineet, who rebuilt the app, repaired the broken APIs, added newer weapons, agents, Gauntlet support and extended features for Basic and Pro versions.", comment: "About Screen")
 
 				VStack(alignment: .leading, spacing: 8) {
 					Link("Valorant-API.com" as String, destination: URL(string: "https://valorant-api.com")!)
