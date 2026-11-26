@@ -101,7 +101,7 @@ struct SettingsView: View {
 				} header: {
 					Text("About", comment: "Settings: section")
 				} footer: {
-					Text(AppVersion.display)
+					Text()
 				}
 				.id(storefrontID)
 			}
