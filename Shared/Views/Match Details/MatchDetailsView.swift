@@ -525,6 +525,8 @@ private struct MatchShareSheet: View {
 	let focusedPlayer: Player
 	var resolvedUsers: [Player.ID: User] = [:]
 	
+	@LocalData private var summary: CareerSummary?
+	
 	@Environment(\.assets) private var assets
 	@Environment(\.seasons) private var seasons
 	@Environment(\.dismiss) private var dismiss
@@ -535,6 +537,19 @@ private struct MatchShareSheet: View {
 	@State private var didCopy = false
 	
 	private static let cardWidth: CGFloat = 360
+	
+	init(
+		data: MatchViewData,
+		analytics: MatchAnalytics,
+		focusedPlayer: Player,
+		resolvedUsers: [Player.ID: User] = [:]
+	) {
+		self.data = data
+		self.analytics = analytics
+		self.focusedPlayer = focusedPlayer
+		self.resolvedUsers = resolvedUsers
+		self._summary = .init(id: focusedPlayer.id)
+	}
 	
 	var body: some View {
 		NavigationView {
@@ -577,6 +592,10 @@ private struct MatchShareSheet: View {
 		.task(id: showsRiotID) {
 			await renderSnapshot()
 		}
+		.task(id: resolvedTier) {
+			await renderSnapshot()
+		}
+		.withLocalData($summary, id: focusedPlayer.id)
 	}
 	
 	// MARK: - Sheet Controls
@@ -596,6 +615,23 @@ private struct MatchShareSheet: View {
 				.aspectRatio(0.82, contentMode: .fit)
 				.overlay { ProgressView("Rendering summary…") }
 		}
+	}
+	
+	/// The tier the player was in for this match, falling back to their current
+	/// career rank when the match payload doesn't include one.
+	private var resolvedTier: Int {
+		if focusedPlayer.competitiveTier >= 3 {
+			return focusedPlayer.competitiveTier
+		}
+		if let act = seasons?.currentAct()?.id,
+		   let tier = summary?.competitiveInfo?.bySeason?[act]?.competitiveTier,
+		   tier >= 3 {
+			return tier
+		}
+		if let latest = summary?.latestUpdate?.tierAfterUpdate, latest >= 3 {
+			return latest
+		}
+		return focusedPlayer.competitiveTier
 	}
 	
 	private var showRiotIDToggle: some View {
@@ -683,8 +719,7 @@ private struct MatchShareSheet: View {
 			.flatMap { preloaded[$0] }
 		let stats = analytics.byPlayer[focusedPlayer.id]
 		let result = resultInfo()
-		let tierInfo = seasons?.currentTierInfo(number: focusedPlayer.competitiveTier)
-		let tierIcon = tierInfo?.icon.flatMap { preloaded[$0] }
+		let tierIcon = seasons?.currentTierInfo(number: resolvedTier)?.icon.flatMap { preloaded[$0] }
 		let matchBadges = badges(for: stats)
 		
 		return VStack(alignment: .leading, spacing: 14) {
@@ -771,12 +806,13 @@ private struct MatchShareSheet: View {
 			}
 			
 			if let stats {
-				HStack(spacing: 0) {
+				let others = analytics.lobbyComparison(for: focusedPlayer.id)
+				HStack(alignment: .top, spacing: 0) {
 					shareMetric("\(stats.kills)/\(stats.deaths)/\(stats.assists)", "K / D / A")
-					shareMetric("\(Int(stats.acs.rounded()))", "ACS")
-					shareMetric("\(Int(stats.adr.rounded()))", "ADR")
-					shareMetric(String(format: "%.0f%%", stats.hsPercent), "HS %")
-					shareMetric(String(format: "%.0f%%", stats.kastPercent), "KAST")
+					shareMetric("\(Int(stats.acs.rounded()))", "ACS", delta: deltaText(stats.acs, others?.avgACS))
+					shareMetric("\(Int(stats.adr.rounded()))", "ADR", delta: deltaText(stats.adr, others?.avgADR))
+					shareMetric(String(format: "%.0f%%", stats.hsPercent), "HS %", delta: deltaText(stats.hsPercent, others?.avgHSPercent, suffix: " %"))
+					shareMetric(String(format: "%.0f%%", stats.kastPercent), "KAST", delta: deltaText(stats.kastPercent, others?.avgKASTPercent, suffix: " %"))
 				}
 				.padding(.vertical, 10)
 				.background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -818,7 +854,15 @@ private struct MatchShareSheet: View {
 		)
 	}
 	
-	private func shareMetric(_ value: String, _ label: String) -> some View {
+	/// Difference against the lobby average, e.g. "+90" or "+3 %".
+	private func deltaText(_ value: Double, _ average: Double?, suffix: String = "") -> String? {
+		guard let average else { return nil }
+		let difference = Int((value - average).rounded())
+		guard difference != 0 else { return nil }
+		return difference > 0 ? "+\(difference)\(suffix)" : "-\(abs(difference))\(suffix)"
+	}
+	
+	private func shareMetric(_ value: String, _ label: String, delta: String? = nil) -> some View {
 		VStack(spacing: 3) {
 			Text(value)
 				.font(.headline.bold().monospacedDigit())
@@ -829,6 +873,12 @@ private struct MatchShareSheet: View {
 				.font(.system(size: 9, weight: .semibold))
 				.foregroundStyle(.white.opacity(0.5))
 				.lineLimit(1)
+			if let delta {
+				Text(delta)
+					.font(.system(size: 10, weight: .bold).monospacedDigit())
+					.foregroundStyle(delta.hasPrefix("+") ? Color.green : Color.valorantRed)
+					.lineLimit(1)
+			}
 		}
 		.frame(maxWidth: .infinity)
 	}
@@ -842,7 +892,7 @@ private struct MatchShareSheet: View {
 		if let aid = focusedPlayer.agentID, let agentImg = assets?.agents[aid]?.displayIcon {
 			targets.append(agentImg)
 		}
-		if let tierImg = seasons?.currentTierInfo(number: focusedPlayer.competitiveTier)?.icon {
+		if let tierImg = seasons?.currentTierInfo(number: resolvedTier)?.icon {
 			targets.append(tierImg)
 		}
 		
