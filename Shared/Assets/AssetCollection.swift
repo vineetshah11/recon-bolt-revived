@@ -29,9 +29,12 @@ struct AssetCollection: Codable {
 	let gamePods: [String: String]
 	
 	private let mapsLowercased: [String: MapInfo]
+	private let mapsByShortNameLowercased: [String: MapInfo]
 	private let gameModesLowercased: [String: GameModeInfo]
 	private let gamePodsLowercased: [String: String]
 	let knownNonTacticalMapPathsLowercased: Set<String>
+	let canonicalMapPathsByShortName: [String: String]
+	let modeFoldersByShortName: [String: String]
 	
 	init(
 		version: AssetVersion,
@@ -82,9 +85,12 @@ struct AssetCollection: Codable {
 		self.levelBorders = levelBorders
 		self.gamePods = gamePods
 		self.mapsLowercased = Self.buildMapsLowercased(maps)
+		self.mapsByShortNameLowercased = Self.buildMapsByShortNameLowercased(maps)
 		self.gameModesLowercased = Self.buildGameModesLowercased(gameModes)
 		self.gamePodsLowercased = Self.buildGamePodsLowercased(gamePods)
 		self.knownNonTacticalMapPathsLowercased = Self.buildNonTacticalPaths(maps)
+		self.canonicalMapPathsByShortName = Self.buildCanonicalMapPathsByShortName(maps)
+		self.modeFoldersByShortName = Self.buildModeFoldersByShortName(gameModes)
 	}
 }
 
@@ -126,17 +132,69 @@ extension AssetCollection {
 		let gamePods = try container.decodeIfPresent([String: String].self, forKey: .gamePods) ?? [:]
 		self.gamePods = gamePods
 		self.mapsLowercased = Self.buildMapsLowercased(maps)
+		self.mapsByShortNameLowercased = Self.buildMapsByShortNameLowercased(maps)
 		self.gameModesLowercased = Self.buildGameModesLowercased(gameModes)
 		self.gamePodsLowercased = Self.buildGamePodsLowercased(gamePods)
 		self.knownNonTacticalMapPathsLowercased = Self.buildNonTacticalPaths(maps)
+		self.canonicalMapPathsByShortName = Self.buildCanonicalMapPathsByShortName(maps)
+		self.modeFoldersByShortName = Self.buildModeFoldersByShortName(gameModes)
 	}
 	
 	private static func buildMapsLowercased(_ maps: [MapID: MapInfo]) -> [String: MapInfo] {
 		Dictionary(maps.values.map { ($0.id.rawValue.lowercased(), $0) }, uniquingKeysWith: { first, _ in first })
 	}
 	
+	private static func buildMapsByShortNameLowercased(_ maps: [MapID: MapInfo]) -> [String: MapInfo] {
+		Dictionary(
+			maps.values.compactMap { info in
+				let short = CustomGameConfigs.mapShortName(from: info.id.rawValue).lowercased()
+				return short.isEmpty ? nil : (short, info)
+			},
+			uniquingKeysWith: { first, _ in first }
+		)
+	}
+	
+	private static func buildCanonicalMapPathsByShortName(_ maps: [MapID: MapInfo]) -> [String: String] {
+		Dictionary(
+			maps.values.compactMap { info in
+				let raw = info.id.rawValue
+				let short = CustomGameConfigs.mapShortName(from: raw).lowercased()
+				guard !short.isEmpty, raw.lowercased().hasPrefix("/game/") else { return nil }
+				return (short, raw)
+			},
+			uniquingKeysWith: { first, _ in first }
+		)
+	}
+	
 	private static func buildGameModesLowercased(_ gameModes: [GameMode.ID: GameModeInfo]) -> [String: GameModeInfo] {
 		Dictionary(gameModes.map { ($0.key.rawValue.lowercased(), $0.value) }, uniquingKeysWith: { first, _ in first })
+	}
+	
+	private static func buildModeFoldersByShortName(_ gameModes: [GameMode.ID: GameModeInfo]) -> [String: String] {
+		var result: [String: String] = [:]
+		for (modeID, info) in gameModes {
+			let folder = modeID.rawValue
+			let assetShort = CustomGameConfigs.modeShortName(from: info.assetPath)
+			var candidates = [assetShort]
+			for suffix in ["_PrimaryAsset", "PrimaryAsset", "_DataAsset_Desktop", "_DataAsset"] {
+				if assetShort.lowercased().hasSuffix(suffix.lowercased()) {
+					let stripped = String(assetShort.dropLast(suffix.count))
+					if !stripped.isEmpty {
+						candidates.append(stripped)
+						if !stripped.lowercased().contains("gamemode") {
+							candidates.append("\(stripped)GameMode")
+						}
+					}
+				}
+			}
+			for candidate in candidates where !candidate.isEmpty {
+				let lower = candidate.lowercased()
+				if result[lower] == nil {
+					result[lower] = folder
+				}
+			}
+		}
+		return result
 	}
 	
 	private static func buildGamePodsLowercased(_ gamePods: [String: String]) -> [String: String] {
@@ -152,15 +210,23 @@ extension AssetCollection {
 	
 	func mapInfo(for path: String) -> MapInfo? {
 		guard !path.isEmpty else { return nil }
-		return maps[MapID(path)] ?? mapsLowercased[path.lowercased()]
+		if let exact = maps[MapID(path)] ?? mapsLowercased[path.lowercased()] {
+			return exact
+		}
+		let shortLower = CustomGameConfigs.mapShortName(from: path).lowercased()
+		return shortLower.isEmpty ? nil : mapsByShortNameLowercased[shortLower]
 	}
 	
 	func customModeDisplayName(for path: String) -> String {
 		guard !path.isEmpty else { return String(localized: "Standard") }
 		
-		let lower = path.lowercased()
+		let canonicalPath = CustomGameConfigs.canonicalModePath(
+			for: path,
+			knownModeFoldersByShortName: modeFoldersByShortName
+		)
+		let lower = canonicalPath.lowercased()
 		if let prefixRange = lower.range(of: "/game/gamemodes/") {
-			let tail = path[prefixRange.upperBound...]
+			let tail = canonicalPath[prefixRange.upperBound...]
 			if let lastSlash = tail.lastIndex(of: "/") {
 				let modeKey = String(tail[..<lastSlash])
 				if let info = gameModes[GameMode.ID(modeKey)] ?? gameModesLowercased[modeKey.lowercased()] {
@@ -169,7 +235,7 @@ extension AssetCollection {
 			}
 		}
 		
-		return Self.fallbackCustomModeDisplayName(for: path)
+		return Self.fallbackCustomModeDisplayName(for: canonicalPath)
 	}
 	
 	static func fallbackCustomModeDisplayName(for path: String) -> String {

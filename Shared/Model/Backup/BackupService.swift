@@ -239,7 +239,8 @@ enum BackupService {
 		async let snapshots: Void = stores.playerSettingsSnapshotStore.waitUntilLoaded()
 		async let lineups: Void = stores.lineupsManager.waitUntilLoaded()
 		async let accolades: Void = AccoladesCacheStore.shared.waitUntilLoaded()
-		_ = await (wishlist, shop, timeline, presets, goals, snapshots, lineups, accolades)
+		async let groupPerf: Void = GroupPerformanceCacheStore.shared.waitUntilLoaded()
+		_ = await (wishlist, shop, timeline, presets, goals, snapshots, lineups, accolades, groupPerf)
 	}
 	
 	// MARK: - Inventory Discovery
@@ -1037,12 +1038,15 @@ enum BackupService {
 			counts[.appSettings] = 1
 		}
 		
-		// Recalculate derived accolades cache from validated MatchDetails
+		// Recalculate derived accolades & group performance caches from validated MatchDetails
 		if let matchDetails = validated.matchDetails {
 			if replaceAll {
 				AccoladesCacheStore.shared.clearAll()
+				GroupPerformanceCacheStore.shared.clearAll()
 			} else if !matchDetails.isEmpty {
-				AccoladesCacheStore.shared.remove(matchIDs: matchDetails.map(\.id))
+				let importedIDs = matchDetails.map(\.id)
+				AccoladesCacheStore.shared.remove(matchIDs: importedIDs)
+				GroupPerformanceCacheStore.shared.remove(matchIDs: importedIDs)
 			}
 			var affectedUsers = Set((validated.matchLists ?? []).map(\.id))
 			if !options.allManifestPlayersSelected {
@@ -1052,6 +1056,7 @@ enum BackupService {
 				affectedUsers.formUnion(stores.bookmarkList.bookmarks.map(\.user))
 			}
 			await AccoladesCacheStore.shared.refreshForImportedUsers(affectedUsers)
+			await GroupPerformanceCacheStore.shared.refreshForImportedUsers(affectedUsers)
 		} else if validated.matchLists != nil {
 			var affectedUsers = Set((validated.matchLists ?? []).map(\.id))
 			if options.allManifestPlayersSelected {
@@ -1059,6 +1064,7 @@ enum BackupService {
 				affectedUsers.formUnion(stores.bookmarkList.bookmarks.map(\.user))
 			}
 			await AccoladesCacheStore.shared.refreshForImportedUsers(affectedUsers)
+			await GroupPerformanceCacheStore.shared.refreshForImportedUsers(affectedUsers)
 		}
 		
 		return BackupImportSummary(

@@ -10,11 +10,18 @@ private typealias Side = WinRate.Side
 
 @available(iOS 16.0, *)
 struct WinRateView: View {
+	private enum AgentSort: String, CaseIterable, Identifiable {
+		case matches = "Matches"
+		case winRate = "Win Rate"
+		var id: String { rawValue }
+	}
+	
 	var statistics: Statistics
 	var winRate: Statistics.WinRate { statistics.winRate }
 	
 	@AppStorage("WinRateView.shouldNormalize")
 	var shouldNormalize = false
+	@State private var agentSort: AgentSort = .matches
 	
 	@Environment(\.assets) private var assets
 	
@@ -41,8 +48,23 @@ struct WinRateView: View {
 			}
 			
 			if !winRate.byAgent.isEmpty {
-				Section(header: Text("By Agent", comment: "Win Rate Stats: section")) {
-					ForEach(winRate.byAgent.sorted(by: { $0.value.total > $1.value.total }), id: \.key) { agent, tally in
+				Section {
+					let sortedAgents = winRate.byAgent.sorted { lhs, rhs in
+						switch agentSort {
+						case .matches:
+							if lhs.value.total != rhs.value.total { return lhs.value.total > rhs.value.total }
+							return lhs.value.wins > rhs.value.wins
+						case .winRate:
+							let lDecided = lhs.value.wins + lhs.value.losses
+							let rDecided = rhs.value.wins + rhs.value.losses
+							let lWR = lDecided > 0 ? Double(lhs.value.wins) / Double(lDecided) : Double(-1)
+							let rWR = rDecided > 0 ? Double(rhs.value.wins) / Double(rDecided) : Double(-1)
+							if abs(lWR - rWR) > 0.0001 { return lWR > rWR }
+							if lhs.value.wins != rhs.value.wins { return lhs.value.wins > rhs.value.wins }
+							return lhs.value.total > rhs.value.total
+						}
+					}
+					ForEach(sortedAgents, id: \.key) { agent, tally in
 						HStack(spacing: 10) {
 							AgentImage.icon(agent, teamID: nil)
 								.frame(width: 28, height: 28)
@@ -58,6 +80,32 @@ struct WinRateView: View {
 									.font(.caption.monospacedDigit())
 									.foregroundStyle(.secondary)
 							}
+						}
+					}
+				} header: {
+					HStack {
+						Text("By Agent", comment: "Win Rate Stats: section")
+						Spacer()
+						Menu {
+							ForEach(AgentSort.allCases) { option in
+								Button {
+									agentSort = option
+								} label: {
+									if agentSort == option {
+										Label(option.rawValue, systemImage: "checkmark")
+									} else {
+										Text(option.rawValue)
+									}
+								}
+							}
+						} label: {
+							HStack(spacing: 4) {
+								Text(agentSort.rawValue)
+								Image(systemName: "chevron.up.chevron.down")
+							}
+							.font(.caption.weight(.semibold))
+							.foregroundStyle(Color.accentColor)
+							.textCase(nil)
 						}
 					}
 				}

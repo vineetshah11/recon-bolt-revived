@@ -356,6 +356,14 @@ final class Statistics {
 		var averageMatchDuration: TimeInterval = 0
 		var totalRoundsPlayed = 0
 		var roundWinRate: Double = Double(0)
+		var averageLobbyACS: Double?
+		var acsVsLobbyPercent: Double?
+		var averageLobbyPlace: Double?
+		var top3LobbyCount = 0
+		var lobbyPlaceMatchCount = 0
+		var top3LobbyRate: Double {
+			lobbyPlaceMatchCount > 0 ? Double(top3LobbyCount) * Double(100) / Double(lobbyPlaceMatchCount) : Double(0)
+		}
 		
 		init(
 			userID: User.ID,
@@ -390,10 +398,17 @@ final class Statistics {
 			var tierCount = 0
 			var levelSum = 0
 			var levelCount = 0
+			var lobbyACSSum = Double(0)
+			var lobbyACSCount = 0
+			var lobbyPlaceSum = 0
+			var outcomeByMatchID: [Match.ID: WinRate.Outcome] = [:]
 			
 			for match in matches {
 				let analytics = analyticsByMatch[match.id]
 				guard let player = match.players.firstElement(withID: userID) else { continue }
+				
+				let winner = match.teams.first(where: \.won)
+				outcomeByMatchID[match.id] = winner == nil ? .draw : (winner?.id == player.teamID ? .win : .loss)
 				
 				if let s = player.stats {
 					totalKills += s.kills
@@ -401,6 +416,16 @@ final class Statistics {
 					totalAssists += s.assists
 					scoreSum += s.score
 					totalRoundsPlayed += s.roundsPlayed
+				}
+				
+				if let comp = analytics?.lobbyComparison(for: userID) {
+					lobbyACSSum += comp.avgACS
+					lobbyACSCount += 1
+					lobbyPlaceSum += comp.acsRank
+					lobbyPlaceMatchCount += 1
+					if comp.acsRank <= 3 {
+						top3LobbyCount += 1
+					}
 				}
 				
 				if let pStats = analytics?.byPlayer[userID] {
@@ -453,6 +478,11 @@ final class Statistics {
 			self.roundWinRate = totalRoundsPlayed > 0 ? Double(roundsWonTotal) * Double(100) / Double(totalRoundsPlayed) : Double(0)
 			self.averageLobbyTier = tierCount > 0 ? Int((Double(tierSum) / Double(tierCount)).rounded()) : nil
 			self.averageAccountLevel = levelCount > 0 ? Int((Double(levelSum) / Double(levelCount)).rounded()) : nil
+			self.averageLobbyACS = lobbyACSCount > 0 ? lobbyACSSum / Double(lobbyACSCount) : nil
+			if let lobbyACS = self.averageLobbyACS, lobbyACS > Double(0), totalRoundsPlayed > 0 {
+				self.acsVsLobbyPercent = (self.averageACS - lobbyACS) * Double(100) / lobbyACS
+			}
+			self.averageLobbyPlace = lobbyPlaceMatchCount > 0 ? Double(lobbyPlaceSum) / Double(lobbyPlaceMatchCount) : nil
 			
 			// Match streaks sorted chronologically
 			let chronological = matches.sorted { $0.matchInfo.gameStart < $1.matchInfo.gameStart }
@@ -493,16 +523,29 @@ final class Statistics {
 				self.netRR = totalDelta
 				self.avgRRChange = Double(totalDelta) / Double(rankedUpdates.count)
 				
+				let winDeltas = rankedUpdates.compactMap { upd -> Int? in
+					if let outcome = outcomeByMatchID[upd.id] {
+						return outcome == .win ? upd.ratingEarned : nil
+					}
+					return upd.ratingEarned > 0 ? upd.ratingEarned : nil
+				}
+				let lossDeltas = rankedUpdates.compactMap { upd -> Int? in
+					if let outcome = outcomeByMatchID[upd.id] {
+						return outcome == .loss ? upd.ratingEarned : nil
+					}
+					return upd.ratingEarned < 0 ? upd.ratingEarned : nil
+				}
+				
 				let gains = deltas.filter { $0 > 0 }
 				let losses = deltas.filter { $0 < 0 }
-				if !gains.isEmpty {
-					self.avgRRGain = Double(gains.reduce(0, +)) / Double(gains.count)
-					self.bestRRGain = gains.max()
+				if !winDeltas.isEmpty {
+					self.avgRRGain = Double(winDeltas.reduce(0, +)) / Double(winDeltas.count)
 				}
-				if !losses.isEmpty {
-					self.avgRRLoss = Double(losses.reduce(0, +)) / Double(losses.count)
-					self.worstRRLoss = losses.min()
+				self.bestRRGain = gains.max()
+				if !lossDeltas.isEmpty {
+					self.avgRRLoss = Double(lossDeltas.reduce(0, +)) / Double(lossDeltas.count)
 				}
+				self.worstRRLoss = losses.min()
 			}
 		}
 		

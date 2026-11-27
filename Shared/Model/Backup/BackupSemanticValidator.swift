@@ -378,6 +378,7 @@ enum BackupSemanticValidator {
 	
 	static func validateAppSettings(_ snapshot: AppSettings.BackupSnapshot) throws {
 		guard (0...3650).contains(snapshot.matchRetentionDays),
+			  (1...168).contains(snapshot.notificationLeadTimeHours),
 			  snapshot.customAccentColorComponents.count <= 128 else {
 			throw BackupError.semanticValidationFailed("App settings values out of range.")
 		}

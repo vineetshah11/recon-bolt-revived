@@ -489,6 +489,14 @@ struct WishlistView: View {
 				let storefront = try await client.getStorefront()
 				checkedCount += 1
 				shopHistoryStore.record(storefront: storefront, for: accountID)
+				await StoreNotificationManager.shared.processObservedStorefront(
+					storefront,
+					for: accountID,
+					fetchDate: Date(),
+					assets: assets,
+					wishlistEntries: wishlistManager.entries,
+					isBackground: false
+				)
 				
 				let matches = wishlistManager.matchingDailyOffers(in: storefront, assets: assets)
 				for match in matches {

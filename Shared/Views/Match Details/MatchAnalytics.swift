@@ -149,13 +149,36 @@ final class MatchAnalytics {
 		var enemyID: Player.ID
 	}
 	
+	enum DuelOutcome: String, Hashable {
+		case kill
+		case death
+		case assist
+	}
+	
 	struct DuelKillEvent: Identifiable {
-		var id = UUID()
+		var id: String
 		var roundNumber: Int
 		var roundTimeMillis: Int
+		var outcome: DuelOutcome
 		var killerIsAlly: Bool
 		var isFirstBlood: Bool
+		var allyWonRound: Bool
 		var weaponID: Weapon.ID?
+		var allyWeaponID: Weapon.ID?
+		var allyWeaponFallbackName: String?
+		var enemyWeaponID: Weapon.ID?
+		var enemyWeaponFallbackName: String?
+		var allyArmorID: Armor.ID?
+		var enemyArmorID: Armor.ID?
+		var damageDealt: Int
+		var dealtHeadshots: Int
+		var dealtBodyshots: Int
+		var dealtLegshots: Int
+		var damageReceived: Int
+		var receivedHeadshots: Int
+		var receivedBodyshots: Int
+		var receivedLegshots: Int
+		var rangeMeters: Double?
 	}
 	
 	struct DuelMatchup: Identifiable {
@@ -164,6 +187,7 @@ final class MatchAnalytics {
 		var enemyPlayer: Player
 		var allyKills: Int
 		var enemyKills: Int
+		var allyAssists: Int = 0
 		var allyFirstBloods: Int
 		var enemyFirstBloods: Int
 		var allyDamage: Int
@@ -173,6 +197,11 @@ final class MatchAnalytics {
 		var events: [DuelKillEvent]
 		
 		var totalDuels: Int { allyKills + enemyKills }
+		var totalEngagements: Int { events.count }
+		var duelWinRate: Double {
+			let decided = allyKills + enemyKills
+			return decided > 0 ? Double(allyKills) / Double(decided) : Double(0)
+		}
 	}
 	
 	struct DuelMatrixData {
@@ -851,6 +880,44 @@ final class MatchAnalytics {
 		let allyMap = Dictionary(uniqueKeysWithValues: allies.map { ($0.id, $0) })
 		let enemyMap = Dictionary(uniqueKeysWithValues: enemies.map { ($0.id, $0) })
 		
+		struct PairDamageKey: Hashable {
+			let attacker: Player.ID
+			let receiver: Player.ID
+		}
+		
+		struct PairDamageTally {
+			var damage = 0
+			var head = 0
+			var body = 0
+			var leg = 0
+		}
+		
+		func weaponInfo(from damage: Kill.Damage) -> (Weapon.ID?, String?) {
+			switch damage.type {
+			case .weapon:
+				let wid = UUID(uuidString: damage.source).flatMap { Weapon.ID($0.uuidString.lowercased()) }
+				return (wid, wid == nil ? "Weapon" : nil)
+			case .melee:
+				return (.melee, "Melee")
+			case .ability:
+				let slot = damage.remappedAbilitySlot
+				return (nil, slot.isEmpty ? "Ability" : slot)
+			case .bomb:
+				return (nil, "Spike")
+			case .fall:
+				return (nil, "Fall")
+			default:
+				return (nil, damage.source.isEmpty ? nil : damage.source)
+			}
+		}
+		
+		func distanceMeters(from actorID: Player.ID, to victimPos: Position, in locations: [PlayerLocation]) -> Double? {
+			guard let pos = locations.first(where: { $0.subject == actorID })?.position else { return nil }
+			let dist = hypot(pos.x - victimPos.x, pos.y - victimPos.y) / Double(100)
+			guard dist.isFinite, dist >= Double(0) else { return nil }
+			return dist
+		}
+		
 		var matchups: [DuelPairKey: DuelMatchup] = [:]
 		for a in allies {
 			for e in enemies {
@@ -860,6 +927,7 @@ final class MatchAnalytics {
 					enemyPlayer: e,
 					allyKills: 0,
 					enemyKills: 0,
+					allyAssists: 0,
 					allyFirstBloods: 0,
 					enemyFirstBloods: 0,
 					allyDamage: 0,
@@ -871,41 +939,155 @@ final class MatchAnalytics {
 			}
 		}
 		
+		let allActivePlayers = allies + enemies
+		var eventCounter = 0
 		for round in precomputedRounds {
 			let killsInRound = round.allKills
 			let firstKill = killsInRound.first
+			let allyWonRound = round.winningTeam == allyTeamID
+			
+			var roundDamage: [PairDamageKey: PairDamageTally] = [:]
+			for ps in round.playerStats {
+				for dmg in ps.damageDealt {
+					let key = PairDamageKey(attacker: ps.subject, receiver: dmg.receiver)
+					var tally = roundDamage[key] ?? PairDamageTally()
+					tally.damage += dmg.damage
+					tally.head += dmg.headshots
+					tally.body += dmg.bodyshots
+					tally.leg += dmg.legshots
+					roundDamage[key] = tally
+				}
+			}
+			
+			var lastWeaponByPlayer: [Player.ID: Weapon.ID] = [:]
+			for p in allActivePlayers {
+				if let w = round.economyByPlayer[p.id]?.weapon ?? round.statsByPlayer[p.id]?.economy.weapon {
+					lastWeaponByPlayer[p.id] = w
+				}
+			}
+			
+			func armor(for playerID: Player.ID) -> Armor.ID? {
+				round.economyByPlayer[playerID]?.armor ?? round.statsByPlayer[playerID]?.economy.armor
+			}
 			
 			for kill in killsInRound {
-				guard let killer = kill.killer else { continue }
 				let isFirst = (kill.roundTimeMillis == firstKill?.roundTimeMillis && kill.killer == firstKill?.killer && kill.victim == firstKill?.victim)
-				let weaponID = kill.finishingDamage.type == .weapon
-				? UUID(uuidString: kill.finishingDamage.source).flatMap { Weapon.ID($0.uuidString.lowercased()) }
-				: nil
+				let (finishingWeaponID, finishingFallback) = weaponInfo(from: kill.finishingDamage)
 				
-				if allySet.contains(killer), enemySet.contains(kill.victim),
-				   allyMap[killer] != nil, enemyMap[kill.victim] != nil {
-					let key = DuelPairKey(allyID: killer, enemyID: kill.victim)
-					matchups[key]?.allyKills += 1
-					if isFirst { matchups[key]?.allyFirstBloods += 1 }
-					matchups[key]?.events.append(DuelKillEvent(
-						roundNumber: round.number,
-						roundTimeMillis: kill.roundTimeMillis,
-						killerIsAlly: true,
-						isFirstBlood: isFirst,
-						weaponID: weaponID
-					))
-				} else if enemySet.contains(killer), allySet.contains(kill.victim),
-						  allyMap[kill.victim] != nil, enemyMap[killer] != nil {
-					let key = DuelPairKey(allyID: kill.victim, enemyID: killer)
-					matchups[key]?.enemyKills += 1
-					if isFirst { matchups[key]?.enemyFirstBloods += 1 }
-					matchups[key]?.events.append(DuelKillEvent(
-						roundNumber: round.number,
-						roundTimeMillis: kill.roundTimeMillis,
-						killerIsAlly: false,
-						isFirstBlood: isFirst,
-						weaponID: weaponID
-					))
+				if let killer = kill.killer {
+					if let fw = finishingWeaponID {
+						lastWeaponByPlayer[killer] = fw
+					}
+					
+					if allySet.contains(killer), enemySet.contains(kill.victim),
+					   allyMap[killer] != nil, enemyMap[kill.victim] != nil {
+						let key = DuelPairKey(allyID: killer, enemyID: kill.victim)
+						let dealt = roundDamage[PairDamageKey(attacker: killer, receiver: kill.victim)] ?? PairDamageTally()
+						let received = roundDamage[PairDamageKey(attacker: kill.victim, receiver: killer)] ?? PairDamageTally()
+						let range = distanceMeters(from: killer, to: kill.victimPosition, in: kill.playerLocations)
+						
+						matchups[key]?.allyKills += 1
+						if isFirst { matchups[key]?.allyFirstBloods += 1 }
+						eventCounter += 1
+						matchups[key]?.events.append(DuelKillEvent(
+							id: "\(round.number)-\(kill.roundTimeMillis)-kill-\(eventCounter)",
+							roundNumber: round.number,
+							roundTimeMillis: kill.roundTimeMillis,
+							outcome: .kill,
+							killerIsAlly: true,
+							isFirstBlood: isFirst,
+							allyWonRound: allyWonRound,
+							weaponID: finishingWeaponID,
+							allyWeaponID: finishingWeaponID ?? lastWeaponByPlayer[killer],
+							allyWeaponFallbackName: finishingWeaponID == nil ? finishingFallback : nil,
+							enemyWeaponID: lastWeaponByPlayer[kill.victim],
+							enemyWeaponFallbackName: nil,
+							allyArmorID: armor(for: killer),
+							enemyArmorID: armor(for: kill.victim),
+							damageDealt: dealt.damage,
+							dealtHeadshots: dealt.head,
+							dealtBodyshots: dealt.body,
+							dealtLegshots: dealt.leg,
+							damageReceived: received.damage,
+							receivedHeadshots: received.head,
+							receivedBodyshots: received.body,
+							receivedLegshots: received.leg,
+							rangeMeters: range
+						))
+					} else if enemySet.contains(killer), allySet.contains(kill.victim),
+							  allyMap[kill.victim] != nil, enemyMap[killer] != nil {
+						let key = DuelPairKey(allyID: kill.victim, enemyID: killer)
+						let dealt = roundDamage[PairDamageKey(attacker: kill.victim, receiver: killer)] ?? PairDamageTally()
+						let received = roundDamage[PairDamageKey(attacker: killer, receiver: kill.victim)] ?? PairDamageTally()
+						let range = distanceMeters(from: killer, to: kill.victimPosition, in: kill.playerLocations)
+						
+						matchups[key]?.enemyKills += 1
+						if isFirst { matchups[key]?.enemyFirstBloods += 1 }
+						eventCounter += 1
+						matchups[key]?.events.append(DuelKillEvent(
+							id: "\(round.number)-\(kill.roundTimeMillis)-death-\(eventCounter)",
+							roundNumber: round.number,
+							roundTimeMillis: kill.roundTimeMillis,
+							outcome: .death,
+							killerIsAlly: false,
+							isFirstBlood: isFirst,
+							allyWonRound: allyWonRound,
+							weaponID: finishingWeaponID,
+							allyWeaponID: lastWeaponByPlayer[kill.victim],
+							allyWeaponFallbackName: nil,
+							enemyWeaponID: finishingWeaponID ?? lastWeaponByPlayer[killer],
+							enemyWeaponFallbackName: finishingWeaponID == nil ? finishingFallback : nil,
+							allyArmorID: armor(for: kill.victim),
+							enemyArmorID: armor(for: killer),
+							damageDealt: dealt.damage,
+							dealtHeadshots: dealt.head,
+							dealtBodyshots: dealt.body,
+							dealtLegshots: dealt.leg,
+							damageReceived: received.damage,
+							receivedHeadshots: received.head,
+							receivedBodyshots: received.body,
+							receivedLegshots: received.leg,
+							rangeMeters: range
+						))
+					}
+				}
+				
+				if enemySet.contains(kill.victim) {
+					for assistantID in kill.assistants where allySet.contains(assistantID) && assistantID != kill.killer {
+						guard allyMap[assistantID] != nil, enemyMap[kill.victim] != nil else { continue }
+						let key = DuelPairKey(allyID: assistantID, enemyID: kill.victim)
+						let dealt = roundDamage[PairDamageKey(attacker: assistantID, receiver: kill.victim)] ?? PairDamageTally()
+						let received = roundDamage[PairDamageKey(attacker: kill.victim, receiver: assistantID)] ?? PairDamageTally()
+						let range = distanceMeters(from: assistantID, to: kill.victimPosition, in: kill.playerLocations)
+						
+						matchups[key]?.allyAssists += 1
+						eventCounter += 1
+						matchups[key]?.events.append(DuelKillEvent(
+							id: "\(round.number)-\(kill.roundTimeMillis)-assist-\(eventCounter)",
+							roundNumber: round.number,
+							roundTimeMillis: kill.roundTimeMillis,
+							outcome: .assist,
+							killerIsAlly: false,
+							isFirstBlood: false,
+							allyWonRound: allyWonRound,
+							weaponID: lastWeaponByPlayer[assistantID],
+							allyWeaponID: lastWeaponByPlayer[assistantID],
+							allyWeaponFallbackName: nil,
+							enemyWeaponID: lastWeaponByPlayer[kill.victim],
+							enemyWeaponFallbackName: nil,
+							allyArmorID: armor(for: assistantID),
+							enemyArmorID: armor(for: kill.victim),
+							damageDealt: dealt.damage,
+							dealtHeadshots: dealt.head,
+							dealtBodyshots: dealt.body,
+							dealtLegshots: dealt.leg,
+							damageReceived: received.damage,
+							receivedHeadshots: received.head,
+							receivedBodyshots: received.body,
+							receivedLegshots: received.leg,
+							rangeMeters: range
+						))
+					}
 				}
 			}
 			
@@ -923,6 +1105,13 @@ final class MatchAnalytics {
 						matchups[key]?.enemyHeadshots += dmg.headshots
 					}
 				}
+			}
+		}
+		
+		for key in Array(matchups.keys) {
+			matchups[key]?.events.sort {
+				if $0.roundNumber != $1.roundNumber { return $0.roundNumber < $1.roundNumber }
+				return $0.roundTimeMillis < $1.roundTimeMillis
 			}
 		}
 		

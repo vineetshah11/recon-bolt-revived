@@ -121,6 +121,15 @@ final class ShopHistoryStore: ObservableObject {
 		return days.filter { $0.accountID == accountID }
 	}
 	
+	func dayCount(for accountID: User.ID?) -> Int {
+		guard let accountID else { return days.count }
+		var count = 0
+		for day in days where day.accountID == accountID {
+			count += 1
+		}
+		return count
+	}
+	
 	func firstRecordedDate(for accountID: User.ID?) -> Date? {
 		if let accountID {
 			return days.last { $0.accountID == accountID }?.date
@@ -196,12 +205,17 @@ final class ShopHistoryStore: ObservableObject {
 			daysModified = true
 		}
 		
-		lastDailyCheckAt = now
-		if lastDailyCheckAccountCount == 0 {
-			lastDailyCheckAccountCount = 1
+		let shouldUpdateCheckMetadata = daysModified
+			|| lastDailyCheckAt == nil
+			|| now.timeIntervalSince(lastDailyCheckAt!) >= 60
+		if shouldUpdateCheckMetadata {
+			lastDailyCheckAt = now
+			if lastDailyCheckAccountCount == 0 {
+				lastDailyCheckAccountCount = 1
+			}
+			UserDefaults.standard.set(now, forKey: Self.lastCheckAtKey)
+			UserDefaults.standard.set(lastDailyCheckAccountCount, forKey: Self.lastCheckCountKey)
 		}
-		UserDefaults.standard.set(now, forKey: Self.lastCheckAtKey)
-		UserDefaults.standard.set(lastDailyCheckAccountCount, forKey: Self.lastCheckCountKey)
 		if daysModified {
 			persist()
 		}

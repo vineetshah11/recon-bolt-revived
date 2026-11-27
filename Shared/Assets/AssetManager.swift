@@ -171,6 +171,10 @@ final class AssetManager: ObservableObject {
 			?? UserDefaults.shared.data(forKey: legacyStoredDefaultsKey)
 	}
 	
+	nonisolated static func loadCachedAssetsFromDisk() -> AssetCollection? {
+		loadStoredAssetsFromDiskOrMigrate()
+	}
+	
 	private nonisolated static func loadStoredAssetsFromDiskOrMigrate() -> AssetCollection? {
 		PerfMonitor.measure("AssetManager.loadStoredAssets", warnOverMs: 5.0) {
 			let fm = FileManager.default

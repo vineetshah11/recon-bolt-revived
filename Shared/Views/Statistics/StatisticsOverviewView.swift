@@ -230,6 +230,32 @@ struct StatisticsOverviewView: View {
 			)
 			
 			metricTile(
+				icon: "chart.line.uptrend.xyaxis",
+				title: "ACS vs Lobby",
+				value: ov.acsVsLobbyPercent.map { String(format: "%+.0f %%", $0) } ?? "—",
+				trend: ov.acsVsLobbyPercent.map { $0 >= Double(0) ? .up(.green) : .down(Color.valorantRed) },
+				detail: ov.averageLobbyACS.map {
+					"Your average ACS (\(Int(ov.averageACS.rounded()))) compared to the lobby average (\(Int($0.rounded())))."
+				} ?? "Not enough lobby comparison data yet."
+			)
+			
+			metricTile(
+				icon: "number",
+				title: "Avg Lobby Place",
+				value: ov.averageLobbyPlace.map { String(format: "#%.1f", $0) } ?? "—",
+				trend: ov.averageLobbyPlace.map { $0 <= Double(4.5) ? .up(.green) : .down(Color.valorantRed) },
+				detail: "Average ACS placement across \(ov.lobbyPlaceMatchCount) analyzed match(es)."
+			)
+			
+			metricTile(
+				icon: "trophy",
+				title: "Top 3 in Lobby",
+				value: ov.lobbyPlaceMatchCount > 0 ? "\(ov.top3LobbyCount)/\(ov.lobbyPlaceMatchCount)" : "—",
+				trend: ov.lobbyPlaceMatchCount > 0 && ov.top3LobbyRate >= Double(50) ? .up(.green) : nil,
+				detail: "\(Int(ov.top3LobbyRate.rounded()))% of matches finished in the top 3 of the lobby by ACS."
+			)
+			
+			metricTile(
 				icon: "flag.checkered",
 				title: "Round Win Rate",
 				value: formatPercent(ov.roundWinRate),

@@ -436,6 +436,14 @@
 		F95D42D1824DD5CE0CC8A72D /* LevelBorderAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 570540DA84E309E2A216FFFD /* LevelBorderAssets.swift */; };
 		FA11BE5C1A2B3C4D5E6F7A80 /* LoginWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA11BE5C1A2B3C4D5E6F7A81 /* LoginWebView.swift */; };
 		FA11BE5C1A2B3C4D5E6F7A83 /* BundledAssets in Resources */ = {isa = PBXBuildFile; fileRef = FA11BE5C1A2B3C4D5E6F7A82 /* BundledAssets */; };
+		A43C2AE2A548302F847BFE56 /* GroupPerformanceCacheStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6C3CB30ED7272F3A4F534304 /* GroupPerformanceCacheStore.swift */; };
+		655C721F607E37CAB23CD79D /* GroupPerformanceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9A7F467ABA2F19F96F4C6A1C /* GroupPerformanceModel.swift */; };
+		D66AC22248D7809221D3F434 /* StoreNotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2393262667AF833F82210ECF /* StoreNotificationManager.swift */; };
+		C6EF406375FA96A7BCD4D4DD /* GroupPerformanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 05FE79E5F0A87A2F41390776 /* GroupPerformanceView.swift */; };
+		D0F9E282B12100D75E94F4DE /* NotificationDiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F16E7B977EF2EFD52ED3ED8D /* NotificationDiagnosticsView.swift */; };
+		384CAB9529D682CD29BB035C /* NotificationSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F66B8BCE020AC768CDC1363E /* NotificationSettingsView.swift */; };
+		41F49298FD8285D4E5E6F315 /* RankedAnalysis.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A462F780635A37A5328D2C3 /* RankedAnalysis.swift */; };
+		AA1E33AD0887508129952007 /* RankedAnalysisView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1E0F2EF5182A836D6F30D2C /* RankedAnalysisView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -945,6 +953,14 @@
 		FA11BE5C1A2B3C4D5E6F7A81 /* LoginWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LoginWebView.swift; sourceTree = "<group>"; };
 		FA11BE5C1A2B3C4D5E6F7A82 /* BundledAssets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = BundledAssets; sourceTree = "<group>"; };
 		FDB8047FE631C0093FD37FA1 /* SocialManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SocialManager.swift; sourceTree = "<group>"; };
+		6C3CB30ED7272F3A4F534304 /* GroupPerformanceCacheStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupPerformanceCacheStore.swift; sourceTree = "<group>"; };
+		9A7F467ABA2F19F96F4C6A1C /* GroupPerformanceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupPerformanceModel.swift; sourceTree = "<group>"; };
+		2393262667AF833F82210ECF /* StoreNotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreNotificationManager.swift; sourceTree = "<group>"; };
+		05FE79E5F0A87A2F41390776 /* GroupPerformanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GroupPerformanceView.swift; sourceTree = "<group>"; };
+		F16E7B977EF2EFD52ED3ED8D /* NotificationDiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationDiagnosticsView.swift; sourceTree = "<group>"; };
+		F66B8BCE020AC768CDC1363E /* NotificationSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationSettingsView.swift; sourceTree = "<group>"; };
+		0A462F780635A37A5328D2C3 /* RankedAnalysis.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RankedAnalysis.swift; sourceTree = "<group>"; };
+		A1E0F2EF5182A836D6F30D2C /* RankedAnalysisView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RankedAnalysisView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -1042,6 +1058,7 @@
 		B9131D67266AFA3B00E85F46 /* Reference */ = {
 			isa = PBXGroup;
 			children = (
+				05FE79E5F0A87A2F41390776 /* GroupPerformanceView.swift */,
 				39E51293F42B93046E1707A4 /* ContractArchiveView.swift */,
 				3377776ADA3B5F0F71E2FA49 /* ProgressTimelinesView.swift */,
 				BCABFA7DE17DB3C82458717F /* FriendsView.swift */,
@@ -1110,6 +1127,8 @@
 		B937C39029C22611008A4FFB /* Statistics */ = {
 			isa = PBXGroup;
 			children = (
+				0A462F780635A37A5328D2C3 /* RankedAnalysis.swift */,
+				A1E0F2EF5182A836D6F30D2C /* RankedAnalysisView.swift */,
 				0DF6E2BB2AEF95D6877D6C6A /* EconomyView.swift */,
 				3887F13544C3A2158FF98E98 /* KDRatioView.swift */,
 				5F65161DA3C53C32BAA7456B /* StatisticsOverviewView.swift */,
@@ -1156,6 +1175,9 @@
 		B94091CC25D0ACB100EE5DF2 /* Model */ = {
 			isa = PBXGroup;
 			children = (
+				6C3CB30ED7272F3A4F534304 /* GroupPerformanceCacheStore.swift */,
+				9A7F467ABA2F19F96F4C6A1C /* GroupPerformanceModel.swift */,
+				2393262667AF833F82210ECF /* StoreNotificationManager.swift */,
 				A2E28C6318F29409F4119395 /* AccoladesModel.swift */,
 				D1283410341CA64A29669D24 /* AgentMasteryModel.swift */,
 				1103B11A1FF96D0A2F6B243E /* LineupsManager.swift */,
@@ -1533,6 +1555,8 @@
 		B9F66ACC266DC2F5008560FD /* Settings */ = {
 			isa = PBXGroup;
 			children = (
+				F16E7B977EF2EFD52ED3ED8D /* NotificationDiagnosticsView.swift */,
+				F66B8BCE020AC768CDC1363E /* NotificationSettingsView.swift */,
 				B941B6E425A7C48300F675C1 /* LoginForm.swift */,
 				FA11BE5C1A2B3C4D5E6F7A81 /* LoginWebView.swift */,
 				B9F66ACD266DC31E008560FD /* SettingsView.swift */,
@@ -1934,6 +1958,14 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A43C2AE2A548302F847BFE56 /* GroupPerformanceCacheStore.swift in Sources */,
+				655C721F607E37CAB23CD79D /* GroupPerformanceModel.swift in Sources */,
+				D66AC22248D7809221D3F434 /* StoreNotificationManager.swift in Sources */,
+				C6EF406375FA96A7BCD4D4DD /* GroupPerformanceView.swift in Sources */,
+				D0F9E282B12100D75E94F4DE /* NotificationDiagnosticsView.swift in Sources */,
+				384CAB9529D682CD29BB035C /* NotificationSettingsView.swift in Sources */,
+				41F49298FD8285D4E5E6F315 /* RankedAnalysis.swift in Sources */,
+				AA1E33AD0887508129952007 /* RankedAnalysisView.swift in Sources */,
 				35259C3A3275B9D8B7412B10 /* FlexAssets.swift in Sources */,
 				8387F60ED7F480A50AFA879B /* AccoladesModel.swift in Sources */,
 				63EE535CD86AD7C9F879DC67 /* AgentMasteryModel.swift in Sources */,
@@ -2544,7 +2576,7 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_ENTITLEMENTS = IntentsExtension/IntentsExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = V2EPDFA9PV;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = IntentsExtension/Info.plist;
@@ -2573,7 +2605,7 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_ENTITLEMENTS = IntentsExtension/IntentsExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = V2EPDFA9PV;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = IntentsExtension/Info.plist;
@@ -2649,7 +2681,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MARKETING_VERSION = 2.3;
+				MARKETING_VERSION = 2.4;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -2706,7 +2738,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				MARKETING_VERSION = 2.3;
+				MARKETING_VERSION = 2.4;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				OTHER_SWIFT_FLAGS = "-Xfrontend -warn-long-expression-type-checking=500 -Xfrontend -warn-long-function-bodies=1000";
@@ -2726,7 +2758,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = "Recon Bolt.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_ASSET_PATHS = "Shared/Preview\\ Content";
 				DEVELOPMENT_TEAM = V2EPDFA9PV;
 				ENABLE_PREVIEWS = YES;
@@ -2757,7 +2789,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = YES;
 				CODE_SIGN_ENTITLEMENTS = "Recon Bolt.entitlements";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_ASSET_PATHS = "Shared/Preview\\ Content";
 				DEVELOPMENT_TEAM = V2EPDFA9PV;
 				ENABLE_PREVIEWS = YES;
@@ -2859,7 +2891,7 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_ENTITLEMENTS = WidgetsExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_ASSET_PATHS = "Shared/Preview\\ Content";
 				DEVELOPMENT_TEAM = V2EPDFA9PV;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -2891,7 +2923,7 @@
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
 				CODE_SIGN_ENTITLEMENTS = WidgetsExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_ASSET_PATHS = "Shared/Preview\\ Content";
 				DEVELOPMENT_TEAM = V2EPDFA9PV;
 				GENERATE_INFOPLIST_FILE = YES;

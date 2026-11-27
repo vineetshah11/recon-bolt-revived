@@ -4,6 +4,7 @@ import WidgetKit
 struct SystemSettingsView: View {
 	@ObservedObject var accountManager: AccountManager
 	@ObservedObject var assetManager: AssetManager
+	@ObservedObject var settings: AppSettings
 	
 	@EnvironmentObject private var socialManager: SocialManager
 	@State private var isRestartingSocial = false
@@ -135,6 +136,41 @@ struct SystemSettingsView: View {
 					.padding(12)
 					.frame(maxWidth: .infinity, alignment: .leading)
 					.background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+				}
+				
+				VStack(alignment: .leading, spacing: 8) {
+					SettingsCard {
+						NavigationLink {
+							NotificationDiagnosticsView(
+								accountManager: accountManager,
+								assetManager: assetManager,
+								settings: settings
+							)
+						} label: {
+							HStack(spacing: 14) {
+								Image(systemName: "bell.and.waves.left.and.right")
+									.font(.system(size: 18))
+									.foregroundStyle(.tint)
+									.frame(width: 24)
+								
+								Text("Notification Testing & Diagnostics")
+									.font(.body)
+									.foregroundStyle(.primary)
+								
+								Spacer()
+								
+								Image(systemName: "chevron.right")
+									.font(.caption.weight(.semibold))
+									.foregroundStyle(.secondary)
+							}
+							.padding(.horizontal, 16)
+							.padding(.vertical, 14)
+							.contentShape(Rectangle())
+						}
+						.buttonStyle(.plain)
+					}
+					
+					SettingsFooter("Preview store notification banners, trigger timed test notifications, run a live store check, or inspect scheduled iOS alerts.")
 				}
 				
 				if let activeAccount = accountManager.activeAccount {

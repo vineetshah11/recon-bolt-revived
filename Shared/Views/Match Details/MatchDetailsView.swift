@@ -15,6 +15,7 @@ struct MatchDetailsView: View {
 	}
 	
 	let data: MatchViewData
+	let competitiveUpdate: CompetitiveUpdate?
 	private let analytics: MatchAnalytics
 	
 	@State private var activeTab: Tab = .summary
@@ -68,8 +69,9 @@ struct MatchDetailsView: View {
 		}
 	}
 	
-	init(data: MatchViewData) {
+	init(data: MatchViewData, competitiveUpdate: CompetitiveUpdate? = nil) {
 		self.data = data
+		self.competitiveUpdate = competitiveUpdate
 		self.analytics = AnalyticsCache.shared.analytics(for: data.details)
 		let initialFocus = data.myself?.id
 			?? data.details.players.first(where: { $0.teamID != .neutral })?.id
@@ -132,7 +134,8 @@ struct MatchDetailsView: View {
 								data: focusedData,
 								analytics: analytics,
 								focusedPlayer: focusedPlayer,
-								resolvedUsers: resolvedUsers
+								resolvedUsers: resolvedUsers,
+								competitiveUpdate: focusedPlayer.id == data.myself?.id ? competitiveUpdate : nil
 							)
 							
 						case .scoreboard:

@@ -56,13 +56,30 @@ final class LocalDataManager<Object: Identifiable & Codable> where Object.ID: Lo
 		}
 	}
 	
+	private static func areEqual(_ lhs: Object, _ rhs: Object) -> Bool {
+		guard let eqL = lhs as? any Equatable else { return false }
+		return isEqualAny(eqL, rhs)
+	}
+	
+	private static func isEqualAny<T: Equatable>(_ lhs: T, _ rhs: Object) -> Bool {
+		guard let typedR = rhs as? T else { return false }
+		return lhs == typedR
+	}
+	
 	func store<S: Sequence>(_ objects: S, asOf updateTime: Date) where S.Element == Object {
 		var didChange = false
 		var entriesToSave: [Entry] = []
 		
 		for object in objects {
-			if let existing = cache[object.id] ?? nil, existing.lastUpdate > updateTime {
-				continue
+			if let existing = cache[object.id] ?? nil {
+				if existing.lastUpdate > updateTime {
+					continue
+				}
+				if Self.areEqual(existing.object, object) {
+					cache[object.id] = Entry(lastUpdate: updateTime, object: existing.object)
+					recordAccess(for: object.id)
+					continue
+				}
 			}
 			let entry = Entry(lastUpdate: updateTime, object: object)
 			cache[object.id] = entry
@@ -82,10 +99,17 @@ final class LocalDataManager<Object: Identifiable & Codable> where Object.ID: Lo
 	}
 	
 	func store(_ object: Object, asOf updateTime: Date) {
-		let entry = Entry(lastUpdate: updateTime, object: object)
 		let existing = cache[object.id] ?? nil
-		if let existing, existing.lastUpdate > updateTime { return }
+		if let existing {
+			if existing.lastUpdate > updateTime { return }
+			if Self.areEqual(existing.object, object) {
+				cache[object.id] = Entry(lastUpdate: updateTime, object: existing.object)
+				recordAccess(for: object.id)
+				return
+			}
+		}
 		
+		let entry = Entry(lastUpdate: updateTime, object: object)
 		cache[object.id] = entry
 		recordAccess(for: object.id)
 		evictIfNeeded()

@@ -9,6 +9,7 @@ struct PartySettingsView: View {
 	var onStartPracticeRange: () async -> Void = {}
 	
 	@State private var isChangingQueue = false
+	@State private var cachedEligibleQueues: [QueueID] = []
 	@State private var showingPartyCode = false
 	@State private var showingCustomSettings = false
 	@State private var isTogglingCustomMode = false
@@ -30,7 +31,18 @@ struct PartySettingsView: View {
 	}
 	
 	private var canEditMatchmakingSettings: Bool {
-		isOwner && party.state != .inMatchmaking
+		isOwner
+			&& party.state != .inMatchmaking
+			&& party.state != .startingMatchmaking
+			&& party.state != .customGameStarting
+	}
+	
+	private var selectableQueues: [QueueID] {
+		let live = (party.eligibleQueues ?? []).filter { $0 != .custom }
+		if !live.isEmpty { return live }
+		let cached = cachedEligibleQueues.filter { $0 != .custom }
+		if !cached.isEmpty { return cached }
+		return [.unrated, .competitive, .swiftplay, .spikeRush, .deathmatch, .teamDeathmatch, .escalation]
 	}
 	
 	private var canInvitePlayers: Bool {
@@ -91,6 +103,12 @@ struct PartySettingsView: View {
 					onPartyChanged: onPartyChanged
 				)
 			}
+			.onAppear {
+				cacheEligibleQueuesIfNeeded(party.eligibleQueues)
+			}
+			.onChange(of: party.eligibleQueues) { queues in
+				cacheEligibleQueuesIfNeeded(queues)
+			}
 			.alert("Invite Player", isPresented: $showingInviteAlert) {
 				TextField("Name", text: $inviteName)
 					.autocorrectionDisabled()
@@ -150,27 +168,42 @@ struct PartySettingsView: View {
 					ProgressView()
 				} else {
 					Menu {
-						ForEach(party.eligibleQueues ?? [], id: \.self) { queue in
+						ForEach(selectableQueues, id: \.self) { queue in
 							Button {
 								changeQueue(to: queue)
 							} label: {
 								HStack {
 									QueueLabel(queue: queue)
-									if queue == party.matchmakingData.queueID {
+									if !party.isCustomGame && queue == party.matchmakingData.queueID {
 										Image(systemName: "checkmark")
 									}
 								}
 							}
 						}
+						
+						Divider()
+						
+						Button {
+							if !party.isCustomGame {
+								switchCustomMode(enabled: true)
+							}
+						} label: {
+							HStack {
+								QueueLabel(queue: .custom)
+								if party.isCustomGame {
+									Image(systemName: "checkmark")
+								}
+							}
+						}
 					} label: {
 						HStack(spacing: 6) {
-							QueueLabel(queue: party.matchmakingData.queueID)
+							QueueLabel(queue: party.isCustomGame ? .custom : party.matchmakingData.queueID)
 							Image(systemName: "chevron.up.chevron.down")
 								.font(.caption.weight(.semibold))
 						}
 						.foregroundStyle(Color.accentColor)
 					}
-					.disabled(!canEditMatchmakingSettings || (party.eligibleQueues ?? []).isEmpty)
+					.disabled(!canEditMatchmakingSettings || isChangingQueue || isTogglingCustomMode)
 					.opacity(canEditMatchmakingSettings ? 1 : 0.6)
 				}
 			}
@@ -377,7 +410,7 @@ struct PartySettingsView: View {
 						.contentShape(Rectangle())
 					}
 					.buttonStyle(.plain)
-					.disabled(!canEditMatchmakingSettings || isTogglingCustomMode)
+					.disabled(!canEditMatchmakingSettings || isChangingQueue || isTogglingCustomMode)
 					.opacity(canEditMatchmakingSettings ? 1 : 0.45)
 				} else {
 					Button {
@@ -408,7 +441,7 @@ struct PartySettingsView: View {
 						.contentShape(Rectangle())
 					}
 					.buttonStyle(.plain)
-					.disabled(!canEditMatchmakingSettings || isTogglingCustomMode)
+					.disabled(!canEditMatchmakingSettings || isChangingQueue || isTogglingCustomMode)
 					.opacity(canEditMatchmakingSettings ? 1 : 0.45)
 				}
 				
@@ -510,12 +543,20 @@ struct PartySettingsView: View {
 		}
 	}
 	
+	private func cacheEligibleQueuesIfNeeded(_ queues: [QueueID]?) {
+		let filtered = (queues ?? []).filter { $0 != .custom }
+		if !filtered.isEmpty {
+			cachedEligibleQueues = filtered
+		}
+	}
+	
 	private func changeQueue(to queue: QueueID) {
+		guard party.isCustomGame || queue != party.matchmakingData.queueID else { return }
 		Task {
 			isChangingQueue = true
 			defer { isChangingQueue = false }
 			await load {
-				party = try await $0.changeQueue(to: queue, in: party.id)
+				party = try await $0.switchQueue(to: queue, in: party)
 			}
 		}
 	}
@@ -537,8 +578,8 @@ struct PartySettingsView: View {
 		Task {
 			isTogglingCustomMode = true
 			defer { isTogglingCustomMode = false }
-			let targetQueue = party.eligibleQueues?.first(where: { $0 == .unrated })
-				?? party.eligibleQueues?.first
+			let targetQueue = selectableQueues.first(where: { $0 == .unrated })
+				?? selectableQueues.first
 				?? .unrated
 			var switched = false
 			await load {

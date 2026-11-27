@@ -9,9 +9,9 @@ struct ExpressionImageView: View {
 	
 	var body: some View {
 		if let sprayID = expression.spray {
-			(assets?.sprays[sprayID]?.bestIcon).view()
+			(assets?.sprays[sprayID]?.bestIcon).view(bucket: .icon)
 		} else if let totemID = expression.totem {
-			(assets?.flex[totemID]?.displayIcon).view()
+			(assets?.flex[totemID]?.displayIcon).view(bucket: .icon)
 		} else {
 			Image(systemName: "plus")
 				.font(.system(size: emptyPlaceholderSize, weight: .semibold))

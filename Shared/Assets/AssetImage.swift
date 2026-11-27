@@ -244,9 +244,12 @@ struct AssetImage: Hashable, Identifiable, Sendable {
 
 extension Optional where Wrapped == AssetImage {
 	@ViewBuilder
-	func view() -> some View {
+	func view(
+		renderingMode: Image.TemplateRenderingMode? = nil,
+		bucket: ImageBucket? = nil
+	) -> some View {
 		if let self {
-			self.view()
+			self.view(renderingMode: renderingMode, bucket: bucket)
 		} else {
 			Color.gray
 		}

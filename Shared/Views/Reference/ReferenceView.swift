@@ -53,6 +53,32 @@ struct ReferenceView: View {
 				}
 				
 				Section {
+					if let userID = accountManager.activeAccount?.id {
+						NavigationLink {
+							HubStatisticsLoaderView(userID: userID)
+						} label: {
+							hubRow(icon: "chart.bar.fill", title: "Stats")
+						}
+						
+						NavigationLink {
+							MapRatingsView(userID: userID)
+						} label: {
+							hubRow(icon: "map.fill", title: "Map Ranks")
+						}
+						
+						NavigationLink {
+							HubSessionRecapLoaderView(userID: userID)
+						} label: {
+							hubRow(icon: "clock.badge.checkmark", title: "Session Recap")
+						}
+						
+						NavigationLink {
+							GroupPerformanceView(userID: userID)
+						} label: {
+							hubRow(icon: "person.3.fill", title: "Group Performance")
+						}
+					}
+					
 					NavigationLink {
 						SeasonGoalsView()
 					} label: {
@@ -63,14 +89,6 @@ struct ReferenceView: View {
 						ProgressTimelinesView()
 					} label: {
 						hubRow(icon: "chart.xyaxis.line", title: "Progress Timelines")
-					}
-					
-					if let userID = accountManager.activeAccount?.id {
-						NavigationLink {
-							MapRatingsView(userID: userID)
-						} label: {
-							hubRow(icon: "map.fill", title: "Map Ranks")
-						}
 					}
 				} header: {
 					Text("Progress")
@@ -156,6 +174,74 @@ struct ReferenceView: View {
 			trailing()
 		}
 		.padding(.vertical, 6)
+	}
+}
+
+private struct HubStatisticsLoaderView: View {
+	let userID: User.ID
+	
+	@LocalData var user: User?
+	@LocalData var matchList: MatchList?
+	
+	init(userID: User.ID) {
+		self.userID = userID
+		self._user = .init(id: userID)
+		self._matchList = .init(id: userID)
+	}
+	
+	var body: some View {
+		Group {
+			if let user, let matchList {
+				StatisticsContainer(user: user, matchList: matchList)
+			} else {
+				ProgressView()
+					.frame(maxWidth: .infinity, maxHeight: .infinity)
+					.background(Color.groupedBackground)
+					.navigationTitle("Statistics")
+					.navigationBarTitleDisplayMode(.inline)
+			}
+		}
+		.withLocalData($user, id: userID, shouldAutoUpdate: true)
+		.withLocalData($matchList, id: userID, shouldAutoUpdate: true)
+	}
+}
+
+private struct HubSessionRecapLoaderView: View {
+	let userID: User.ID
+	
+	@LocalData var matchList: MatchList?
+	@State private var detailsByID: [Match.ID: MatchDetails] = [:]
+	@State private var hasLoadedDetails = false
+	
+	init(userID: User.ID) {
+		self.userID = userID
+		self._matchList = .init(id: userID)
+	}
+	
+	var body: some View {
+		Group {
+			if let matchList, hasLoadedDetails {
+				SessionRecapView(
+					userID: userID,
+					matches: matchList.matches,
+					detailsByID: detailsByID
+				)
+			} else {
+				ProgressView()
+					.frame(maxWidth: .infinity, maxHeight: .infinity)
+					.background(Color.groupedBackground)
+					.navigationTitle("Session Recap")
+					.navigationBarTitleDisplayMode(.inline)
+			}
+		}
+		.withLocalData($matchList, id: userID, shouldAutoUpdate: true)
+		.task(id: matchList?.matches.count) {
+			guard let matchList else { return }
+			let cached = await LocalDataProvider.shared.matchDetailsManager.cachedObjects(for: matchList.matches.map(\.id))
+			guard !Task.isCancelled else { return }
+			detailsByID = Dictionary(cached.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+			hasLoadedDetails = true
+		}
 	}
 }
 

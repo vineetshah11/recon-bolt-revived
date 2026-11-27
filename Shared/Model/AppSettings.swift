@@ -81,6 +81,38 @@ final class AppSettings: ObservableObject {
 	@AppStorage("MatchRetention.keepsUnlinkedMatches")
 	var keepsUnlinkedMatches = false
 	
+	// Notification settings
+	@AppStorage(NotificationKeys.shopRefresh)
+	var notifyShopRefresh = false
+	
+	@AppStorage(NotificationKeys.wishlistMatch)
+	var notifyWishlistMatch = false
+	
+	@AppStorage(NotificationKeys.bundleLeavingSoon)
+	var notifyBundleLeavingSoon = false
+	
+	@AppStorage(NotificationKeys.nightMarket)
+	var notifyNightMarket = false
+	
+	@AppStorage(NotificationKeys.leadTimeHours)
+	var notificationLeadTimeHours: Int = 24
+	
+	@AppStorage(NotificationKeys.allAccounts)
+	var notifyAllAccounts = true
+	
+	enum NotificationKeys {
+		static let shopRefresh = "Notifications.shopRefresh"
+		static let wishlistMatch = "Notifications.wishlistMatch"
+		static let bundleLeavingSoon = "Notifications.bundleLeavingSoon"
+		static let nightMarket = "Notifications.nightMarket"
+		static let leadTimeHours = "Notifications.leadTimeHours"
+		static let allAccounts = "Notifications.allAccounts"
+	}
+	
+	var anyStoreNotificationEnabled: Bool {
+		notifyShopRefresh || notifyWishlistMatch || notifyBundleLeavingSoon || notifyNightMarket
+	}
+	
 	var hasCustomAccentColor: Bool {
 		!customAccentColorComponents.isEmpty
 	}
@@ -255,6 +287,12 @@ final class AppSettings: ObservableObject {
 		if keepsOwnMatches != true { keepsOwnMatches = true }
 		if keepsBookmarkedMatches != true { keepsBookmarkedMatches = true }
 		if keepsUnlinkedMatches != false { keepsUnlinkedMatches = false }
+		if notifyShopRefresh != false { notifyShopRefresh = false }
+		if notifyWishlistMatch != false { notifyWishlistMatch = false }
+		if notifyBundleLeavingSoon != false { notifyBundleLeavingSoon = false }
+		if notifyNightMarket != false { notifyNightMarket = false }
+		if notificationLeadTimeHours != 24 { notificationLeadTimeHours = 24 }
+		if notifyAllAccounts != true { notifyAllAccounts = true }
 		reloadAppForAccentChange()
 	}
 	
@@ -274,6 +312,83 @@ final class AppSettings: ObservableObject {
 		var keepsOwnMatches: Bool
 		var keepsBookmarkedMatches: Bool
 		var keepsUnlinkedMatches: Bool
+		var notifyShopRefresh: Bool
+		var notifyWishlistMatch: Bool
+		var notifyBundleLeavingSoon: Bool
+		var notifyNightMarket: Bool
+		var notificationLeadTimeHours: Int
+		var notifyAllAccounts: Bool
+		
+		init(
+			theme: Theme,
+			customAccentColorComponents: String,
+			autoOpenMatchDetails: Bool,
+			vibrateOnMatchFound: Bool,
+			isCompactListStyle: Bool,
+			autoDownloadMatches: Bool,
+			copyPlayerNames: Bool,
+			openProfileDirectly: Bool,
+			sortOfflineByLastSeen: Bool,
+			friendsSortOrder: FriendsSortOrder,
+			clearWebSignInDataOnOpen: Bool,
+			matchRetentionDays: Int,
+			keepsOwnMatches: Bool,
+			keepsBookmarkedMatches: Bool,
+			keepsUnlinkedMatches: Bool,
+			notifyShopRefresh: Bool = false,
+			notifyWishlistMatch: Bool = false,
+			notifyBundleLeavingSoon: Bool = false,
+			notifyNightMarket: Bool = false,
+			notificationLeadTimeHours: Int = 24,
+			notifyAllAccounts: Bool = true
+		) {
+			self.theme = theme
+			self.customAccentColorComponents = customAccentColorComponents
+			self.autoOpenMatchDetails = autoOpenMatchDetails
+			self.vibrateOnMatchFound = vibrateOnMatchFound
+			self.isCompactListStyle = isCompactListStyle
+			self.autoDownloadMatches = autoDownloadMatches
+			self.copyPlayerNames = copyPlayerNames
+			self.openProfileDirectly = openProfileDirectly
+			self.sortOfflineByLastSeen = sortOfflineByLastSeen
+			self.friendsSortOrder = friendsSortOrder
+			self.clearWebSignInDataOnOpen = clearWebSignInDataOnOpen
+			self.matchRetentionDays = matchRetentionDays
+			self.keepsOwnMatches = keepsOwnMatches
+			self.keepsBookmarkedMatches = keepsBookmarkedMatches
+			self.keepsUnlinkedMatches = keepsUnlinkedMatches
+			self.notifyShopRefresh = notifyShopRefresh
+			self.notifyWishlistMatch = notifyWishlistMatch
+			self.notifyBundleLeavingSoon = notifyBundleLeavingSoon
+			self.notifyNightMarket = notifyNightMarket
+			self.notificationLeadTimeHours = notificationLeadTimeHours
+			self.notifyAllAccounts = notifyAllAccounts
+		}
+		
+		init(from decoder: Decoder) throws {
+			let container = try decoder.container(keyedBy: CodingKeys.self)
+			theme = try container.decode(Theme.self, forKey: .theme)
+			customAccentColorComponents = try container.decode(String.self, forKey: .customAccentColorComponents)
+			autoOpenMatchDetails = try container.decode(Bool.self, forKey: .autoOpenMatchDetails)
+			vibrateOnMatchFound = try container.decode(Bool.self, forKey: .vibrateOnMatchFound)
+			isCompactListStyle = try container.decode(Bool.self, forKey: .isCompactListStyle)
+			autoDownloadMatches = try container.decode(Bool.self, forKey: .autoDownloadMatches)
+			copyPlayerNames = try container.decode(Bool.self, forKey: .copyPlayerNames)
+			openProfileDirectly = try container.decode(Bool.self, forKey: .openProfileDirectly)
+			sortOfflineByLastSeen = try container.decode(Bool.self, forKey: .sortOfflineByLastSeen)
+			friendsSortOrder = try container.decode(FriendsSortOrder.self, forKey: .friendsSortOrder)
+			clearWebSignInDataOnOpen = try container.decode(Bool.self, forKey: .clearWebSignInDataOnOpen)
+			matchRetentionDays = try container.decode(Int.self, forKey: .matchRetentionDays)
+			keepsOwnMatches = try container.decode(Bool.self, forKey: .keepsOwnMatches)
+			keepsBookmarkedMatches = try container.decode(Bool.self, forKey: .keepsBookmarkedMatches)
+			keepsUnlinkedMatches = try container.decode(Bool.self, forKey: .keepsUnlinkedMatches)
+			notifyShopRefresh = try container.decodeIfPresent(Bool.self, forKey: .notifyShopRefresh) ?? false
+			notifyWishlistMatch = try container.decodeIfPresent(Bool.self, forKey: .notifyWishlistMatch) ?? false
+			notifyBundleLeavingSoon = try container.decodeIfPresent(Bool.self, forKey: .notifyBundleLeavingSoon) ?? false
+			notifyNightMarket = try container.decodeIfPresent(Bool.self, forKey: .notifyNightMarket) ?? false
+			notificationLeadTimeHours = try container.decodeIfPresent(Int.self, forKey: .notificationLeadTimeHours) ?? 24
+			notifyAllAccounts = try container.decodeIfPresent(Bool.self, forKey: .notifyAllAccounts) ?? true
+		}
 	}
 	
 	func exportSnapshot() -> BackupSnapshot {
@@ -292,7 +407,13 @@ final class AppSettings: ObservableObject {
 			matchRetentionDays: matchRetentionDays,
 			keepsOwnMatches: keepsOwnMatches,
 			keepsBookmarkedMatches: keepsBookmarkedMatches,
-			keepsUnlinkedMatches: keepsUnlinkedMatches
+			keepsUnlinkedMatches: keepsUnlinkedMatches,
+			notifyShopRefresh: notifyShopRefresh,
+			notifyWishlistMatch: notifyWishlistMatch,
+			notifyBundleLeavingSoon: notifyBundleLeavingSoon,
+			notifyNightMarket: notifyNightMarket,
+			notificationLeadTimeHours: notificationLeadTimeHours,
+			notifyAllAccounts: notifyAllAccounts
 		)
 	}
 	
@@ -316,6 +437,12 @@ final class AppSettings: ObservableObject {
 		if keepsOwnMatches != snapshot.keepsOwnMatches { keepsOwnMatches = snapshot.keepsOwnMatches }
 		if keepsBookmarkedMatches != snapshot.keepsBookmarkedMatches { keepsBookmarkedMatches = snapshot.keepsBookmarkedMatches }
 		if keepsUnlinkedMatches != snapshot.keepsUnlinkedMatches { keepsUnlinkedMatches = snapshot.keepsUnlinkedMatches }
+		if notifyShopRefresh != snapshot.notifyShopRefresh { notifyShopRefresh = snapshot.notifyShopRefresh }
+		if notifyWishlistMatch != snapshot.notifyWishlistMatch { notifyWishlistMatch = snapshot.notifyWishlistMatch }
+		if notifyBundleLeavingSoon != snapshot.notifyBundleLeavingSoon { notifyBundleLeavingSoon = snapshot.notifyBundleLeavingSoon }
+		if notifyNightMarket != snapshot.notifyNightMarket { notifyNightMarket = snapshot.notifyNightMarket }
+		if notificationLeadTimeHours != snapshot.notificationLeadTimeHours { notificationLeadTimeHours = snapshot.notificationLeadTimeHours }
+		if notifyAllAccounts != snapshot.notifyAllAccounts { notifyAllAccounts = snapshot.notifyAllAccounts }
 		if accentChanged {
 			reloadAppForAccentChange()
 		}

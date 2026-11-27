@@ -5,13 +5,27 @@ struct StoreDetailsView: View {
 	var updateTime: Date
 	var storefront: Storefront
 	var wallet: StoreWallet
+	var userID: User.ID? = nil
+	@Binding var autoExpandNightMarket: Bool
 	
 	@State var isNightMarketExpanded = false
 	
 	@Environment(\.assets) private var assets
 	@EnvironmentObject private var wishlistManager: WishlistManager
-	@EnvironmentObject private var shopHistoryStore: ShopHistoryStore
-	@EnvironmentObject private var accountManager: AccountManager
+	
+	init(
+		updateTime: Date,
+		storefront: Storefront,
+		wallet: StoreWallet,
+		userID: User.ID? = nil,
+		autoExpandNightMarket: Binding<Bool> = .constant(false)
+	) {
+		self.updateTime = updateTime
+		self.storefront = storefront
+		self.wallet = wallet
+		self.userID = userID
+		self._autoExpandNightMarket = autoExpandNightMarket
+	}
 	
 	private static let currencies: [Currency.ID] = [.valorantPoints, .radianitePoints, .kingdomCredits]
 	
@@ -111,7 +125,7 @@ struct StoreDetailsView: View {
 				NavigationLink {
 					WishlistView()
 				} label: {
-					storeFeatureRow(
+					StoreFeatureRow(
 						icon: "heart",
 						title: "Wishlist",
 						trailingText: wishlistManager.entries.isEmpty ? nil : "\(wishlistManager.entries.count)"
@@ -119,24 +133,21 @@ struct StoreDetailsView: View {
 				}
 				.buttonStyle(.plain)
 				
-				NavigationLink {
-					ShopHistoryView()
-				} label: {
-					let count = shopHistoryStore.days(for: accountManager.activeAccount?.id).count
-					storeFeatureRow(
-						icon: "clock.arrow.circlepath",
-						title: "Shop History",
-						trailingText: count > 0 ? "\(count)" : nil
-					)
-				}
-				.buttonStyle(.plain)
+				StoreShopHistoryLink(userID: userID)
 			}
 			.padding(.top, 4)
 		}
 		.padding()
-		.task(id: updateTime) {
-			if let accountID = accountManager.activeAccount?.id {
-				shopHistoryStore.record(storefront: storefront, for: accountID)
+		.onAppear {
+			if autoExpandNightMarket {
+				isNightMarketExpanded = true
+				autoExpandNightMarket = false
+			}
+		}
+		.onChange(of: autoExpandNightMarket) { expand in
+			if expand {
+				isNightMarketExpanded = true
+				autoExpandNightMarket = false
 			}
 		}
 		
@@ -164,7 +175,7 @@ struct StoreDetailsView: View {
 				Color.clear
 					.aspectRatio(16.0 / 9.0, contentMode: .fit)
 					.overlay {
-						info.displayIcon.view(aspectRatio: 16.0 / 9.0, preferFullResolution: true)
+						info.displayIcon.view(aspectRatio: 16.0 / 9.0, bucket: .medium)
 							.scaledToFill()
 					}
 					.clipped()
@@ -201,7 +212,7 @@ struct StoreDetailsView: View {
 				let totalCost = bundle.items.lazy.map(\.discountedPrice).reduce(0, +)
 				HStack {
 					HStack(spacing: 6) {
-						assets?.currencies[bundle.currencyID]?.displayIcon.view(renderingMode: .template)
+						assets?.currencies[bundle.currencyID]?.displayIcon.view(renderingMode: .template, bucket: .icon)
 							.frame(width: 18, height: 18)
 						Text(totalCost.formatted())
 							.monospacedDigit()
@@ -296,13 +307,13 @@ struct StoreDetailsView: View {
 	func icon(for reward: StoreOffer.Reward) -> some View {
 		switch reward.itemTypeID {
 		case .buddies:
-			(assets?.resolveBuddy(.init(rawID: reward.itemID))?.displayIcon).view()
+			(assets?.resolveBuddy(.init(rawID: reward.itemID))?.displayIcon).view(bucket: .icon)
 		case .sprays:
-			(assets?.sprays[.init(rawID: reward.itemID)]?.bestIcon).view()
+			(assets?.sprays[.init(rawID: reward.itemID)]?.bestIcon).view(bucket: .icon)
 		case .totems:
-			(assets?.flex[.init(rawID: reward.itemID)]?.displayIcon).view()
+			(assets?.flex[.init(rawID: reward.itemID)]?.displayIcon).view(bucket: .icon)
 		case .cards:
-			(assets?.playerCards[.init(rawID: reward.itemID)]?.smallArt).view()
+			(assets?.playerCards[.init(rawID: reward.itemID)]?.smallArt).view(bucket: .icon)
 				.cornerRadius(8)
 		case .titles:
 			Image.bundledAsset("Player Title", renderingMode: .template)
@@ -312,8 +323,35 @@ struct StoreDetailsView: View {
 			EmptyView()
 		}
 	}
+}
+
+private struct StoreShopHistoryLink: View {
+	var userID: User.ID?
+	@EnvironmentObject private var shopHistoryStore: ShopHistoryStore
+	@EnvironmentObject private var accountManager: AccountManager
 	
-	private func storeFeatureRow(icon: String, title: LocalizedStringKey, trailingText: String?) -> some View {
+	var body: some View {
+		let resolvedID = userID ?? accountManager.activeAccount?.id
+		let count = shopHistoryStore.dayCount(for: resolvedID)
+		NavigationLink {
+			ShopHistoryView()
+		} label: {
+			StoreFeatureRow(
+				icon: "clock.arrow.circlepath",
+				title: "Shop History",
+				trailingText: count > 0 ? "\(count)" : nil
+			)
+		}
+		.buttonStyle(.plain)
+	}
+}
+
+private struct StoreFeatureRow: View {
+	var icon: String
+	var title: LocalizedStringKey
+	var trailingText: String?
+	
+	var body: some View {
 		HStack(spacing: 12) {
 			Image(systemName: icon)
 				.foregroundStyle(Color.accentColor)
@@ -354,7 +392,7 @@ struct OfferCell: View {
 			VStack {
 				let chroma = resolved?.skin.chromas.first
 				(chroma?.fullRender ?? chroma?.displayIcon ?? resolved?.displayIcon)?
-					.view(preferFullResolution: true)
+					.view(bucket: .banner)
 					.frame(height: 68)
 					.frame(maxWidth: .infinity)
 					.padding(.horizontal, 12)
@@ -371,7 +409,7 @@ struct OfferCell: View {
 				}
 			}
 			.overlay(alignment: .topLeading) {
-				tier?.displayIcon.view()
+				tier?.displayIcon.view(bucket: .icon)
 					.frame(width: 20)
 			}
 			.overlay(alignment: .topTrailing) {
@@ -438,7 +476,7 @@ struct CurrencyLabel: View {
 		HStack {
 			Text("\(amount)")
 			let currency = assets?.currencies[currencyID]
-			currency?.displayIcon.view(renderingMode: .template)
+			currency?.displayIcon.view(renderingMode: .template, bucket: .icon)
 				.frame(width: iconSize, height: iconSize)
 		}
 	}
@@ -467,6 +505,7 @@ struct StoreDetailsView_Previews: PreviewProvider {
 		.environmentObject(WishlistManager())
 		.environmentObject(ShopHistoryStore())
 		.environmentObject(AccountManager.mocked)
+		.environmentObject(StoreNotificationManager.shared)
 		.withToolbar()
 	}
 }

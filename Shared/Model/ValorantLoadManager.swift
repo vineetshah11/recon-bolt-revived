@@ -37,7 +37,7 @@ private struct ValorantLoadTaskWithIDModifier<ID: Equatable>: ViewModifier {
 }
 
 private struct ValorantLoadModifier: ViewModifier {
-	@ObservedObject var manager: AccountManager
+	let manager: AccountManager
 	
 	@Environment(\.loadWithErrorAlerts) private var load
 	

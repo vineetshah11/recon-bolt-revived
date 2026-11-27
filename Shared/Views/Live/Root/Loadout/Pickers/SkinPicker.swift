@@ -140,6 +140,7 @@ struct SkinPicker: View {
 			)
 		}
 		.valorantLoadTask(id: activeAccountID) { client in
+			favoritesManager.cacheInventory(inventory, for: client.userID)
 			await favoritesManager.refreshIfNeeded(using: client)
 		}
 	}
@@ -231,7 +232,7 @@ struct SkinPicker: View {
 				}
 			}
 			
-			if owned && !isFree {
+			if owned && !isFree && activeAccountID != nil {
 				Button {
 					Task {
 						await load { client in

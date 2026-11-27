@@ -8,6 +8,20 @@ struct FriendsView: View {
 	@Environment(\.assets) private var assets
 	@Environment(\.seasons) private var seasons
 	
+	private static let collapsedSectionsDefaultsKey = "Social.collapsedFriendSections"
+	
+	private enum SectionKey {
+		static let pinned = "pinned"
+		static let offline = "offline"
+		static let incomingRequests = "requests:incoming"
+		static let outgoingRequests = "requests:outgoing"
+		static func otherGame(_ game: String) -> String { "game:\(game)" }
+	}
+	
+	private static func loadCollapsedSections() -> Set<String> {
+		Set(UserDefaults.standard.stringArray(forKey: collapsedSectionsDefaultsKey) ?? [])
+	}
+	
 	@State private var search = ""
 	@State private var showingAddFriend = false
 	@State private var friendName = ""
@@ -16,10 +30,14 @@ struct FriendsView: View {
 	@State private var showingChanges = false
 	@State private var contextChatFriend: XMPPFriend?
 	@State private var contextProfileUserID: User.ID?
+	@State private var editingNoteFriend: XMPPFriend?
+	@State private var showingNotesManager = false
+	@State private var collapsedSections: Set<String> = Self.loadCollapsedSections()
+	@State private var lastSectionsKey: SectionsKey?
 	@State private var cachedSections = FriendSectionsSnapshot()
 	
 	private struct SectionsKey: Equatable {
-		var friends: [XMPPFriend]
+		var friendsRevision: Int
 		var pinnedJIDs: Set<String>
 		var ownPartyID: String?
 		var search: String
@@ -47,27 +65,39 @@ struct FriendsView: View {
 		accountManager.activeAccount?.client
 	}
 	
+	private var sectionsKey: SectionsKey {
+		SectionsKey(
+			friendsRevision: socialManager.friendsRevision,
+			pinnedJIDs: socialManager.pinnedFriendJIDs,
+			ownPartyID: socialManager.myPresence?.partyID,
+			search: search,
+			sortOrder: settings.friendsSortOrder,
+			sortOfflineByLastSeen: settings.sortOfflineByLastSeen
+		)
+	}
+	
 	var body: some View {
-		let currentAct = seasons?.currentAct()
+		let currentTiers = seasons?.currentTiers()
+		let isSearching = !trimmedSearch.isEmpty
 		ScrollView {
 			LazyVStack(alignment: .leading, spacing: 18) {
 				searchBar
 				
 				connectionBanner
 				
-				if let ownUserID = accountManager.activeAccount?.id, search.trimmingCharacters(in: .whitespaces).isEmpty {
-					ownPartySection(userID: ownUserID, currentAct: currentAct)
+				if let ownUserID = accountManager.activeAccount?.id, !isSearching {
+					ownPartySection(userID: ownUserID, currentTiers: currentTiers)
 				}
 				
-				pinnedFriendsSection(currentAct: currentAct)
+				pinnedFriendsSection(currentTiers: currentTiers, isSearching: isSearching)
 				
-				valorantPartiesSection(currentAct: currentAct)
+				valorantPartiesSection(currentTiers: currentTiers)
 				
-				friendRequestsSection
+				otherGamesSection(currentTiers: currentTiers, isSearching: isSearching)
 				
-				otherGamesSection(currentAct: currentAct)
+				offlineFriendsSection(currentTiers: currentTiers, isSearching: isSearching)
 				
-				offlineFriendsSection(currentAct: currentAct)
+				friendRequestsSection(isSearching: isSearching)
 				
 				if socialManager.friends.isEmpty && socialManager.connectionState == .connected {
 					Text("No friends returned on your Riot roster yet.")
@@ -117,18 +147,16 @@ struct FriendsView: View {
 				await socialManager.refreshNow(using: client)
 			}
 		}
+		.onAppear {
+			if lastSectionsKey == nil {
+				recomputeSections(for: sectionsKey)
+			}
+		}
 		.task {
 			await socialManager.connectIfNeeded(using: client)
 		}
-		.task(id: SectionsKey(
-			friends: socialManager.friends,
-			pinnedJIDs: socialManager.pinnedFriendJIDs,
-			ownPartyID: socialManager.myPresence?.partyID,
-			search: search,
-			sortOrder: settings.friendsSortOrder,
-			sortOfflineByLastSeen: settings.sortOfflineByLastSeen
-		)) {
-			recomputeSections()
+		.task(id: sectionsKey) {
+			recomputeSections(for: sectionsKey)
 		}
 		.alert("Add Friend", isPresented: $showingAddFriend) {
 			TextField("Game Name", text: $friendName)
@@ -156,6 +184,12 @@ struct FriendsView: View {
 			if let actionError {
 				Text(actionError)
 			}
+		}
+		.sheet(item: $editingNoteFriend) { friend in
+			FriendNoteEditorSheet(friend: friend)
+		}
+		.sheet(isPresented: $showingNotesManager) {
+			FriendNotesManagerSheet()
 		}
 	}
 	
@@ -214,6 +248,21 @@ struct FriendsView: View {
 				
 				Divider()
 				
+				let activeKeys = activeCollapsibleSectionKeys
+				if !activeKeys.isEmpty && trimmedSearch.isEmpty {
+					let expandAll = activeKeys.contains { collapsedSections.contains($0) }
+					Button {
+						toggleAllCollapsibleSections()
+					} label: {
+						Label(
+							expandAll ? "Expand All Sections" : "Collapse All Sections",
+							systemImage: expandAll ? "rectangle.expand.vertical" : "rectangle.compress.vertical"
+						)
+					}
+					
+					Divider()
+				}
+				
 				if let client {
 					Button {
 						Task { await socialManager.refreshNow(using: client) }
@@ -226,6 +275,12 @@ struct FriendsView: View {
 					} label: {
 						Label("Reconnect Chat", systemImage: "wifi")
 					}
+				}
+				
+				Button {
+					showingNotesManager = true
+				} label: {
+					Label("Friend Notes", systemImage: "note.text")
 				}
 				
 				Button {
@@ -322,11 +377,115 @@ struct FriendsView: View {
 		}
 	}
 	
+	// MARK: - Collapsible Sections
+	
+	private func isSectionCollapsed(_ key: String, isSearching: Bool) -> Bool {
+		!isSearching && collapsedSections.contains(key)
+	}
+	
+	private func toggleSection(_ key: String) {
+		withAnimation(.easeInOut(duration: 0.18)) {
+			if !collapsedSections.insert(key).inserted {
+				collapsedSections.remove(key)
+			}
+		}
+		UserDefaults.standard.set(Array(collapsedSections), forKey: Self.collapsedSectionsDefaultsKey)
+	}
+	
+	private var activeCollapsibleSectionKeys: [String] {
+		var keys: [String] = []
+		if !cachedSections.pinned.isEmpty {
+			keys.append(SectionKey.pinned)
+		}
+		for group in cachedSections.otherGameGroups {
+			keys.append(SectionKey.otherGame(group.game))
+		}
+		if !cachedSections.offline.isEmpty {
+			keys.append(SectionKey.offline)
+		}
+		if !cachedSections.incoming.isEmpty {
+			keys.append(SectionKey.incomingRequests)
+		}
+		if !cachedSections.outgoing.isEmpty {
+			keys.append(SectionKey.outgoingRequests)
+		}
+		return keys
+	}
+	
+	private func toggleAllCollapsibleSections() {
+		let activeKeys = activeCollapsibleSectionKeys
+		guard !activeKeys.isEmpty else { return }
+		let shouldExpand = activeKeys.contains { collapsedSections.contains($0) }
+		withAnimation(.easeInOut(duration: 0.18)) {
+			if shouldExpand {
+				collapsedSections.subtract(activeKeys)
+			} else {
+				collapsedSections.formUnion(activeKeys)
+			}
+		}
+		UserDefaults.standard.set(Array(collapsedSections), forKey: Self.collapsedSectionsDefaultsKey)
+	}
+	
+	@ViewBuilder
+	private func collapsibleFriendSection<Content: View>(
+		key: String,
+		title: String,
+		isSearching: Bool,
+		@ViewBuilder content: () -> Content
+	) -> some View {
+		let collapsed = isSectionCollapsed(key, isSearching: isSearching)
+		VStack(alignment: .leading, spacing: collapsed ? 0 : 8) {
+			CollapsibleSectionHeader(
+				title: title,
+				isCollapsed: collapsed,
+				isForcedExpanded: isSearching,
+				onToggle: { toggleSection(key) }
+			)
+			.equatable()
+			
+			if !collapsed {
+				LazyVStack(spacing: 0) {
+					content()
+				}
+				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+			}
+		}
+	}
+	
+	@ViewBuilder
+	private func friendCardRows(
+		_ list: [XMPPFriend],
+		currentTiers: CompetitiveTier.Collection?
+	) -> some View {
+		let lastID = list.last?.id
+		ForEach(list) { friend in
+			friendPartyRow(friend, isOfflineStyle: friend.status == .offline, currentTiers: currentTiers)
+			if friend.id != lastID {
+				Divider()
+					.opacity(0.22)
+					.padding(.leading, friend.playerCardID == nil ? 14 : 72)
+			}
+		}
+	}
+	
+	@ViewBuilder
+	private func friendRequestRows(_ list: [XMPPFriend], isIncoming: Bool) -> some View {
+		let lastID = list.last?.id
+		ForEach(list) { friend in
+			friendRequestRow(friend, isIncoming: isIncoming)
+			if friend.id != lastID {
+				Divider().opacity(0.22).padding(.leading, 70)
+			}
+		}
+	}
+	
 	// MARK: - Sections Snapshot
 	
-	private func recomputeSections() {
-		let query = trimmedSearch
-		let rawOwnPartyID = socialManager.myPresence?.partyID
+	private func recomputeSections(for key: SectionsKey) {
+		guard lastSectionsKey != key else { return }
+		lastSectionsKey = key
+		let query = key.search.isEmpty ? "" : key.search.trimmingCharacters(in: .whitespacesAndNewlines)
+		let rawOwnPartyID = key.ownPartyID
 		let effectiveOwnPartyID = query.isEmpty ? rawOwnPartyID : nil
 		
 		var partyFriends: [XMPPFriend] = []
@@ -368,8 +527,8 @@ struct FriendsView: View {
 				if let rawOwnPartyID, friend.partyID == rawOwnPartyID {
 					continue
 				}
-				let key = friend.partyID ?? "solo:\(friend.jid)"
-				valorantBuckets[key, default: []].append(friend)
+				let bucketKey = friend.partyID ?? "solo:\(friend.jid)"
+				valorantBuckets[bucketKey, default: []].append(friend)
 			} else {
 				otherBuckets[friend.gameTitle ?? "Online", default: []].append(friend)
 			}
@@ -381,45 +540,45 @@ struct FriendsView: View {
 			if lhsOffline != rhsOffline {
 				return !lhsOffline
 			}
-			return compareFriends(lhs, rhs, isOffline: lhsOffline)
+			return compareFriends(lhs, rhs, isOffline: lhsOffline, sortOrder: key.sortOrder, sortOfflineByLastSeen: key.sortOfflineByLastSeen)
 		}
 		
-		let partyGroups: [PartyGroup] = valorantBuckets.map { key, members in
+		let partyGroups: [PartyGroup] = valorantBuckets.compactMap { bucketKey, members in
 			let sortedMembers = members.sorted { lhs, rhs in
-				if settings.friendsSortOrder == .defaultOrder, lhs.isPartyOwner != rhs.isPartyOwner {
+				if key.sortOrder == .defaultOrder, lhs.isPartyOwner != rhs.isPartyOwner {
 					return lhs.isPartyOwner
 				}
-				return compareFriends(lhs, rhs, isOffline: false)
+				return compareFriends(lhs, rhs, isOffline: false, sortOrder: key.sortOrder, sortOfflineByLastSeen: key.sortOfflineByLastSeen)
 			}
-			let sample = sortedMembers.first
-			let totalSize = max(sortedMembers.count, sample?.partySize ?? sortedMembers.count)
-			let maxSize = max(totalSize, sample?.maxPartySize ?? 5)
+			guard let sample = sortedMembers.first else { return nil }
+			let totalSize = max(sortedMembers.count, sample.partySize ?? sortedMembers.count)
+			let maxSize = max(totalSize, sample.maxPartySize ?? 5)
 			let title: String
-			if sample?.partyID != nil || totalSize > 1 || (sample?.maxPartySize ?? 0) > 1 {
+			if sample.partyID != nil || totalSize > 1 || (sample.maxPartySize ?? 0) > 1 {
 				title = "Party — \(totalSize)/\(maxSize)"
-			} else if sample?.status == .inGame {
+			} else if sample.status == .inGame {
 				title = "In Game"
-			} else if sample?.status == .pregame {
+			} else if sample.status == .pregame {
 				title = "Agent Select"
 			} else {
 				title = "Party — \(totalSize)/\(maxSize)"
 			}
 			return PartyGroup(
-				id: key,
+				id: bucketKey,
 				headerTitle: title,
 				members: sortedMembers,
 				totalSize: totalSize,
 				maxSize: maxSize,
 				topSortRank: sortedMembers.map(\.status).min() ?? .online,
-				leadName: sample?.displayName ?? ""
+				leadFriend: sample
 			)
 		}
 		.sorted { lhs, rhs in
-			switch settings.friendsSortOrder {
+			switch key.sortOrder {
 			case .alphabeticalAsc:
-				return lhs.leadName.localizedCaseInsensitiveCompare(rhs.leadName) == .orderedAscending
+				return XMPPFriend.compareNames(lhs.leadFriend, rhs.leadFriend)
 			case .alphabeticalDesc:
-				return lhs.leadName.localizedCaseInsensitiveCompare(rhs.leadName) == .orderedDescending
+				return XMPPFriend.compareNames(rhs.leadFriend, lhs.leadFriend)
 			case .rank:
 				let lRank = lhs.members.compactMap(\.competitiveTier).max() ?? -1
 				let rRank = rhs.members.compactMap(\.competitiveTier).max() ?? -1
@@ -437,15 +596,21 @@ struct FriendsView: View {
 			if lhs.totalSize != rhs.totalSize {
 				return lhs.totalSize > rhs.totalSize
 			}
-			return lhs.leadName.localizedCaseInsensitiveCompare(rhs.leadName) == .orderedAscending
+			return XMPPFriend.compareNames(lhs.leadFriend, rhs.leadFriend)
 		}
 		
 		let otherGameGroups: [OtherGameGroup] = otherBuckets.keys.sorted().map { game in
-			let sorted = (otherBuckets[game] ?? []).sorted { compareFriends($0, $1, isOffline: false) }
+			let sorted = (otherBuckets[game] ?? []).sorted {
+				compareFriends($0, $1, isOffline: false, sortOrder: key.sortOrder, sortOfflineByLastSeen: key.sortOfflineByLastSeen)
+			}
 			return OtherGameGroup(game: game, members: sorted)
 		}
 		
-		offline.sort { compareFriends($0, $1, isOffline: true) }
+		incoming.sort(by: XMPPFriend.compareNames)
+		outgoing.sort(by: XMPPFriend.compareNames)
+		offline.sort {
+			compareFriends($0, $1, isOffline: true, sortOrder: key.sortOrder, sortOfflineByLastSeen: key.sortOfflineByLastSeen)
+		}
 		
 		cachedSections = FriendSectionsSnapshot(
 			partyFriends: partyFriends,
@@ -461,7 +626,7 @@ struct FriendsView: View {
 	// MARK: - Your Party
 	
 	@ViewBuilder
-	private func ownPartySection(userID: User.ID, currentAct: Act?) -> some View {
+	private func ownPartySection(userID: User.ID, currentTiers: CompetitiveTier.Collection?) -> some View {
 		let partyFriends = cachedSections.partyFriends
 		let size = socialManager.myPresence?.partySize ?? (1 + partyFriends.count)
 		let maxSize = socialManager.myPresence?.maxPartySize ?? 5
@@ -479,7 +644,7 @@ struct FriendsView: View {
 					Divider()
 						.opacity(0.22)
 						.padding(.leading, 72)
-					friendPartyRow(member, currentAct: currentAct)
+					friendPartyRow(member, isOfflineStyle: false, currentTiers: currentTiers)
 				}
 			}
 			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
@@ -489,26 +654,15 @@ struct FriendsView: View {
 	// MARK: - Pinned Friends
 	
 	@ViewBuilder
-	private func pinnedFriendsSection(currentAct: Act?) -> some View {
+	private func pinnedFriendsSection(currentTiers: CompetitiveTier.Collection?, isSearching: Bool) -> some View {
 		let pinned = cachedSections.pinned
 		if !pinned.isEmpty {
-			VStack(alignment: .leading, spacing: 8) {
-				Text("Pinned — \(pinned.count)")
-					.font(.subheadline.weight(.medium))
-					.foregroundStyle(.secondary)
-					.padding(.horizontal, 4)
-				
-				LazyVStack(spacing: 0) {
-					ForEach(Array(pinned.enumerated()), id: \.element.id) { index, friend in
-						friendPartyRow(friend, isOfflineStyle: friend.status == .offline, currentAct: currentAct)
-						if index < pinned.count - 1 {
-							Divider()
-								.opacity(0.22)
-								.padding(.leading, friend.playerCardID == nil ? 14 : 72)
-						}
-					}
-				}
-				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+			collapsibleFriendSection(
+				key: SectionKey.pinned,
+				title: "Pinned — \(pinned.count)",
+				isSearching: isSearching
+			) {
+				friendCardRows(pinned, currentTiers: currentTiers)
 			}
 		}
 	}
@@ -522,11 +676,11 @@ struct FriendsView: View {
 		var totalSize: Int
 		var maxSize: Int
 		var topSortRank: XMPPFriendStatus
-		var leadName: String
+		var leadFriend: XMPPFriend
 	}
 	
 	@ViewBuilder
-	private func valorantPartiesSection(currentAct: Act?) -> some View {
+	private func valorantPartiesSection(currentTiers: CompetitiveTier.Collection?) -> some View {
 		ForEach(cachedSections.valorantPartyGroups) { group in
 			VStack(alignment: .leading, spacing: 8) {
 				Text(group.headerTitle)
@@ -535,15 +689,7 @@ struct FriendsView: View {
 					.padding(.horizontal, 4)
 				
 				LazyVStack(spacing: 0) {
-					ForEach(Array(group.members.enumerated()), id: \.element.id) { index, member in
-						friendPartyRow(member, currentAct: currentAct)
-						
-						if index < group.members.count - 1 {
-							Divider()
-								.opacity(0.22)
-								.padding(.leading, 72)
-						}
-					}
+					friendCardRows(group.members, currentTiers: currentTiers)
 					
 					let hiddenCount = group.totalSize - group.members.count
 					if hiddenCount > 0 {
@@ -568,121 +714,177 @@ struct FriendsView: View {
 	// MARK: - Friend Requests
 	
 	@ViewBuilder
-	private var friendRequestsSection: some View {
+	private func friendRequestsSection(isSearching: Bool) -> some View {
 		let incoming = cachedSections.incoming
 		let outgoing = cachedSections.outgoing
 		
 		if !incoming.isEmpty {
-			VStack(alignment: .leading, spacing: 8) {
-				Text("Friend Requests — \(incoming.count)")
-					.font(.subheadline.weight(.medium))
-					.foregroundStyle(.secondary)
-					.padding(.horizontal, 4)
-				
-				LazyVStack(spacing: 0) {
-					ForEach(Array(incoming.enumerated()), id: \.element.id) { index, friend in
-						HStack(spacing: 12) {
-							if let cardID = friend.playerCardID {
-								PlayerCardImage.small(cardID)
-									.frame(width: 44, height: 44)
-									.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-							}
-							
-							VStack(alignment: .leading, spacing: 2) {
-								nameTitle(friend)
-								Text("Incoming Friend Request")
-									.font(.caption)
-									.foregroundStyle(.secondary)
-							}
-							
-							Spacer()
-							
-							AsyncButton {
-								do {
-									try await socialManager.acceptFriend(friend)
-								} catch {
-									actionError = error.localizedDescription
-								}
-							} label: {
-								Image(systemName: "checkmark.circle.fill")
-									.font(.title2)
-									.foregroundStyle(.green)
-							}
-							.buttonStyle(.plain)
-							
-							AsyncButton {
-								do {
-									try await socialManager.removeFriend(friend)
-								} catch {
-									actionError = error.localizedDescription
-								}
-							} label: {
-								Image(systemName: "xmark.circle.fill")
-									.font(.title2)
-									.foregroundStyle(Color.valorantRed)
-							}
-							.buttonStyle(.plain)
-						}
-						.padding(14)
-						
-						if index < incoming.count - 1 {
-							Divider().opacity(0.22).padding(.leading, 70)
-						}
-					}
-				}
-				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+			collapsibleFriendSection(
+				key: SectionKey.incomingRequests,
+				title: "Incoming Requests — \(incoming.count)",
+				isSearching: isSearching
+			) {
+				friendRequestRows(incoming, isIncoming: true)
 			}
 		}
 		
 		if !outgoing.isEmpty {
-			VStack(alignment: .leading, spacing: 8) {
-				Text("Sent Requests — \(outgoing.count)")
-					.font(.subheadline.weight(.medium))
-					.foregroundStyle(.secondary)
-					.padding(.horizontal, 4)
-				
-				LazyVStack(spacing: 0) {
-					ForEach(Array(outgoing.enumerated()), id: \.element.id) { index, friend in
-						HStack(spacing: 12) {
-							if let cardID = friend.playerCardID {
-								PlayerCardImage.small(cardID)
-									.frame(width: 44, height: 44)
-									.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+			collapsibleFriendSection(
+				key: SectionKey.outgoingRequests,
+				title: "Outgoing Requests — \(outgoing.count)",
+				isSearching: isSearching
+			) {
+				friendRequestRows(outgoing, isIncoming: false)
+			}
+		}
+	}
+	
+	private func friendRequestRow(_ friend: XMPPFriend, isIncoming: Bool) -> some View {
+		let profileID = friend.resolvedUserID
+		
+		return HStack(spacing: 12) {
+			Button {
+				if let profileID {
+					contextProfileUserID = profileID
+				}
+			} label: {
+				HStack(spacing: 12) {
+					requestAvatar(friend, isIncoming: isIncoming)
+					
+					VStack(alignment: .leading, spacing: 3) {
+						HStack(spacing: 4) {
+							FriendNameTitleView(friend: friend, isPinned: false)
+							if profileID != nil {
+								Image(systemName: "chevron.right")
+									.font(.caption2.weight(.semibold))
+									.foregroundStyle(.tertiary)
 							}
-							
-							VStack(alignment: .leading, spacing: 2) {
-								nameTitle(friend)
-								Text("Pending")
-									.font(.caption)
-									.foregroundStyle(.secondary)
-							}
-							
-							Spacer()
-							
-							AsyncButton {
-								do {
-									try await socialManager.removeFriend(friend)
-								} catch {
-									actionError = error.localizedDescription
-								}
-							} label: {
-								Text("Cancel")
-									.font(.caption.weight(.semibold))
-									.foregroundStyle(Color.valorantRed)
-									.padding(.horizontal, 10)
-									.padding(.vertical, 6)
-									.background(Color.tertiaryGroupedBackground, in: Capsule())
-							}
-							.buttonStyle(.plain)
 						}
-						.padding(14)
-						
-						if index < outgoing.count - 1 {
-							Divider().opacity(0.22).padding(.leading, 70)
+						Text(isIncoming ? "Incoming Friend Request" : "Outgoing Request · Pending")
+							.font(.caption)
+							.foregroundStyle(.secondary)
+							.lineLimit(1)
+					}
+					
+					Spacer(minLength: 4)
+				}
+				.contentShape(Rectangle())
+			}
+			.buttonStyle(.plain)
+			.disabled(profileID == nil)
+			
+			if isIncoming {
+				AsyncButton {
+					do {
+						try await socialManager.acceptFriend(friend)
+					} catch {
+						actionError = error.localizedDescription
+					}
+				} label: {
+					Image(systemName: "checkmark.circle.fill")
+						.font(.title2)
+						.foregroundStyle(.green)
+				}
+				.buttonStyle(.plain)
+				.accessibilityLabel("Accept Friend Request")
+				
+				AsyncButton {
+					do {
+						try await socialManager.removeFriend(friend)
+					} catch {
+						actionError = error.localizedDescription
+					}
+				} label: {
+					Image(systemName: "xmark.circle.fill")
+						.font(.title2)
+						.foregroundStyle(Color.valorantRed)
+				}
+				.buttonStyle(.plain)
+				.accessibilityLabel("Decline Friend Request")
+			} else {
+				AsyncButton {
+					do {
+						try await socialManager.removeFriend(friend)
+					} catch {
+						actionError = error.localizedDescription
+					}
+				} label: {
+					Text("Cancel")
+						.font(.caption.weight(.semibold))
+						.foregroundStyle(Color.valorantRed)
+						.padding(.horizontal, 10)
+						.padding(.vertical, 6)
+						.background(Color.tertiaryGroupedBackground, in: Capsule())
+				}
+				.buttonStyle(.plain)
+			}
+		}
+		.padding(.horizontal, 14)
+		.padding(.vertical, 12)
+		.contextMenu {
+			if let profileID {
+				Button {
+					contextProfileUserID = profileID
+				} label: {
+					Label("Open Profile", systemImage: "person.crop.circle")
+				}
+			}
+			
+			if isIncoming {
+				Button {
+					Task {
+						do {
+							try await socialManager.acceptFriend(friend)
+						} catch {
+							actionError = error.localizedDescription
 						}
 					}
+				} label: {
+					Label("Accept Request", systemImage: "checkmark.circle")
 				}
-				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+				
+				Button(role: .destructive) {
+					Task {
+						do {
+							try await socialManager.removeFriend(friend)
+						} catch {
+							actionError = error.localizedDescription
+						}
+					}
+				} label: {
+					Label("Decline Request", systemImage: "xmark.circle")
+				}
+			} else {
+				Button(role: .destructive) {
+					Task {
+						do {
+							try await socialManager.removeFriend(friend)
+						} catch {
+							actionError = error.localizedDescription
+						}
+					}
+				} label: {
+					Label("Cancel Request", systemImage: "xmark.circle")
+				}
+			}
+		}
+	}
+	
+	@ViewBuilder
+	private func requestAvatar(_ friend: XMPPFriend, isIncoming: Bool) -> some View {
+		if let cardID = friend.playerCardID {
+			PlayerCardImage.small(cardID)
+				.frame(width: 44, height: 44)
+				.background(Color.tertiaryGroupedBackground)
+				.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+		} else {
+			ZStack {
+				RoundedRectangle(cornerRadius: 10, style: .continuous)
+					.fill(Color.tertiaryGroupedBackground)
+					.frame(width: 44, height: 44)
+				Image(systemName: isIncoming ? "person.badge.plus" : "paperplane.fill")
+					.font(.system(size: 17, weight: .semibold))
+					.foregroundStyle(isIncoming ? Color.accentColor : Color.secondary)
 			}
 		}
 	}
@@ -690,23 +892,14 @@ struct FriendsView: View {
 	// MARK: - Other Games
 	
 	@ViewBuilder
-	private func otherGamesSection(currentAct: Act?) -> some View {
+	private func otherGamesSection(currentTiers: CompetitiveTier.Collection?, isSearching: Bool) -> some View {
 		ForEach(cachedSections.otherGameGroups) { group in
-			VStack(alignment: .leading, spacing: 8) {
-				Text("\(group.game) — \(group.members.count)")
-					.font(.subheadline.weight(.medium))
-					.foregroundStyle(.secondary)
-					.padding(.horizontal, 4)
-				
-				LazyVStack(spacing: 0) {
-					ForEach(Array(group.members.enumerated()), id: \.element.id) { index, friend in
-						friendPartyRow(friend, currentAct: currentAct)
-						if index < group.members.count - 1 {
-							Divider().opacity(0.22).padding(.leading, friend.playerCardID == nil ? 14 : 72)
-						}
-					}
-				}
-				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+			collapsibleFriendSection(
+				key: SectionKey.otherGame(group.game),
+				title: "\(group.game) — \(group.members.count)",
+				isSearching: isSearching
+			) {
+				friendCardRows(group.members, currentTiers: currentTiers)
 			}
 		}
 	}
@@ -714,31 +907,28 @@ struct FriendsView: View {
 	// MARK: - Offline Friends
 	
 	@ViewBuilder
-	private func offlineFriendsSection(currentAct: Act?) -> some View {
+	private func offlineFriendsSection(currentTiers: CompetitiveTier.Collection?, isSearching: Bool) -> some View {
 		let offline = cachedSections.offline
 		if !offline.isEmpty {
-			VStack(alignment: .leading, spacing: 8) {
-				Text("Offline — \(offline.count)")
-					.font(.subheadline.weight(.medium))
-					.foregroundStyle(.secondary)
-					.padding(.horizontal, 4)
-				
-				LazyVStack(spacing: 0) {
-					ForEach(Array(offline.enumerated()), id: \.element.id) { index, friend in
-						friendPartyRow(friend, isOfflineStyle: true, currentAct: currentAct)
-						if index < offline.count - 1 {
-							Divider().opacity(0.22).padding(.leading, friend.playerCardID == nil ? 14 : 72)
-						}
-					}
-				}
-				.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+			collapsibleFriendSection(
+				key: SectionKey.offline,
+				title: "Offline — \(offline.count)",
+				isSearching: isSearching
+			) {
+				friendCardRows(offline, currentTiers: currentTiers)
 			}
 		}
 	}
 	
 	// MARK: - Sorting
 	
-	private func compareFriends(_ lhs: XMPPFriend, _ rhs: XMPPFriend, isOffline: Bool) -> Bool {
+	private func compareFriends(
+		_ lhs: XMPPFriend,
+		_ rhs: XMPPFriend,
+		isOffline: Bool,
+		sortOrder: AppSettings.FriendsSortOrder,
+		sortOfflineByLastSeen: Bool
+	) -> Bool {
 		let tieBreak: () -> Bool = {
 			if isOffline {
 				return compareByLastOnlineOrName(lhs, rhs)
@@ -746,22 +936,22 @@ struct FriendsView: View {
 			if lhs.status != rhs.status {
 				return lhs.status < rhs.status
 			}
-			return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+			return XMPPFriend.compareNames(lhs, rhs)
 		}
 		
-		switch settings.friendsSortOrder {
+		switch sortOrder {
 		case .defaultOrder:
 			if isOffline {
-				return settings.sortOfflineByLastSeen
+				return sortOfflineByLastSeen
 					? compareByLastOnlineOrName(lhs, rhs)
-					: (lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending)
+					: XMPPFriend.compareNames(lhs, rhs)
 			}
 			if lhs.status != rhs.status { return lhs.status < rhs.status }
-			return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+			return XMPPFriend.compareNames(lhs, rhs)
 		case .alphabeticalAsc:
-			return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+			return XMPPFriend.compareNames(lhs, rhs)
 		case .alphabeticalDesc:
-			return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedDescending
+			return XMPPFriend.compareNames(rhs, lhs)
 		case .lastSeen:
 			return tieBreak()
 		case .rank:
@@ -786,121 +976,55 @@ struct FriendsView: View {
 		case (.none, .some):
 			return false
 		default:
-			return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+			return XMPPFriend.compareNames(lhs, rhs)
 		}
 	}
 	
 	// MARK: - Friend Card Row
 	
-	private func friendPartyRow(_ friend: XMPPFriend, isOfflineStyle: Bool = false, currentAct: Act?) -> some View {
-		let hasUnread = (socialManager.unreadByJID[friend.jid] ?? 0) > 0
-		let opensProfileDirectly = settings.openProfileDirectly && !hasUnread && friend.puuid != nil
+	private func friendPartyRow(
+		_ friend: XMPPFriend,
+		isOfflineStyle: Bool = false,
+		currentTiers: CompetitiveTier.Collection?
+	) -> some View {
+		let unreadCount = socialManager.unreadByJID[friend.jid] ?? 0
+		let isPinned = socialManager.isPinned(friend)
+		let openProfileDirectly = settings.openProfileDirectly && unreadCount == 0 && friend.resolvedUserID != nil
+		let matchDetail = matchDetailLine(for: friend)
+		let tierIcon = friend.competitiveTier.flatMap { $0 >= 3 ? currentTiers?.tier($0)?.icon : nil }
 		
-		return Button {
-			if opensProfileDirectly, let puuid = friend.puuid {
-				contextProfileUserID = puuid
-			} else {
-				contextChatFriend = friend
-			}
-		} label: {
-			HStack(spacing: 12) {
-				if let cardID = friend.playerCardID {
-					ZStack(alignment: .bottomTrailing) {
-						PlayerCardImage.small(cardID)
-							.frame(width: 48, height: 48)
-							.background(Color.tertiaryGroupedBackground)
-							.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-							.opacity(isOfflineStyle ? 0.55 : 1)
-						
-						PresenceBadgeView(status: friend.status)
-							.offset(x: 3, y: 3)
-					}
+		return FriendCardRowView(
+			friend: friend,
+			isOfflineStyle: isOfflineStyle,
+			isPinned: isPinned,
+			unreadCount: unreadCount,
+			openProfileDirectly: openProfileDirectly,
+			matchDetail: matchDetail,
+			tierIcon: tierIcon,
+			onPrimaryTap: {
+				if openProfileDirectly, let profileID = friend.resolvedUserID {
+					contextProfileUserID = profileID
+				} else {
+					contextChatFriend = friend
 				}
-				
-				VStack(alignment: .leading, spacing: 3) {
-					nameTitle(friend)
-					
-					Text(statusHeadline(for: friend))
-						.font(.subheadline)
-						.foregroundStyle(isOfflineStyle ? Color.secondary : Color.primary.opacity(0.85))
-						.lineLimit(1)
-					
-					if let detail = matchDetailLine(for: friend) {
-						Text(detail)
-							.font(.caption)
-							.foregroundStyle(.secondary)
-							.lineLimit(1)
-					}
-					
-					if let note = friend.note, !note.isEmpty {
-						HStack(spacing: 5) {
-							Image(systemName: "text.quote")
-								.font(.caption2)
-							Text(note)
-								.lineLimit(1)
-						}
-						.font(.caption)
-						.foregroundStyle(.secondary)
-					}
-				}
-				
-				Spacer(minLength: 8)
-				
-				if let unread = socialManager.unreadByJID[friend.jid], unread > 0 {
-					Text("\(unread)")
-						.font(.caption2.bold())
-						.padding(.horizontal, 7)
-						.padding(.vertical, 3)
-						.background(Color.accentColor, in: Capsule())
-						.foregroundStyle(.white)
-				}
-				
-				if let tier = friend.competitiveTier, tier >= 3 {
-					CompetitiveTierImage(tier: tier, act: currentAct, time: currentAct == nil ? .now : nil)
-						.frame(width: 34, height: 34)
-				}
-				
-				Image(systemName: "chevron.right")
-					.font(.caption.weight(.semibold))
-					.foregroundStyle(.secondary)
-			}
-			.padding(.horizontal, 14)
-			.padding(.vertical, 12)
-			.background(alignment: .center) {
-				if friend.isPartyOwner && friend.status != .offline {
-					Image(systemName: "crown")
-						.font(.system(size: 46, weight: .ultraLight))
-						.foregroundStyle(.white.opacity(0.08))
-						.offset(x: 20, y: 2)
-				}
-			}
-			.contentShape(Rectangle())
-		}
-		.buttonStyle(.plain)
-		.contextMenu {
-			let pinned = socialManager.isPinned(friend)
-			Button {
+			},
+			onTogglePin: {
 				withAnimation {
 					socialManager.togglePinned(jid: friend.jid)
 				}
-			} label: {
-				Label(pinned ? "Unpin Friend" : "Pin Friend", systemImage: pinned ? "pin.slash" : "pin")
-			}
-			
-			if opensProfileDirectly {
-				Button {
-					contextChatFriend = friend
-				} label: {
-					Label("Open Chat", systemImage: "message")
+			},
+			onOpenChat: {
+				contextChatFriend = friend
+			},
+			onOpenProfile: {
+				if let profileID = friend.resolvedUserID {
+					contextProfileUserID = profileID
 				}
-			} else if let puuid = friend.puuid {
-				Button {
-					contextProfileUserID = puuid
-				} label: {
-					Label("Open Profile", systemImage: "person.crop.circle")
-				}
-			}
-			Button(role: .destructive) {
+			},
+			onEditNote: {
+				editingNoteFriend = friend
+			},
+			onRemove: {
 				Task {
 					do {
 						try await socialManager.removeFriend(friend)
@@ -908,77 +1032,9 @@ struct FriendsView: View {
 						actionError = error.localizedDescription
 					}
 				}
-			} label: {
-				Label("Remove Friend", systemImage: "person.badge.minus")
 			}
-		}
-	}
-	
-	private func nameTitle(_ friend: XMPPFriend) -> some View {
-		HStack(spacing: 0) {
-			Text(friend.gameName.isEmpty ? friend.jid : friend.gameName)
-				.font(.headline.weight(.semibold))
-				.foregroundStyle(.primary)
-				.lineLimit(1)
-			if !friend.tagLine.isEmpty {
-				Text("#\(friend.tagLine)")
-					.font(.subheadline)
-					.foregroundStyle(.secondary)
-					.lineLimit(1)
-			}
-			if socialManager.isPinned(friend) {
-				Image(systemName: "pin.fill")
-					.font(.caption)
-					.foregroundStyle(.yellow)
-					.padding(.leading, 5)
-			}
-		}
-	}
-	
-	private static let lastOnlineFormatter: DateComponentsFormatter = {
-		let f = DateComponentsFormatter()
-		f.allowedUnits = [.day, .hour, .minute]
-		f.unitsStyle = .full
-		f.maximumUnitCount = 3
-		return f
-	}()
-	
-	private static func formatLastOnline(_ date: Date) -> String {
-		let elapsed = max(Double(0), Date().timeIntervalSince(date))
-		if elapsed < 60 {
-			return "Last online just now"
-		}
-		if let formatted = lastOnlineFormatter.string(from: elapsed), !formatted.isEmpty {
-			return "Last online \(formatted) ago"
-		}
-		return "Offline"
-	}
-	
-	private func statusHeadline(for friend: XMPPFriend) -> String {
-		if let game = friend.gameTitle, game != "VALORANT" {
-			if game == "Riot Client" {
-				return friend.statusText ?? (friend.status == .away ? "Away" : "Online")
-			}
-			return friend.statusText ?? (friend.status == .away ? "Away" : "In Game")
-		}
-		switch friend.status {
-		case .inGame:
-			if let ally = friend.allyScore, let enemy = friend.enemyScore {
-				return "In Game  |  \(ally) – \(enemy)"
-			}
-			return "In Game"
-		case .pregame:
-			return "Agent Select"
-		case .online:
-			return friend.statusText ?? "Online"
-		case .away:
-			return friend.statusText ?? "Away"
-		case .offline:
-			if let lastOnline = friend.lastOnline {
-				return Self.formatLastOnline(lastOnline)
-			}
-			return "Offline"
-		}
+		)
+		.equatable()
 	}
 	
 	private func matchDetailLine(for friend: XMPPFriend) -> String? {
@@ -1015,14 +1071,271 @@ struct FriendsView: View {
 		search.isEmpty ? "" : search.trimmingCharacters(in: .whitespacesAndNewlines)
 	}
 	
-	private func matchesSearch(_ friend: XMPPFriend) -> Bool {
-		matchesSearch(friend, query: trimmedSearch)
-	}
-	
 	private func matchesSearch(_ friend: XMPPFriend, query: String) -> Bool {
 		guard !query.isEmpty else { return true }
-		return friend.displayName.localizedCaseInsensitiveContains(query)
-			|| (friend.note?.localizedCaseInsensitiveContains(query) ?? false)
+		if friend.gameName.localizedCaseInsensitiveContains(query)
+			|| friend.tagLine.localizedCaseInsensitiveContains(query)
+			|| (friend.note?.localizedCaseInsensitiveContains(query) ?? false) {
+			return true
+		}
+		if friend.gameName.isEmpty && friend.jid.localizedCaseInsensitiveContains(query) {
+			return true
+		}
+		if !friend.tagLine.isEmpty && query.contains("#") {
+			return friend.displayName.localizedCaseInsensitiveContains(query)
+		}
+		return false
+	}
+}
+
+// MARK: - Section Header & Friend Row Subviews
+
+private struct CollapsibleSectionHeader: View, Equatable {
+	let title: String
+	let isCollapsed: Bool
+	let isForcedExpanded: Bool
+	let onToggle: () -> Void
+	
+	static func == (lhs: Self, rhs: Self) -> Bool {
+		lhs.title == rhs.title
+			&& lhs.isCollapsed == rhs.isCollapsed
+			&& lhs.isForcedExpanded == rhs.isForcedExpanded
+	}
+	
+	var body: some View {
+		Button(action: onToggle) {
+			HStack(spacing: 6) {
+				Text(title)
+					.font(.subheadline.weight(.medium))
+					.foregroundStyle(.secondary)
+				
+				Spacer(minLength: 8)
+				
+				if !isForcedExpanded {
+					Image(systemName: "chevron.down")
+						.font(.caption.weight(.semibold))
+						.foregroundStyle(.tertiary)
+						.rotationEffect(.degrees(isCollapsed ? -90 : 0))
+						.animation(.easeInOut(duration: 0.18), value: isCollapsed)
+				}
+			}
+			.padding(.horizontal, 4)
+			.padding(.vertical, 2)
+			.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.disabled(isForcedExpanded)
+	}
+}
+
+private struct FriendNameTitleView: View {
+	let friend: XMPPFriend
+	let isPinned: Bool
+	
+	var body: some View {
+		HStack(spacing: 0) {
+			Text(friend.gameName.isEmpty ? friend.jid : friend.gameName)
+				.font(.headline.weight(.semibold))
+				.foregroundStyle(.primary)
+				.lineLimit(1)
+			if !friend.tagLine.isEmpty {
+				Text("#\(friend.tagLine)")
+					.font(.subheadline)
+					.foregroundStyle(.secondary)
+					.lineLimit(1)
+			}
+			if isPinned {
+				Image(systemName: "pin.fill")
+					.font(.caption)
+					.foregroundStyle(.yellow)
+					.padding(.leading, 5)
+			}
+		}
+	}
+}
+
+private struct FriendCardRowView: View, Equatable {
+	let friend: XMPPFriend
+	let isOfflineStyle: Bool
+	let isPinned: Bool
+	let unreadCount: Int
+	let openProfileDirectly: Bool
+	let matchDetail: String?
+	let tierIcon: AssetImage?
+	let onPrimaryTap: () -> Void
+	let onTogglePin: () -> Void
+	let onOpenChat: () -> Void
+	let onOpenProfile: () -> Void
+	let onEditNote: () -> Void
+	let onRemove: () -> Void
+	
+	static func == (lhs: Self, rhs: Self) -> Bool {
+		lhs.friend == rhs.friend
+			&& lhs.isOfflineStyle == rhs.isOfflineStyle
+			&& lhs.isPinned == rhs.isPinned
+			&& lhs.unreadCount == rhs.unreadCount
+			&& lhs.openProfileDirectly == rhs.openProfileDirectly
+			&& lhs.matchDetail == rhs.matchDetail
+			&& lhs.tierIcon == rhs.tierIcon
+	}
+	
+	var body: some View {
+		Button(action: onPrimaryTap) {
+			HStack(spacing: 12) {
+				if let cardID = friend.playerCardID {
+					ZStack(alignment: .bottomTrailing) {
+						PlayerCardImage.small(cardID)
+							.frame(width: 48, height: 48)
+							.background(Color.tertiaryGroupedBackground)
+							.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+							.opacity(isOfflineStyle ? 0.55 : 1)
+						
+						PresenceBadgeView(status: friend.status)
+							.offset(x: 3, y: 3)
+					}
+				}
+				
+				VStack(alignment: .leading, spacing: 3) {
+					FriendNameTitleView(friend: friend, isPinned: isPinned)
+					
+					Text(Self.statusHeadline(for: friend))
+						.font(.subheadline)
+						.foregroundStyle(isOfflineStyle ? Color.secondary : Color.primary.opacity(0.85))
+						.lineLimit(1)
+					
+					if let matchDetail {
+						Text(matchDetail)
+							.font(.caption)
+							.foregroundStyle(.secondary)
+							.lineLimit(1)
+					}
+					
+					if let note = friend.note, !note.isEmpty {
+						HStack(spacing: 5) {
+							Image(systemName: "text.quote")
+								.font(.caption2)
+							Text(note)
+								.lineLimit(1)
+						}
+						.font(.caption)
+						.foregroundStyle(.secondary)
+					}
+				}
+				
+				Spacer(minLength: 8)
+				
+				if unreadCount > 0 {
+					Text("\(unreadCount)")
+						.font(.caption2.bold())
+						.padding(.horizontal, 7)
+						.padding(.vertical, 3)
+						.background(Color.accentColor, in: Capsule())
+						.foregroundStyle(.white)
+				}
+				
+				if let tier = friend.competitiveTier, tier >= 3 {
+					if let tierIcon {
+						tierIcon.view(bucket: .icon)
+							.frame(width: 34, height: 34)
+					} else {
+						Circle()
+							.opacity(0.1)
+							.aspectRatio(1, contentMode: .fit)
+							.frame(width: 34, height: 34)
+					}
+				}
+				
+				Image(systemName: "chevron.right")
+					.font(.caption.weight(.semibold))
+					.foregroundStyle(.secondary)
+			}
+			.padding(.horizontal, 14)
+			.padding(.vertical, 12)
+			.background(alignment: .center) {
+				if friend.isPartyOwner && friend.status != .offline {
+					Image(systemName: "crown")
+						.font(.system(size: 46, weight: .ultraLight))
+						.foregroundStyle(.white.opacity(0.08))
+						.offset(x: 20, y: 2)
+				}
+			}
+			.contentShape(Rectangle())
+		}
+		.buttonStyle(.plain)
+		.contextMenu {
+			Button(action: onTogglePin) {
+				Label(isPinned ? "Unpin Friend" : "Pin Friend", systemImage: isPinned ? "pin.slash" : "pin")
+			}
+			
+			if openProfileDirectly {
+				Button(action: onOpenChat) {
+					Label("Open Chat", systemImage: "message")
+				}
+			} else if friend.resolvedUserID != nil {
+				Button(action: onOpenProfile) {
+					Label("Open Profile", systemImage: "person.crop.circle")
+				}
+			}
+			
+			if !friend.isIncomingRequest && !friend.isOutgoingRequest {
+				Button(action: onEditNote) {
+					let hasNote = (friend.note?.isEmpty == false)
+					Label(hasNote ? "Edit Note" : "Add Note", systemImage: hasNote ? "note.text" : "note.text.badge.plus")
+				}
+			}
+			
+			Button(role: .destructive, action: onRemove) {
+				Label("Remove Friend", systemImage: "person.badge.minus")
+			}
+		}
+	}
+	
+	private static func formatLastOnline(_ date: Date, now: Date = .now) -> String {
+		let totalSeconds = Int(max(0, now.timeIntervalSince(date)))
+		if totalSeconds < 60 {
+			return "Last online just now"
+		}
+		let days = totalSeconds / 86_400
+		let hours = (totalSeconds % 86_400) / 3_600
+		let minutes = (totalSeconds % 3_600) / 60
+		
+		var parts: [String] = []
+		parts.reserveCapacity(3)
+		if days > 0 { parts.append(days == 1 ? "1 day" : "\(days) days") }
+		if hours > 0 { parts.append(hours == 1 ? "1 hour" : "\(hours) hours") }
+		if minutes > 0 { parts.append(minutes == 1 ? "1 minute" : "\(minutes) minutes") }
+		
+		guard !parts.isEmpty else {
+			return "Last online just now"
+		}
+		return "Last online \(parts.joined(separator: ", ")) ago"
+	}
+	
+	private static func statusHeadline(for friend: XMPPFriend) -> String {
+		if let game = friend.gameTitle, game != "VALORANT" {
+			if game == "Riot Client" {
+				return friend.statusText ?? (friend.status == .away ? "Away" : "Online")
+			}
+			return friend.statusText ?? (friend.status == .away ? "Away" : "In Game")
+		}
+		switch friend.status {
+		case .inGame:
+			if let ally = friend.allyScore, let enemy = friend.enemyScore {
+				return "In Game  |  \(ally) – \(enemy)"
+			}
+			return "In Game"
+		case .pregame:
+			return "Agent Select"
+		case .online:
+			return friend.statusText ?? "Online"
+		case .away:
+			return friend.statusText ?? "Away"
+		case .offline:
+			if let lastOnline = friend.lastOnline {
+				return formatLastOnline(lastOnline)
+			}
+			return "Offline"
+		}
 	}
 }
 
@@ -1152,6 +1465,7 @@ struct ChatView: View {
 	
 	@State private var sendError: String?
 	@State private var showingProfile = false
+	@State private var showingNoteEditor = false
 	
 	private var liveFriend: XMPPFriend {
 		socialManager.friendsByJID[friend.jid] ?? friend
@@ -1213,9 +1527,9 @@ struct ChatView: View {
 		}
 		.background(
 			Group {
-				if let puuid = liveFriend.puuid {
+				if let profileID = liveFriend.resolvedUserID {
 					NavigationLink("", isActive: $showingProfile) {
-						MatchListView(userID: puuid)
+						MatchListView(userID: profileID)
 					}
 					.hidden()
 				}
@@ -1229,12 +1543,19 @@ struct ChatView: View {
 			
 			ToolbarItem(placement: .navigationBarTrailing) {
 				Menu {
-					if liveFriend.puuid != nil {
+					if liveFriend.resolvedUserID != nil {
 						Button {
 							showingProfile = true
 						} label: {
 							Label("Open Profile", systemImage: "person.crop.circle")
 						}
+					}
+					
+					Button {
+						showingNoteEditor = true
+					} label: {
+						let hasNote = (liveFriend.note?.isEmpty == false)
+						Label(hasNote ? "Edit Note" : "Add Note", systemImage: hasNote ? "note.text" : "note.text.badge.plus")
 					}
 					
 					let pinned = socialManager.isPinned(liveFriend)
@@ -1265,10 +1586,45 @@ struct ChatView: View {
 				}
 			}
 		}
+		.safeAreaInset(edge: .top) {
+			if let note = liveFriend.note, !note.isEmpty {
+				Button {
+					showingNoteEditor = true
+				} label: {
+					HStack(spacing: 8) {
+						Image(systemName: "text.quote")
+							.font(.caption)
+							.foregroundStyle(Color.accentColor)
+						Text(note)
+							.font(.caption)
+							.foregroundStyle(.primary)
+							.lineLimit(2)
+							.multilineTextAlignment(.leading)
+						Spacer(minLength: 4)
+						Image(systemName: "pencil")
+							.font(.caption2.weight(.semibold))
+							.foregroundStyle(.secondary)
+					}
+					.padding(.horizontal, 12)
+					.padding(.vertical, 8)
+					.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+					.overlay(
+						RoundedRectangle(cornerRadius: 12, style: .continuous)
+							.stroke(Color.white.opacity(0.1), lineWidth: 1)
+					)
+					.padding(.horizontal, 14)
+					.padding(.top, 6)
+				}
+				.buttonStyle(.plain)
+			}
+		}
 		.safeAreaInset(edge: .bottom) {
 			ChatComposerView(friendJID: friend.jid) { errorMessage in
 				sendError = errorMessage
 			}
+		}
+		.sheet(isPresented: $showingNoteEditor) {
+			FriendNoteEditorSheet(friend: liveFriend)
 		}
 		.onAppear {
 			socialManager.activeChatJID = friend.jid
@@ -1296,7 +1652,7 @@ struct ChatView: View {
 	
 	private var chatPrincipalHeader: some View {
 		Button {
-			guard liveFriend.puuid != nil else { return }
+			guard liveFriend.resolvedUserID != nil else { return }
 			showingProfile = true
 		} label: {
 			HStack(spacing: 9) {
@@ -1323,7 +1679,7 @@ struct ChatView: View {
 								.foregroundStyle(.yellow)
 								.padding(.leading, 2)
 						}
-						if liveFriend.puuid != nil {
+						if liveFriend.resolvedUserID != nil {
 							Image(systemName: "chevron.right")
 								.font(.caption2.weight(.semibold))
 								.foregroundStyle(.secondary)
@@ -1342,7 +1698,7 @@ struct ChatView: View {
 			.contentShape(Rectangle())
 		}
 		.buttonStyle(.plain)
-		.disabled(liveFriend.puuid == nil)
+		.disabled(liveFriend.resolvedUserID == nil)
 	}
 	
 	private var chatStatusSubtitle: String? {
@@ -1730,5 +2086,353 @@ struct FriendListChangesView: View {
 	
 	private func eventRelativeString(_ date: Date) -> String {
 		Self.relativeFormatter.localizedString(for: date, relativeTo: .now)
+	}
+}
+
+// MARK: - Friend Note Editor & Manager
+
+private struct FriendNoteEditorSheet: View {
+	let friend: XMPPFriend
+	
+	@EnvironmentObject private var socialManager: SocialManager
+	@Environment(\.dismiss) private var dismiss
+	
+	@State private var draft: String
+	@State private var isSaving = false
+	@State private var errorMessage: String?
+	@FocusState private var isFocused: Bool
+	
+	init(friend: XMPPFriend) {
+		self.friend = friend
+		self._draft = State(initialValue: friend.note ?? "")
+	}
+	
+	private var liveFriend: XMPPFriend {
+		socialManager.friendsByJID[friend.jid] ?? friend
+	}
+	
+	private var isOverLimit: Bool {
+		draft.count > SocialManager.maxFriendNoteLength
+	}
+	
+	private var canSave: Bool {
+		!isSaving && !isOverLimit && socialManager.connectionState == .connected
+	}
+	
+	var body: some View {
+		NavigationStack {
+			ScrollView {
+				VStack(alignment: .leading, spacing: 16) {
+					headerCard
+					
+					VStack(alignment: .leading, spacing: 10) {
+						TextField(
+							"Write a private note (syncs with VALORANT)...",
+							text: $draft,
+							axis: .vertical
+						)
+						.lineLimit(3...6)
+						.focused($isFocused)
+						
+						Divider().opacity(0.22)
+						
+						HStack {
+							Text("Saved privately on your Riot account")
+								.font(.caption2)
+								.foregroundStyle(.secondary)
+							
+							Spacer()
+							
+							Text("\(draft.count) / \(SocialManager.maxFriendNoteLength)")
+								.font(.caption.monospacedDigit())
+								.foregroundStyle(isOverLimit ? Color.valorantRed : Color.secondary)
+						}
+					}
+					.padding(14)
+					.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+					
+					if socialManager.connectionState != .connected {
+						HStack(spacing: 8) {
+							Image(systemName: "wifi.exclamationmark")
+								.foregroundStyle(.orange)
+							Text("Connect to Riot Chat to save friend notes.")
+								.font(.caption)
+								.foregroundStyle(.secondary)
+						}
+						.padding(12)
+						.frame(maxWidth: .infinity, alignment: .leading)
+						.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+					}
+					
+					if let errorMessage {
+						Text(errorMessage)
+							.font(.caption)
+							.foregroundStyle(Color.valorantRed)
+							.padding(.horizontal, 4)
+					}
+					
+					if let existing = liveFriend.note, !existing.isEmpty {
+						Button(role: .destructive) {
+							save(note: nil)
+						} label: {
+							Label("Clear Note", systemImage: "trash")
+								.font(.subheadline.weight(.semibold))
+								.foregroundStyle(Color.valorantRed)
+								.frame(maxWidth: .infinity)
+								.padding(.vertical, 12)
+								.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+						}
+						.buttonStyle(.plain)
+						.disabled(isSaving || socialManager.connectionState != .connected)
+					}
+				}
+				.padding(16)
+			}
+			.background(Color.groupedBackground)
+			.navigationTitle("Friend Note")
+			.navigationBarTitleDisplayMode(.inline)
+			.toolbar {
+				ToolbarItem(placement: .cancellationAction) {
+					Button("Cancel") { dismiss() }
+				}
+				
+				ToolbarItem(placement: .confirmationAction) {
+					if isSaving {
+						ProgressView()
+					} else {
+						Button("Save") {
+							save(note: draft)
+						}
+						.fontWeight(.semibold)
+						.disabled(!canSave)
+					}
+				}
+			}
+			.onAppear {
+				isFocused = true
+			}
+		}
+		.presentationDetents([.medium])
+	}
+	
+	private var headerCard: some View {
+		HStack(spacing: 12) {
+			if let cardID = liveFriend.playerCardID {
+				PlayerCardImage.small(cardID)
+					.frame(width: 44, height: 44)
+					.background(Color.tertiaryGroupedBackground)
+					.clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+			} else {
+				ZStack {
+					RoundedRectangle(cornerRadius: 10, style: .continuous)
+						.fill(Color.tertiaryGroupedBackground)
+						.frame(width: 44, height: 44)
+					Image(systemName: "person.crop.circle")
+						.font(.title3)
+						.foregroundStyle(.secondary)
+				}
+			}
+			
+			VStack(alignment: .leading, spacing: 2) {
+				HStack(spacing: 0) {
+					Text(liveFriend.gameName.isEmpty ? liveFriend.jid : liveFriend.gameName)
+						.font(.headline.weight(.semibold))
+						.lineLimit(1)
+					if !liveFriend.tagLine.isEmpty {
+						Text("#\(liveFriend.tagLine)")
+							.font(.subheadline)
+							.foregroundStyle(.secondary)
+							.lineLimit(1)
+					}
+				}
+				Text("Private note · visible only to you")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+			
+			Spacer()
+		}
+		.padding(14)
+		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+	}
+	
+	private func save(note: String?) {
+		guard !isSaving else { return }
+		errorMessage = nil
+		isSaving = true
+		Task {
+			defer { isSaving = false }
+			do {
+				try await socialManager.updateFriendNote(liveFriend, note: note)
+				dismiss()
+			} catch {
+				errorMessage = error.localizedDescription
+			}
+		}
+	}
+}
+
+private struct FriendNotesManagerSheet: View {
+	@EnvironmentObject private var socialManager: SocialManager
+	@Environment(\.dismiss) private var dismiss
+	
+	@State private var search = ""
+	@State private var selectedFriend: XMPPFriend?
+	
+	private var confirmedFriends: [XMPPFriend] {
+		let query = search.trimmingCharacters(in: .whitespacesAndNewlines)
+		return socialManager.friends
+			.filter { friend in
+				guard !friend.isIncomingRequest, !friend.isOutgoingRequest else { return false }
+				guard !query.isEmpty else { return true }
+				return friend.displayName.localizedCaseInsensitiveContains(query)
+					|| (friend.note?.localizedCaseInsensitiveContains(query) ?? false)
+			}
+			.sorted {
+				$0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+			}
+	}
+	
+	var body: some View {
+		let friends = confirmedFriends
+		let withNotes = friends.filter { $0.note?.isEmpty == false }
+		let withoutNotes = friends.filter { $0.note?.isEmpty != false }
+		
+		NavigationStack {
+			ScrollView {
+				LazyVStack(alignment: .leading, spacing: 16) {
+					HStack(spacing: 8) {
+						Image(systemName: "magnifyingglass")
+							.font(.subheadline)
+							.foregroundStyle(.secondary)
+						TextField("Search friends or notes", text: $search)
+							.textInputAutocapitalization(.never)
+							.autocorrectionDisabled()
+						if !search.isEmpty {
+							Button {
+								search = ""
+							} label: {
+								Image(systemName: "xmark.circle.fill")
+									.foregroundStyle(.secondary)
+							}
+							.buttonStyle(.plain)
+						}
+					}
+					.padding(.horizontal, 12)
+					.padding(.vertical, 10)
+					.background(Color.secondaryGroupedBackground, in: Capsule())
+					
+					if !withNotes.isEmpty {
+						notesSection(title: "With Notes — \(withNotes.count)", friends: withNotes)
+					}
+					
+					if !withoutNotes.isEmpty {
+						notesSection(title: "Other Friends — \(withoutNotes.count)", friends: withoutNotes)
+					}
+					
+					if friends.isEmpty {
+						Text("No matching friends.")
+							.font(.subheadline)
+							.foregroundStyle(.secondary)
+							.frame(maxWidth: .infinity)
+							.padding(24)
+							.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+					}
+				}
+				.padding(16)
+			}
+			.background(Color.groupedBackground)
+			.navigationTitle("Friend Notes")
+			.navigationBarTitleDisplayMode(.inline)
+			.toolbar {
+				ToolbarItem(placement: .confirmationAction) {
+					Button("Done") { dismiss() }
+				}
+			}
+			.sheet(item: $selectedFriend) { friend in
+				FriendNoteEditorSheet(friend: friend)
+			}
+		}
+	}
+	
+	private func notesSection(title: String, friends: [XMPPFriend]) -> some View {
+		VStack(alignment: .leading, spacing: 8) {
+			Text(title)
+				.font(.subheadline.weight(.medium))
+				.foregroundStyle(.secondary)
+				.padding(.horizontal, 4)
+			
+			LazyVStack(spacing: 0) {
+				ForEach(Array(friends.enumerated()), id: \.element.id) { index, friend in
+					Button {
+						selectedFriend = friend
+					} label: {
+						HStack(spacing: 12) {
+							if let cardID = friend.playerCardID {
+								PlayerCardImage.small(cardID)
+									.frame(width: 40, height: 40)
+									.background(Color.tertiaryGroupedBackground)
+									.clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+							} else {
+								ZStack {
+									RoundedRectangle(cornerRadius: 9, style: .continuous)
+										.fill(Color.tertiaryGroupedBackground)
+										.frame(width: 40, height: 40)
+									Image(systemName: "person.fill")
+										.font(.subheadline)
+										.foregroundStyle(.secondary)
+								}
+							}
+							
+							VStack(alignment: .leading, spacing: 3) {
+								HStack(spacing: 0) {
+									Text(friend.gameName.isEmpty ? friend.jid : friend.gameName)
+										.font(.subheadline.weight(.semibold))
+										.foregroundStyle(.primary)
+										.lineLimit(1)
+									if !friend.tagLine.isEmpty {
+										Text("#\(friend.tagLine)")
+											.font(.caption)
+											.foregroundStyle(.secondary)
+											.lineLimit(1)
+									}
+								}
+								
+								if let note = friend.note, !note.isEmpty {
+									HStack(spacing: 4) {
+										Image(systemName: "text.quote")
+											.font(.caption2)
+											.foregroundStyle(Color.accentColor)
+										Text(note)
+											.font(.caption)
+											.foregroundStyle(.secondary)
+											.lineLimit(2)
+									}
+								} else {
+									Text("Tap to add note")
+										.font(.caption)
+										.foregroundStyle(.tertiary)
+								}
+							}
+							
+							Spacer()
+							
+							Image(systemName: friend.note?.isEmpty == false ? "pencil" : "plus.circle")
+								.font(.subheadline)
+								.foregroundStyle(Color.accentColor)
+						}
+						.padding(.horizontal, 14)
+						.padding(.vertical, 11)
+						.contentShape(Rectangle())
+					}
+					.buttonStyle(.plain)
+					
+					if index < friends.count - 1 {
+						Divider().opacity(0.22).padding(.leading, 66)
+					}
+				}
+			}
+			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+		}
 	}
 }

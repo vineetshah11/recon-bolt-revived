@@ -18,6 +18,9 @@ final class ImageManager: @unchecked Sendable {
 	private let memoryCache = ImageMemoryCache()
 	private let pipeline: Pipeline
 	private let didUpdateSubject = PassthroughSubject<AssetImage?, Never>()
+	private let revalidationLock = NSLock()
+	private var knownRevalidated: Set<AssetImage> = []
+	private var knownVersionString = UserDefaults.standard.string(forKey: Pipeline.versionDefaultsKey) ?? ""
 	
 	var imageDidUpdate: AnyPublisher<AssetImage?, Never> {
 		didUpdateSubject.eraseToAnyPublisher()
@@ -34,6 +37,12 @@ final class ImageManager: @unchecked Sendable {
 	
 	func setVersion(_ version: AssetVersion) {
 		let versionString = version.riotClientVersion
+		revalidationLock.withLock {
+			if versionString != knownVersionString {
+				knownVersionString = versionString
+				knownRevalidated.removeAll()
+			}
+		}
 		Task.detached(priority: .utility) { [pipeline] in
 			await pipeline.setVersion(versionString)
 		}
@@ -86,6 +95,10 @@ final class ImageManager: @unchecked Sendable {
 	}
 	
 	func scheduleRevalidationIfNeeded(for image: AssetImage) {
+		let shouldSchedule = revalidationLock.withLock {
+			!knownVersionString.isEmpty && knownRevalidated.insert(image).inserted
+		}
+		guard shouldSchedule else { return }
 		Task.detached(priority: .utility) { [pipeline] in
 			await pipeline.scheduleRevalidationIfNeeded(for: image)
 		}
@@ -124,7 +137,14 @@ final class ImageManager: @unchecked Sendable {
 		}
 	}
 	
+	private func clearKnownRevalidated() {
+		revalidationLock.withLock {
+			knownRevalidated.removeAll()
+		}
+	}
+	
 	func clear() async {
+		clearKnownRevalidated()
 		await pipeline.clear()
 	}
 }
@@ -334,7 +354,7 @@ private actor Pipeline {
 		let radiusTenths: Int?
 	}
 	
-	private static let versionDefaultsKey = "ImageManager.version"
+	fileprivate static let versionDefaultsKey = "ImageManager.version"
 	private static let maxConcurrentRevalidations = 3
 	
 	private let memoryCache: ImageMemoryCache

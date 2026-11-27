@@ -31,7 +31,7 @@ struct AdvancedSettingsView: View {
 						SettingsRowDivider()
 						
 						categoryRow(icon: "gearshape.2", title: "System Settings") {
-							SystemSettingsView(accountManager: accountManager, assetManager: assetManager)
+							SystemSettingsView(accountManager: accountManager, assetManager: assetManager, settings: settings)
 						}
 					}
 					

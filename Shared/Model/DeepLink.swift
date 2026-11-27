@@ -18,6 +18,7 @@ enum DeepLink {
 
 enum InAppLink {
 	case storefront
+	case store(expandNightMarket: Bool = false)
 }
 
 extension EnvironmentValues {

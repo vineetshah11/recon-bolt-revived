@@ -85,8 +85,9 @@ private struct LocalDataModifier<Value: LocalDataStored>: ViewModifier {
 	@Environment(\.isLocalDataLocked) var isLocalDataLocked
 	@Environment(\.valorantLoad) var load
 	
+	@ViewBuilder
 	func body(content: Content) -> some View {
-		content
+		let base = content
 			.task(id: id) {
 				guard !isLocalDataLocked else { return }
 				tokenStorage.ensureSubscribed(for: id) {
@@ -100,12 +101,18 @@ private struct LocalDataModifier<Value: LocalDataStored>: ViewModifier {
 						}
 				}
 			}
-			.valorantLoadTask(id: id) { try await attemptAutoUpdate(client: $0) }
-			.onSceneActivation {
-				await load {
-					try await attemptAutoUpdate(client: $0)
+		
+		if autoUpdate != nil {
+			base
+				.valorantLoadTask(id: id) { try await attemptAutoUpdate(client: $0) }
+				.onSceneActivation {
+					await load {
+						try await attemptAutoUpdate(client: $0)
+					}
 				}
-			}
+		} else {
+			base
+		}
 	}
 	
 	func attemptAutoUpdate(client: ValorantClient) async throws {

@@ -27,6 +27,19 @@ struct StatisticsView: View {
 	
 	@State var statistics: Statistics?
 	@State var fetchedMatches: [MatchDetails] = []
+	@LocalData var summary: CareerSummary?
+	@State private var rankedPreview: RankedAnalysis?
+	
+	init(
+		user: User,
+		matchList: MatchList,
+		statistics: Statistics? = nil
+	) {
+		self.user = user
+		self.matchList = matchList
+		self._statistics = .init(initialValue: statistics)
+		self._summary = .init(id: user.id)
+	}
 	
 	@UserDefault.State("StatisticsView.excludedQueues")
 	var excludedQueues: Set<QueueID> = [
@@ -94,6 +107,20 @@ struct StatisticsView: View {
 							.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 							.clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
 					}
+				}
+				
+				if let rankedPreview {
+					NavigationLink {
+						RankedAnalysisView(
+							user: user,
+							matchList: matchList,
+							summary: summary,
+							initialDetails: fetchedMatches
+						)
+					} label: {
+						RankedAnalysisPreviewCard(analysis: rankedPreview)
+					}
+					.buttonStyle(.plain)
 				}
 				
 				if let statistics {
@@ -214,6 +241,36 @@ struct StatisticsView: View {
 				fetchedMatches = cached
 			}
 		}
+		.withLocalData($summary, id: user.id)
+		.task(id: rankedPreviewKey) {
+			let rankedUpdates = matchList.matches.filter { $0.isRanked && !$0.isDodge }
+			guard !rankedUpdates.isEmpty else {
+				rankedPreview = nil
+				return
+			}
+			let top5IDs = Array(rankedUpdates.prefix(5).map(\.id))
+			let cachedTop5 = await LocalDataProvider.shared.matchDetailsManager.cachedObjects(for: top5IDs)
+			var detailsMap = Dictionary(fetchedMatches.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+			for match in cachedTop5 {
+				detailsMap[match.id] = match
+			}
+			let userID = user.id
+			let updates = matchList.matches
+			let summarySnapshot = summary
+			let seasonsSnapshot = seasons
+			let preview = await Task.detached(priority: .userInitiated) {
+				RankedAnalysis(
+					userID: userID,
+					updates: updates,
+					detailsByID: detailsMap,
+					summary: summarySnapshot,
+					seasons: seasonsSnapshot,
+					window: .last5
+				)
+			}.value
+			guard !Task.isCancelled else { return }
+			rankedPreview = preview
+		}
 		.task(id: dataSourceHash) {
 			if statistics != nil {
 				try? await Task.sleep(for: .milliseconds(80))
@@ -241,6 +298,15 @@ struct StatisticsView: View {
 			let rDate = seasons?.act(rhs)?.timeSpan.start ?? Date.distantPast
 			return lDate > rDate
 		}
+	}
+	
+	private var rankedPreviewKey: Int {
+		(Hasher() <- {
+			$0.combine(matchList.matches.prefix(10).map(\.id))
+			$0.combine(fetchedMatches.count)
+			$0.combine(summary?.competitiveInfo?.bySeason?.count ?? 0)
+			$0.combine(seasons?.currentAct()?.id)
+		}).finalize()
 	}
 	
 	var dataSourceHash: Int {

@@ -56,6 +56,13 @@ struct ExpressionDetailsView: View {
 			}
 			return false
 		}
+		
+		var supportsFavorites: Bool {
+			switch self {
+			case .spray: return true
+			case .totem: return false
+			}
+		}
 	}
 	
 	let subject: Subject
@@ -72,13 +79,17 @@ struct ExpressionDetailsView: View {
 		accountManager.activeAccount?.id
 	}
 	
+	private var effectiveInventory: Inventory? {
+		inventory ?? favoritesManager.inventory(for: activeAccountID)
+	}
+	
 	private var isOwned: Bool {
-		guard let inventory else { return true }
+		guard activeAccountID != nil, let effectiveInventory else { return false }
 		switch subject {
 		case .spray(let info):
-			return inventory.sprays.contains(info.id)
+			return effectiveInventory.sprays.contains(info.id)
 		case .totem(let info):
-			return inventory.totems.contains(info.id) || FlexInfo.defaultItems.contains(info.id)
+			return effectiveInventory.totems.contains(info.id) || FlexInfo.defaultItems.contains(info.id)
 		}
 	}
 	
@@ -144,7 +155,7 @@ struct ExpressionDetailsView: View {
 		.lightbox(for: $fullscreenImages)
 		.toolbar {
 			ToolbarItemGroup(placement: .navigationBarTrailing) {
-				if isOwned || isFavorited {
+				if subject.supportsFavorites && isOwned {
 					LoadoutActionCircleButton(
 						icon: isFavorited ? "star.fill" : "star",
 						isActive: isFavorited,
@@ -170,7 +181,14 @@ struct ExpressionDetailsView: View {
 			}
 		}
 		.valorantLoadTask(id: activeAccountID) { client in
-			await favoritesManager.refreshIfNeeded(using: client)
+			if let inventory {
+				favoritesManager.cacheInventory(inventory, for: client.userID)
+				await favoritesManager.refreshIfNeeded(using: client)
+			} else {
+				async let favsTask: Void = favoritesManager.refreshIfNeeded(using: client)
+				async let invTask: Void = favoritesManager.refreshInventoryIfNeeded(using: client)
+				_ = await (favsTask, invTask)
+			}
 		}
 	}
 }

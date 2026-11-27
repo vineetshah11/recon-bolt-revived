@@ -123,6 +123,7 @@ struct ExpressionPicker: View {
 			recomputeFilteredExpressions()
 		}
 		.valorantLoadTask(id: activeAccountID) { client in
+			favoritesManager.cacheInventory(inventory, for: client.userID)
 			await favoritesManager.refreshIfNeeded(using: client)
 		}
 	}
@@ -150,10 +151,10 @@ struct ExpressionPicker: View {
 			}
 			ownedFlexIDs.remove(.none)
 			let ownedCount = allFlex.count { ownedFlexIDs.contains($0.id) }
-			let favCount = allFlex.count { favoritesManager.isFavorited($0.id.rawID, for: activeAccountID) }
+			let favCount = 0
 			let visible = allFlex.filter { flex in
 				let owned = ownedFlexIDs.contains(flex.id)
-				let favorited = favoritesManager.isFavorited(flex.id.rawID, for: activeAccountID)
+				let favorited = false
 				guard filter.matches(isOwned: owned, isFavorited: favorited) else { return false }
 				return search.isEmpty || flex.displayName.localizedCaseInsensitiveContains(search)
 			}
@@ -256,7 +257,7 @@ struct ExpressionPicker: View {
 				Label("View Details", systemImage: "info.circle")
 			}
 			
-			if isOwned {
+			if isOwned && activeAccountID != nil {
 				Button {
 					Task {
 						await load { client in
@@ -315,7 +316,6 @@ struct ExpressionPicker: View {
 	}
 	
 	private func totemRow(_ flex: FlexInfo, isOwned: Bool) -> some View {
-		let isFavorited = favoritesManager.isFavorited(flex.id.rawID, for: activeAccountID)
 		let isWishlisted = wishlistManager.contains(kind: .flex, itemID: flex.id.rawID)
 		let isSelected = selection.totem == flex.id
 		
@@ -340,11 +340,6 @@ struct ExpressionPicker: View {
 				
 				Spacer(minLength: 6)
 				
-				if isFavorited {
-					Image(systemName: "star.fill")
-						.font(.caption)
-						.foregroundStyle(.yellow)
-				}
 				if isWishlisted {
 					Image(systemName: "heart.fill")
 						.font(.caption)
@@ -366,21 +361,6 @@ struct ExpressionPicker: View {
 				detailTarget = .totem(flex.id)
 			} label: {
 				Label("View Details", systemImage: "info.circle")
-			}
-			
-			if isOwned {
-				Button {
-					Task {
-						await load { client in
-							try await favoritesManager.toggleFavorite(itemID: flex.id.rawID, using: client)
-						}
-					}
-				} label: {
-					Label(
-						isFavorited ? "Remove Favorite" : "Favorite",
-						systemImage: isFavorited ? "star.slash" : "star"
-					)
-				}
 			}
 			
 			Button {

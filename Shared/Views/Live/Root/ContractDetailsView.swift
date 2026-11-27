@@ -20,7 +20,6 @@ struct ContractDetailsView: View {
 	
 	@Environment(\.assets) private var assets
 	@Environment(\.seasons) private var seasons
-	@EnvironmentObject private var accountManager: AccountManager
 	
 	@State private var selectedTab: SectionTab = .missions
 	@State private var includeEpilogue = true
@@ -34,10 +33,6 @@ struct ContractDetailsView: View {
 		var assetVersion: AssetVersion?
 		var currentActID: Season.ID?
 		var contractCount: Int
-	}
-	
-	private var resolvedUserID: User.ID? {
-		userID ?? accountManager.activeAccount?.id
 	}
 	
 	var body: some View {
@@ -74,7 +69,7 @@ struct ContractDetailsView: View {
 		.padding(.top, 8)
 		.task(id: MasteryCacheKey(
 			isAgentsTab: selectedTab == .agents,
-			userID: resolvedUserID,
+			userID: userID,
 			mastery: agentMastery,
 			assetVersion: assets?.version,
 			currentActID: seasons?.currentAct()?.id,
@@ -418,7 +413,7 @@ struct ContractDetailsView: View {
 	}
 	
 	private func buildMasterySummaries() -> (summaries: [AgentMasterySummary], actEndDate: Date?) {
-		let uid = resolvedUserID
+		let uid = userID
 		let cachedMatches: [MatchDetails] = {
 			guard let uid,
 				  let list = LocalDataProvider.shared.matchListManager.loadedObject(for: uid) else { return [] }
@@ -447,28 +442,28 @@ struct ContractDetailsView: View {
 		switch reward.type {
 		case .currency:
 			if let id = Currency.ID(reward.id) {
-				(assets?.currencies[id]?.displayIcon).view()
+				(assets?.currencies[id]?.displayIcon).view(bucket: .icon)
 			}
 		case .skin:
 			if let id = Weapon.Skin.Level.ID(reward.id) {
-				assets?.resolveSkin(id)?.displayIcon?.view()
+				assets?.resolveSkin(id)?.displayIcon?.view(bucket: .icon)
 			}
 		case .spray:
 			if let id = Spray.ID(reward.id) {
-				(assets?.sprays[id]?.bestIcon).view()
+				(assets?.sprays[id]?.bestIcon).view(bucket: .icon)
 			}
 		case .flex:
 			if let id = Totem.ID(reward.id) {
-				(assets?.flex[id]?.displayIcon).view()
+				(assets?.flex[id]?.displayIcon).view(bucket: .icon)
 			}
 		case .playerCard:
 			if let id = PlayerCard.ID(reward.id) {
-				(assets?.playerCards[id]?.smallArt).view()
+				(assets?.playerCards[id]?.smallArt).view(bucket: .icon)
 					.cornerRadius(6)
 			}
 		case .gunBuddy:
 			if let id = Weapon.Buddy.Level.ID(reward.id) {
-				(assets?.resolveBuddy(id)?.displayIcon).view()
+				(assets?.resolveBuddy(id)?.displayIcon).view(bucket: .icon)
 			}
 		default:
 			Image(systemName: "gift.fill")

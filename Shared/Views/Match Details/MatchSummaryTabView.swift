@@ -120,6 +120,7 @@ struct MatchSummaryTabView: View {
 	let analytics: MatchAnalytics
 	let focusedPlayer: Player
 	var resolvedUsers: [Player.ID: User] = [:]
+	var competitiveUpdate: CompetitiveUpdate? = nil
 	
 	@Environment(\.assets) private var assets
 	@Environment(\.seasons) private var seasons
@@ -131,12 +132,14 @@ struct MatchSummaryTabView: View {
 		data: MatchViewData,
 		analytics: MatchAnalytics,
 		focusedPlayer: Player,
-		resolvedUsers: [Player.ID: User] = [:]
+		resolvedUsers: [Player.ID: User] = [:],
+		competitiveUpdate: CompetitiveUpdate? = nil
 	) {
 		self.data = data
 		self.analytics = analytics
 		self.focusedPlayer = focusedPlayer
 		self.resolvedUsers = resolvedUsers
+		self.competitiveUpdate = competitiveUpdate
 	}
 	
 	var body: some View {
@@ -144,7 +147,11 @@ struct MatchSummaryTabView: View {
 		let comparison = analytics.lobbyComparison(for: focusedPlayer.id)
 		
 		VStack(spacing: 16) {
-			focusedPlayerCard
+			focusedPlayerCard(comparison: comparison)
+			
+			if let competitiveUpdate, competitiveUpdate.isRanked {
+				rankImpactCard(update: competitiveUpdate)
+			}
 			
 			if let stats {
 				performanceScoreCard(stats: stats)
@@ -176,7 +183,7 @@ struct MatchSummaryTabView: View {
 	
 	// MARK: - Focused Player Card
 	
-	private var focusedPlayerCard: some View {
+	private func focusedPlayerCard(comparison: MatchAnalytics.LobbyComparison?) -> some View {
 		let ownTeam = data.details.teams.first(where: { $0.id == focusedPlayer.teamID })
 		let enemyTeam = data.details.teams.first(where: { $0.id != focusedPlayer.teamID })
 		let isMatchMVP = analytics.matchMVPID == focusedPlayer.id
@@ -253,19 +260,190 @@ struct MatchSummaryTabView: View {
 						.foregroundStyle(placement == 1 ? .green : .secondary)
 				}
 				
-				if isMatchMVP {
-					Label("MATCH MVP", systemImage: "crown.fill")
-						.font(.caption2.weight(.bold))
-						.foregroundStyle(.yellow)
-				} else if isTeamMVP {
-					Label("TEAM MVP", systemImage: "crown.fill")
-						.font(.caption2.weight(.bold))
-						.foregroundStyle(.secondary)
+				HStack(spacing: 5) {
+					if isMatchMVP {
+						Label("MATCH MVP", systemImage: "crown.fill")
+							.font(.caption2.weight(.bold))
+							.foregroundStyle(.yellow)
+					} else if isTeamMVP {
+						Label("TEAM MVP", systemImage: "crown.fill")
+							.font(.caption2.weight(.bold))
+							.foregroundStyle(.secondary)
+					}
+					
+					if let comparison {
+						let isTop3 = comparison.acsRank <= 3
+						Text("#\(comparison.acsRank) / \(comparison.totalPlayers)")
+							.font(.caption2.weight(.bold).monospacedDigit())
+							.foregroundStyle(isTop3 ? Color.green : .secondary)
+							.padding(.horizontal, 6)
+							.padding(.vertical, 2)
+							.background(
+								(isTop3 ? Color.green : Color.secondary).opacity(0.14),
+								in: Capsule()
+							)
+					}
 				}
 			}
 		}
 		.padding(14)
 		.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+	}
+	
+	// MARK: - Rank & RR Impact
+	
+	private func rankImpactCard(update: CompetitiveUpdate) -> some View {
+		let tiers = seasons?.currentTiers(at: data.details.matchInfo.gameStart) ?? seasons?.currentTiers()
+		let lowestImm = SeasonGoalStore.lowestImmortalTier(in: tiers)
+		let isImmortalPlus = update.tierAfterUpdate >= lowestImm
+		
+		let afterTierName = seasons?.currentTierInfo(number: update.tierAfterUpdate, at: data.details.matchInfo.gameStart)?.name
+			?? seasons?.currentTierInfo(number: update.tierAfterUpdate)?.name
+			?? "Tier \(update.tierAfterUpdate)"
+		let beforeTierName = seasons?.currentTierInfo(number: update.tierBeforeUpdate, at: data.details.matchInfo.gameStart)?.name
+			?? seasons?.currentTierInfo(number: update.tierBeforeUpdate)?.name
+			?? "Tier \(update.tierBeforeUpdate)"
+		
+		let delta = update.ratingEarned
+		let deltaText = delta > 0 ? "+\(delta) RR" : "\(delta) RR"
+		let deltaColor: Color = delta > 0 ? .green : (delta < 0 ? Color.valorantRed : .secondary)
+		let tierChanged = update.tierBeforeUpdate >= 3 && update.tierAfterUpdate != update.tierBeforeUpdate
+		
+		let rankedTiers = data.details.players
+			.filter { $0.teamID != .neutral && $0.competitiveTier >= 3 }
+			.map(\.competitiveTier)
+		let avgLobbyTier: Int? = rankedTiers.isEmpty
+			? nil
+			: Int((Double(rankedTiers.reduce(0, +)) / Double(rankedTiers.count)).rounded())
+		
+		return VStack(alignment: .leading, spacing: 8) {
+			Text("RANK & RR IMPACT")
+				.font(.caption.weight(.semibold))
+				.foregroundStyle(.secondary)
+				.padding(.horizontal, 4)
+			
+			VStack(alignment: .leading, spacing: 12) {
+				HStack(spacing: 12) {
+					CompetitiveTierImage(tier: update.tierAfterUpdate, time: data.details.matchInfo.gameStart)
+						.frame(width: 36, height: 36)
+					
+					VStack(alignment: .leading, spacing: 2) {
+						HStack(spacing: 6) {
+							Text(afterTierName)
+								.font(.subheadline.weight(.bold))
+							
+							if tierChanged {
+								let promoted = update.tierAfterUpdate > update.tierBeforeUpdate
+								Text(promoted ? "PROMOTED" : "DEMOTED")
+									.font(.system(size: 9.5, weight: .heavy))
+									.foregroundStyle(promoted ? Color.green : Color.valorantRed)
+									.padding(.horizontal, 6)
+									.padding(.vertical, 2)
+									.background(
+										(promoted ? Color.green : Color.valorantRed).opacity(0.15),
+										in: Capsule()
+									)
+							}
+						}
+						
+						if tierChanged {
+							Text("\(beforeTierName) \(update.tierProgressBeforeUpdate) RR → \(afterTierName) \(update.tierProgressAfterUpdate) RR")
+								.font(.caption.monospacedDigit())
+								.foregroundStyle(.secondary)
+						} else {
+							Text("\(update.tierProgressBeforeUpdate) → \(update.tierProgressAfterUpdate) RR")
+								.font(.caption.monospacedDigit())
+								.foregroundStyle(.secondary)
+						}
+					}
+					
+					Spacer()
+					
+					Text(deltaText)
+						.font(.title3.weight(.bold).monospacedDigit())
+						.foregroundStyle(deltaColor)
+				}
+				
+				if !isImmortalPlus {
+					let progress = Double(max(0, min(100, update.tierProgressAfterUpdate))) / Double(100)
+					GeometryReader { geo in
+						ZStack(alignment: .leading) {
+							Capsule()
+								.fill(Color.secondary.opacity(0.18))
+							Capsule()
+								.fill(Color.valorantBlue)
+								.frame(width: max(6, geo.size.width * CGFloat(progress)))
+						}
+					}
+					.frame(height: 6)
+				}
+				
+				if update.performanceBonus > 0 || update.afkPenalty != 0 {
+					HStack(spacing: 8) {
+						if update.performanceBonus > 0 {
+							Label("+\(update.performanceBonus) Performance Bonus", systemImage: "star.fill")
+								.font(.caption2.weight(.bold).monospacedDigit())
+								.foregroundStyle(.yellow)
+								.padding(.horizontal, 9)
+								.padding(.vertical, 4)
+								.background(Color.yellow.opacity(0.14), in: Capsule())
+						}
+						
+						if update.afkPenalty != 0 {
+							Label("\(update.afkPenalty) AFK Penalty", systemImage: "exclamationmark.triangle.fill")
+								.font(.caption2.weight(.bold).monospacedDigit())
+								.foregroundStyle(Color.valorantRed)
+								.padding(.horizontal, 9)
+								.padding(.vertical, 4)
+								.background(Color.valorantRed.opacity(0.14), in: Capsule())
+						}
+					}
+				}
+				
+				if let avgLobbyTier {
+					let avgTierName = seasons?.currentTierInfo(number: avgLobbyTier, at: data.details.matchInfo.gameStart)?.name
+						?? seasons?.currentTierInfo(number: avgLobbyTier)?.name
+						?? "Tier \(avgLobbyTier)"
+					
+					Divider().opacity(0.25)
+					
+					HStack(spacing: 8) {
+						CompetitiveTierImage(tier: avgLobbyTier, time: data.details.matchInfo.gameStart)
+							.frame(width: 22, height: 22)
+						Text("Avg Lobby: \(avgTierName)")
+							.font(.caption.weight(.medium))
+							.foregroundStyle(.secondary)
+						
+						Spacer()
+						
+						let referenceTier = focusedPlayer.competitiveTier >= 3 ? focusedPlayer.competitiveTier : update.tierBeforeUpdate
+						if referenceTier >= 3 {
+							let tierDiff = avgLobbyTier - referenceTier
+							if tierDiff == 0 {
+								Text("Matched")
+									.font(.caption2.weight(.semibold))
+									.foregroundStyle(.secondary)
+									.padding(.horizontal, 8)
+									.padding(.vertical, 3)
+									.background(Color.tertiaryGroupedBackground, in: Capsule())
+							} else {
+								let unit = abs(tierDiff) == 1 ? "tier" : "tiers"
+								let sign = tierDiff > 0 ? "+" : ""
+								let color: Color = tierDiff > 0 ? .green : Color.valorantRed
+								Text("\(sign)\(tierDiff) \(unit)")
+									.font(.caption2.weight(.bold).monospacedDigit())
+									.foregroundStyle(color)
+									.padding(.horizontal, 8)
+									.padding(.vertical, 3)
+									.background(color.opacity(0.14), in: Capsule())
+							}
+						}
+					}
+				}
+			}
+			.padding(14)
+			.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+		}
 	}
 	
 	// MARK: - Performance Score
@@ -403,6 +581,13 @@ struct MatchSummaryTabView: View {
 		stats: MatchAnalytics.PlayerMatchAnalytics,
 		comparison: MatchAnalytics.LobbyComparison
 	) -> some View {
+		let acsDeltaStr: String = {
+			let absStr = String(format: "%.0f", abs(stats.acs - comparison.avgACS))
+			guard comparison.avgACS > 0 else { return absStr }
+			let pct = Int(round((stats.acs - comparison.avgACS) / comparison.avgACS * Double(100)))
+			return "\(absStr) (\(pct >= 0 ? "+\(pct)" : "\(pct)")%)"
+		}()
+		
 		let rows: [(key: String, title: String, mine: Double, avg: Double, formatted: String, avgFormatted: String, deltaFormatted: String, rank: Int)] = [
 			(
 				"perf", "Performance Score",
@@ -417,7 +602,7 @@ struct MatchSummaryTabView: View {
 				stats.acs, comparison.avgACS,
 				String(format: "%.0f", stats.acs),
 				String(format: "%.0f", comparison.avgACS),
-				String(format: "%.0f", abs(stats.acs - comparison.avgACS)),
+				acsDeltaStr,
 				comparison.acsRank
 			),
 			(
@@ -463,10 +648,25 @@ struct MatchSummaryTabView: View {
 		]
 		
 		return VStack(alignment: .leading, spacing: 8) {
-			Text("VS LOBBY AVERAGE (N=\(comparison.otherCount))")
-				.font(.caption.weight(.semibold))
-				.foregroundStyle(.secondary)
-				.padding(.horizontal, 4)
+			HStack {
+				Text("VS LOBBY AVERAGE (N=\(comparison.otherCount))")
+					.font(.caption.weight(.semibold))
+					.foregroundStyle(.secondary)
+				
+				Spacer()
+				
+				let isTop3 = comparison.acsRank <= 3
+				Text("#\(comparison.acsRank) in Lobby")
+					.font(.caption2.weight(.bold).monospacedDigit())
+					.foregroundStyle(isTop3 ? Color.green : .secondary)
+					.padding(.horizontal, 8)
+					.padding(.vertical, 3)
+					.background(
+						(isTop3 ? Color.green : Color.secondary).opacity(0.14),
+						in: Capsule()
+					)
+			}
+			.padding(.horizontal, 4)
 			
 			VStack(spacing: 0) {
 				ForEach(Array(rows.enumerated()), id: \.element.key) { index, row in

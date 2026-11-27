@@ -4,14 +4,42 @@ import ValorantAPI
 @MainActor
 final class FavoritesManager: ObservableObject {
 	@Published private(set) var favoritesByAccount: [User.ID: Favorites] = [:]
+	@Published private(set) var inventoryByAccount: [User.ID: Inventory] = [:]
 	@Published private(set) var inFlightItemIDs: Set<LowercaseUUID> = []
 	@Published private(set) var isApplyingPreset = false
 	
 	private var itemIDsByAccount: [User.ID: Set<LowercaseUUID>] = [:]
+	private var inventoryFetchTasks: [User.ID: Task<Void, Never>] = [:]
 	
 	private func setFavorites(_ favorites: Favorites?, for accountID: User.ID) {
 		favoritesByAccount[accountID] = favorites
 		itemIDsByAccount[accountID] = favorites?.itemIDs
+	}
+	
+	func cacheInventory(_ inventory: Inventory, for accountID: User.ID) {
+		inventoryByAccount[accountID] = inventory
+	}
+	
+	func inventory(for accountID: User.ID?) -> Inventory? {
+		guard let accountID else { return nil }
+		return inventoryByAccount[accountID]
+	}
+	
+	func refreshInventoryIfNeeded(using client: ValorantClient) async {
+		let accountID = client.userID
+		guard inventoryByAccount[accountID] == nil else { return }
+		if let existing = inventoryFetchTasks[accountID] {
+			await existing.value
+			return
+		}
+		let task = Task { [weak self] in
+			defer { self?.inventoryFetchTasks.removeValue(forKey: accountID) }
+			if let loaded = try? await client.getInventory() {
+				self?.inventoryByAccount[accountID] = loaded
+			}
+		}
+		inventoryFetchTasks[accountID] = task
+		await task.value
 	}
 	
 	func favorites(for accountID: User.ID?) -> Favorites? {
@@ -29,8 +57,13 @@ final class FavoritesManager: ObservableObject {
 		return itemIDsByAccount[accountID]?.contains(itemID) ?? false
 	}
 	
+	func isChromaFavorited(_ chromaID: Weapon.Skin.Chroma.ID, for accountID: User.ID?) -> Bool {
+		isFavorited(chromaID.rawID, for: accountID)
+	}
+	
 	func isSkinFavorited(_ skin: WeaponSkin, for accountID: User.ID?) -> Bool {
 		guard let accountID, let ids = itemIDsByAccount[accountID] else { return false }
+		if skin.chromas.contains(where: { ids.contains($0.id.rawID) }) { return true }
 		if ids.contains(skin.id.rawID) { return true }
 		return skin.levels.contains { ids.contains($0.id.rawID) }
 	}
@@ -41,6 +74,7 @@ final class FavoritesManager: ObservableObject {
 	
 	func isLoading(skin: WeaponSkin) -> Bool {
 		if inFlightItemIDs.contains(skin.id.rawID) { return true }
+		if skin.chromas.contains(where: { inFlightItemIDs.contains($0.id.rawID) }) { return true }
 		return skin.levels.contains { inFlightItemIDs.contains($0.id.rawID) }
 	}
 	
@@ -59,23 +93,36 @@ final class FavoritesManager: ObservableObject {
 	func toggleFavorite(itemID: LowercaseUUID, using client: ValorantClient) async throws {
 		try await toggleFavorite(
 			primaryID: itemID,
-			fallbackIDs: [],
+			matchIDs: [itemID],
 			using: client
 		)
 	}
 	
-	func toggleSkinFavorite(_ skin: WeaponSkin, using client: ValorantClient) async throws {
-		let levelIDs = skin.levels.map(\.id.rawID)
+	func toggleSkinFavorite(_ skin: WeaponSkin, chroma: WeaponSkin.Chroma? = nil, using client: ValorantClient) async throws {
+		// Riot's /favorites/v1 endpoint only accepts skin chroma IDs for weapon skins.
+		let primaryID: LowercaseUUID
+		let matchIDs: [LowercaseUUID]
+		if let chroma {
+			primaryID = chroma.id.rawID
+			matchIDs = [primaryID]
+		} else {
+			primaryID = skin.chromas.first?.id.rawID ?? skin.levels.first?.id.rawID ?? skin.id.rawID
+			var seen = Set<LowercaseUUID>()
+			matchIDs = ([primaryID] + skin.chromas.map(\.id.rawID) + skin.levels.map(\.id.rawID) + [skin.id.rawID]).filter {
+				seen.insert($0).inserted
+			}
+		}
+		
 		try await toggleFavorite(
-			primaryID: skin.id.rawID,
-			fallbackIDs: levelIDs,
+			primaryID: primaryID,
+			matchIDs: matchIDs,
 			using: client
 		)
 	}
 	
 	private func toggleFavorite(
 		primaryID: LowercaseUUID,
-		fallbackIDs: [LowercaseUUID],
+		matchIDs: [LowercaseUUID],
 		using client: ValorantClient
 	) async throws {
 		guard !inFlightItemIDs.contains(primaryID) else { return }
@@ -84,34 +131,31 @@ final class FavoritesManager: ObservableObject {
 		
 		let accountID = client.userID
 		let previous = favoritesByAccount[accountID]
-		let candidateIDs = [primaryID] + fallbackIDs
-		let candidateSet = Set(candidateIDs)
-		let candidateKeySet = Set(candidateIDs.map(\.description))
+		let matchSet = Set(matchIDs)
+		let matchKeySet = Set(matchIDs.map(\.description))
 		
-		var matchedEntry: Favorites.FavoriteEntry?
-		var matchedKey: String?
+		var matchedEntries: [(key: String, entry: Favorites.FavoriteEntry)] = []
 		if let current = previous {
-			for candidate in candidateIDs {
-				if let entry = current.favoritedContent[candidate.description] {
-					matchedEntry = entry
-					matchedKey = candidate.description
-					break
+			var seenKeys = Set<String>()
+			for candidate in matchIDs {
+				let key = candidate.description
+				if let entry = current.favoritedContent[key], seenKeys.insert(key).inserted {
+					matchedEntries.append((key, entry))
 				}
-				if let pair = current.favoritedContent.first(where: { $0.value.itemID == candidate }) {
-					matchedEntry = pair.value
-					matchedKey = pair.key
-					break
+				for pair in current.favoritedContent where pair.value.itemID == candidate && seenKeys.insert(pair.key).inserted {
+					matchedEntries.append((pair.key, pair.value))
 				}
 			}
 		}
 		
-		let isRemoving = matchedEntry != nil
+		let matchedKeySet = Set(matchedEntries.map(\.key))
+		let isRemoving = !matchedEntries.isEmpty
 		
 		// Optimistic UI update
 		var optimistic = previous ?? Favorites(subject: accountID)
 		if isRemoving {
 			optimistic.favoritedContent = optimistic.favoritedContent.filter { key, entry in
-				key != matchedKey && !candidateKeySet.contains(key) && !candidateSet.contains(entry.itemID)
+				!matchedKeySet.contains(key) && !matchKeySet.contains(key) && !matchSet.contains(entry.itemID)
 			}
 		} else {
 			optimistic.favoritedContent[primaryID.description] = Favorites.FavoriteEntry(
@@ -123,24 +167,32 @@ final class FavoritesManager: ObservableObject {
 		
 		do {
 			let updated: Favorites
-			if isRemoving, let matchedEntry {
-				updated = try await client.removeFavorite(
-					itemID: matchedEntry.itemID,
-					favoriteID: matchedEntry.id
-				)
+			if isRemoving {
+				var latest: Favorites?
+				for (_, matchedEntry) in matchedEntries {
+					do {
+						latest = try await client.removeFavorite(
+							itemID: matchedEntry.itemID,
+							favoriteID: matchedEntry.id
+						)
+					} catch where latest != nil && Self.isIgnorableFavoriteMutationError(error) {
+						continue
+					}
+				}
+				if let latest {
+					updated = latest
+				} else {
+					updated = try await client.getFavorites()
+				}
 			} else {
-				updated = try await addWithFallbacks(
-					primaryID: primaryID,
-					fallbackIDs: fallbackIDs,
-					using: client
-				)
+				updated = try await client.addFavorite(primaryID)
 			}
 			setFavorites(updated, for: accountID)
 		} catch {
 			if isRemoving {
 				var rolledBack = favoritesByAccount[accountID] ?? Favorites(subject: accountID)
 				if let previous {
-					for (key, entry) in previous.favoritedContent where key == matchedKey || candidateKeySet.contains(key) || candidateSet.contains(entry.itemID) {
+					for (key, entry) in previous.favoritedContent where matchedKeySet.contains(key) || matchKeySet.contains(key) || matchSet.contains(entry.itemID) {
 						rolledBack.favoritedContent[key] = entry
 					}
 				}
@@ -167,26 +219,6 @@ final class FavoritesManager: ObservableObject {
 			return code == 400 || code == 404
 		default:
 			return false
-		}
-	}
-	
-	private func addWithFallbacks(
-		primaryID: LowercaseUUID,
-		fallbackIDs: [LowercaseUUID],
-		using client: ValorantClient
-	) async throws -> Favorites {
-		do {
-			return try await client.addFavorite(primaryID)
-		} catch where Self.isIgnorableFavoriteMutationError(error) && !fallbackIDs.isEmpty {
-			var lastError: Error = error
-			for fallback in fallbackIDs where fallback != primaryID {
-				do {
-					return try await client.addFavorite(fallback)
-				} catch {
-					lastError = error
-				}
-			}
-			throw lastError
 		}
 	}
 	

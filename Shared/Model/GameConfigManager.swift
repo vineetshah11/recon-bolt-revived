@@ -49,7 +49,6 @@ final class GameConfigManager: ObservableObject {
 #if !WIDGETS
 private struct GameConfigUpdater: ViewModifier {
 	@EnvironmentObject private var manager: GameConfigManager
-	@Environment(\.assets) private var assets
 	@Environment(\.location) private var location
 	
 	func body(content: Content) -> some View {

@@ -20,6 +20,9 @@ struct MatchListView: View {
 	@State private var computedLatestSession: SessionRecapBuilder.LatestSessionPreview? = nil
 	@State private var computedGoalTrajectory: SeasonGoalTrajectory? = nil
 	@State private var computedMapRatings: [MapRatingReport] = []
+	@State private var lastComputedKey: CareerComputeKey? = nil
+	@State private var lastSyncedAccoladesKey: AccoladesSyncKey? = nil
+	@State private var lastMasteryFetchDate: Date? = nil
 	@ObservedObject private var filterStore = MatchListFilterStore.shared
 	
 	private struct AccoladesSyncKey: Equatable {
@@ -180,6 +183,40 @@ struct MatchListView: View {
 						.buttonStyle(.plain)
 						.disabled(user == nil || matchList == nil)
 					}
+					
+					NavigationLink {
+						GroupPerformanceView(
+							userID: userID,
+							isOwnAccount: userID == accountManager.activeAccount?.id,
+							subjectDisplayName: user?.gameName,
+							initialMatches: shownMatches
+						)
+					} label: {
+						HStack(spacing: 10) {
+							Image(systemName: "person.3.fill")
+								.font(.subheadline.weight(.semibold))
+								.foregroundStyle(Color.accentColor)
+							
+							VStack(alignment: .leading, spacing: 2) {
+								Text("Group Performance")
+									.font(.subheadline.weight(.semibold))
+									.foregroundStyle(.primary)
+								Text("Friends, party synergy & stack win rates")
+									.font(.caption)
+									.foregroundStyle(.secondary)
+									.lineLimit(1)
+							}
+							
+							Spacer()
+							
+							Image(systemName: "chevron.right")
+								.font(.caption2.weight(.semibold))
+								.foregroundStyle(.tertiary)
+						}
+						.padding(12)
+						.background(Color.secondaryGroupedBackground, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+					}
+					.buttonStyle(.plain)
 				}
 				.padding(.bottom, 6)
 				
@@ -264,8 +301,10 @@ struct MatchListView: View {
 		.withLocalData($summary, id: userID, shouldAutoUpdate: true)
 		.withLocalData($identity, id: userID, shouldAutoUpdate: true)
 		.valorantLoadTask(id: userID) { client in
-			agentMastery = try? await client.getAgentMastery(userID: userID)
-			masteryFetchTick += 1
+			if let lastMasteryFetchDate, Date.now.timeIntervalSince(lastMasteryFetchDate) < 300 {
+				return
+			}
+			await refreshAgentMastery(using: client)
 		}
 		.onReceive(
 			LocalDataProvider.shared.matchDetailsManager.changePublisher
@@ -282,6 +321,7 @@ struct MatchListView: View {
 			AccoladesCacheStore.shared.ingestLoadedMatches(for: userID, matchIDs: topIDs)
 		}
 		.task(id: computeKey) {
+			guard lastComputedKey != computeKey else { return }
 			let topIDs = shownMatches.prefix(40).map(\.id)
 			let manager = LocalDataProvider.shared.matchDetailsManager
 			var detailsByID: [Match.ID: MatchDetails] = Dictionary(minimumCapacity: topIDs.count)
@@ -348,6 +388,7 @@ struct MatchListView: View {
 			}.value
 			
 			guard !Task.isCancelled else { return }
+			lastComputedKey = computeKey
 			cachedDetailsSnapshot = details
 			computedMastery = computed.0
 			computedLatestSession = computed.1
@@ -355,7 +396,12 @@ struct MatchListView: View {
 			computedMapRatings = computed.3
 		}
 		.task(id: AccoladesSyncKey(userID: userID, matchIDs: shownMatches.map(\.id))) {
-			await AccoladesCacheStore.shared.syncMissingMatches(for: userID, matchIDs: shownMatches.map(\.id))
+			let syncKey = AccoladesSyncKey(userID: userID, matchIDs: shownMatches.map(\.id))
+			guard lastSyncedAccoladesKey != syncKey else { return }
+			await AccoladesCacheStore.shared.syncMissingMatches(for: userID, matchIDs: syncKey.matchIDs)
+			if !Task.isCancelled {
+				lastSyncedAccoladesKey = syncKey
+			}
 		}
 		.onAppear {
 			cacheLoadedIdentityToSocial()
@@ -421,10 +467,19 @@ struct MatchListView: View {
 			try await $0.fetchIdentity(for: userID, forceFetch: true)
 		}
 		async let masteryUpdate: Void = load {
-			agentMastery = try? await $0.getAgentMastery(userID: userID)
-			masteryFetchTick += 1
+			await refreshAgentMastery(using: $0)
 		}
 		_ = await (matchListUpdate, summaryUpdate, identityUpdate, masteryUpdate)
+	}
+	
+	private func refreshAgentMastery(using client: ValorantClient) async {
+		if let fetched = try? await client.getAgentMastery(userID: userID) {
+			lastMasteryFetchDate = .now
+			if fetched != agentMastery {
+				agentMastery = fetched
+				masteryFetchTick += 1
+			}
+		}
 	}
 	
 	func updateMatchList(update: @escaping (ValorantClient) -> (inout MatchList) async throws -> Void) async {

@@ -64,27 +64,40 @@ struct PartyCustomGameSettingsSheet: View {
 	
 	private static let fallbackModes: [String] = [
 		"/Game/GameModes/Bomb/BombGameMode.BombGameMode_C",
+		"/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits/Swiftplay_EoRCredits_GameMode.Swiftplay_EoRCredits_GameMode_C",
 		"/Game/GameModes/QuickBomb/QuickBombGameMode.QuickBombGameMode_C",
 		"/Game/GameModes/Deathmatch/DeathmatchGameMode.DeathmatchGameMode_C",
 		"/Game/GameModes/GunGame/GunGameTeamsGameMode.GunGameTeamsGameMode_C",
-		"/Game/GameModes/HURM/HURM.HURM_C",
+		"/Game/GameModes/HURM/HURMGameMode.HURMGameMode_C",
+		"/Game/GameModes/Skirmish/SkirmishGameMode.SkirmishGameMode_C",
 	]
 	
 	private func computeSelectableModePaths() -> [String] {
-		var modes = (configs?.selectableModes().isEmpty == false)
-			? configs!.selectableModes()
-			: Self.fallbackModes
-		if !settings.mode.isEmpty,
-		   !modes.contains(where: { $0.caseInsensitiveCompare(settings.mode) == .orderedSame }) {
-			modes.insert(settings.mode, at: 0)
+		let modeFolders = assets?.modeFoldersByShortName ?? [:]
+		let configModes = configs?.selectableModes(knownModeFoldersByShortName: modeFolders) ?? []
+		var modes = configModes.isEmpty ? Self.fallbackModes : configModes
+		if !settings.mode.isEmpty {
+			let canonicalCurrent = CustomGameConfigs.canonicalModePath(
+				for: settings.mode,
+				knownModeFoldersByShortName: modeFolders
+			)
+			let currentShort = CustomGameConfigs.modeShortName(from: canonicalCurrent)
+			if !modes.contains(where: { CustomGameConfigs.modeShortName(from: $0).caseInsensitiveCompare(currentShort) == .orderedSame }) {
+				modes.insert(canonicalCurrent, at: 0)
+			}
 		}
 		return modes
 	}
 	
 	private func computeValidMapPaths(for modePath: String) -> [String] {
 		let nonTacticalKnown = assets?.knownNonTacticalMapPathsLowercased ?? []
+		let knownMapPaths = assets?.canonicalMapPathsByShortName ?? [:]
 		if let configs, !configs.enabledMaps.isEmpty {
-			return configs.validMaps(forMode: modePath, knownNonTacticalMapPaths: nonTacticalKnown)
+			return configs.validMaps(
+				forMode: modePath,
+				knownNonTacticalMapPaths: nonTacticalKnown,
+				knownMapPathsByShortName: knownMapPaths
+			)
 		}
 		let category = CustomGameConfigs.ModeCategory(modePath: modePath)
 		guard let assetMaps = assets?.maps.values else { return [] }
@@ -160,6 +173,7 @@ struct PartyCustomGameSettingsSheet: View {
 				}
 			}
 			.onAppear {
+				ensureValidMapForCurrentMode()
 				rebuildCachedOptions()
 			}
 			.onChange(of: assets?.version) { _ in
@@ -182,7 +196,14 @@ struct PartyCustomGameSettingsSheet: View {
 	
 	private var mapPreviewCard: some View {
 		let mapID = resolvedMapInfo(for: settings.map)?.id
-			?? MapID(settings.map.isEmpty ? MapID.ascent.rawValue : settings.map)
+			?? MapID(
+				settings.map.isEmpty
+					? MapID.ascent.rawValue
+					: CustomGameConfigs.canonicalMapPath(
+						for: settings.map,
+						knownMapPathsByShortName: assets?.canonicalMapPathsByShortName ?? [:]
+					)
+			)
 		return ZStack(alignment: .bottomLeading) {
 			MapImage.splash(mapID)
 				.aspectRatio(contentMode: .fill)
@@ -235,7 +256,8 @@ struct PartyCustomGameSettingsSheet: View {
 						} label: {
 							HStack {
 								Text(option.name)
-								if option.path.caseInsensitiveCompare(settings.map) == .orderedSame {
+								if CustomGameConfigs.mapShortName(from: option.path)
+									.caseInsensitiveCompare(CustomGameConfigs.mapShortName(from: settings.map)) == .orderedSame {
 									Image(systemName: "checkmark")
 								}
 							}
@@ -273,10 +295,12 @@ struct PartyCustomGameSettingsSheet: View {
 						Button {
 							settings.mode = option.path
 							ensureValidMapForCurrentMode()
+							rebuildCachedOptions()
 						} label: {
 							HStack {
 								Text(option.name)
-								if option.path.caseInsensitiveCompare(settings.mode) == .orderedSame {
+								if CustomGameConfigs.modeShortName(from: option.path)
+									.caseInsensitiveCompare(CustomGameConfigs.modeShortName(from: settings.mode)) == .orderedSame {
 									Image(systemName: "checkmark")
 								}
 							}
@@ -422,46 +446,58 @@ struct PartyCustomGameSettingsSheet: View {
 			?? podID
 	}
 
-	private func ensureValidMapForCurrentMode() {
+	private func canonicalize(_ target: inout Party.CustomGameData.Settings, fallbackToAscentIfEmpty: Bool) {
+		let modeFolders = assets?.modeFoldersByShortName ?? [:]
+		let mapLookup = assets?.canonicalMapPathsByShortName ?? [:]
 		let modes = computeSelectableModePaths()
-		if settings.mode.isEmpty, let firstMode = modes.first {
-			settings.mode = firstMode
-		} else if let canonicalMode = modes.first(where: { $0.caseInsensitiveCompare(settings.mode) == .orderedSame }) {
-			settings.mode = canonicalMode
+		if target.mode.isEmpty {
+			target.mode = modes.first(where: {
+				CustomGameConfigs.modeShortName(from: $0).caseInsensitiveCompare("BombGameMode") == .orderedSame
+			}) ?? modes.first ?? Self.fallbackModes[0]
+		} else {
+			let currentModeShort = CustomGameConfigs.modeShortName(from: target.mode)
+			if let canonicalMode = modes.first(where: {
+				CustomGameConfigs.modeShortName(from: $0).caseInsensitiveCompare(currentModeShort) == .orderedSame
+			}) {
+				target.mode = canonicalMode
+			} else {
+				target.mode = CustomGameConfigs.canonicalModePath(
+					for: target.mode,
+					knownModeFoldersByShortName: modeFolders
+				)
+			}
 		}
 		
-		let validMaps = computeValidMapPaths(for: settings.mode)
-		guard !validMaps.isEmpty else { return }
-		if let exactMatch = validMaps.first(where: { $0.caseInsensitiveCompare(settings.map) == .orderedSame }) {
-			settings.map = exactMatch
-		} else {
-			settings.map = validMaps[0]
+		let validMaps = computeValidMapPaths(for: target.mode)
+		let currentMapShort = CustomGameConfigs.mapShortName(from: target.map)
+		if let exactMatch = validMaps.first(where: {
+			CustomGameConfigs.mapShortName(from: $0).caseInsensitiveCompare(currentMapShort) == .orderedSame
+		}) {
+			target.map = exactMatch
+		} else if let firstValid = validMaps.first {
+			target.map = firstValid
+		} else if !target.map.isEmpty {
+			target.map = CustomGameConfigs.canonicalMapPath(
+				for: target.map,
+				knownMapPathsByShortName: mapLookup
+			)
+		} else if fallbackToAscentIfEmpty {
+			target.map = MapID.ascent.rawValue
 		}
+	}
+	
+	private func ensureValidMapForCurrentMode() {
+		canonicalize(&settings, fallbackToAscentIfEmpty: false)
 	}
 	
 	private func saveSettings() {
 		var updated = settings
 		updated.gameRules = rules
-		
-		let modes = computeSelectableModePaths()
-		if updated.mode.isEmpty {
-			updated.mode = modes.first ?? Self.fallbackModes[0]
-		} else if let canonicalMode = modes.first(where: { $0.caseInsensitiveCompare(updated.mode) == .orderedSame }) {
-			updated.mode = canonicalMode
-		}
-		
-		let validMaps = computeValidMapPaths(for: updated.mode)
-		if let exactMap = validMaps.first(where: { $0.caseInsensitiveCompare(updated.map) == .orderedSame }) {
-			updated.map = exactMap
-		} else if let firstValid = validMaps.first {
-			updated.map = firstValid
-		} else if updated.map.isEmpty {
-			updated.map = MapID.ascent.rawValue
-		}
+		canonicalize(&updated, fallbackToAscentIfEmpty: true)
 		
 		if updated.gamePod.isEmpty {
 			updated.gamePod = cachedPingOptions.first?.ping.serverID
-				?? selfPings.first?.serverID
+				?? selfPings.min(by: { $0.ping < $1.ping })?.serverID
 				?? party.matchmakingData.preferredGamePods.first
 				?? ""
 		}
@@ -481,12 +517,15 @@ struct PartyCustomGameSettingsSheet: View {
 	}
 	
 	private func returnToStandardLobby() {
+		let targetQueue = party.eligibleQueues?.first(where: { $0 == .unrated })
+			?? party.eligibleQueues?.first(where: { $0 != .custom })
+			?? .unrated
 		Task {
 			isReturningToStandard = true
 			defer { isReturningToStandard = false }
 			var didReset = false
 			await load {
-				party = try await $0.makeDefaultQueue(.unrated, in: party.id)
+				party = try await $0.makeDefaultQueue(targetQueue, in: party.id)
 				didReset = true
 			}
 			if didReset {

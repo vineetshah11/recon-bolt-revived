@@ -6,6 +6,7 @@ import UserDefault
 
 struct LiveView: View {
 	let userID: User.ID
+	var isTabActive: Bool = true
 	@State var contractsProgress: ContractsProgress? {
 		didSet {
 			if let oldValue, let contractsProgress, contractsProgress.contracts != oldValue.contracts {
@@ -20,6 +21,8 @@ struct LiveView: View {
 	@State private var agentMastery: AgentMastery?
 	@State private var resolvedContracts: ResolvedContracts?
 	@State private var contractsGeneration = 0
+	@State private var resolvedContractsKey: ContractRefreshKey?
+	@State private var shouldExpandNightMarket = false
 	
 	@UserDefault.State("LiveView.expandedBoxes")
 	var expandedBoxes: Set<Box> = [.party]
@@ -31,6 +34,8 @@ struct LiveView: View {
 	@Environment(\.seasons) private var seasons
 	@Environment(\.favoritesManagerRef) private var favoritesManager
 	@Environment(\.progressTimelineStoreRef) private var progressTimelineStore
+	@Environment(\.shopHistoryStoreRef) private var shopHistoryStore
+	@Environment(\.wishlistManagerRef) private var wishlistManager
 	
 	@Namespace private var missionsBoxID
 	@Namespace private var storeBoxID
@@ -41,11 +46,19 @@ struct LiveView: View {
 		let currentActID: Act.ID?
 	}
 	
+	private var contractRefreshKey: ContractRefreshKey {
+		ContractRefreshKey(
+			generation: contractsGeneration,
+			assetsVersion: assets?.version,
+			currentActID: seasons?.currentAct()?.id
+		)
+	}
+	
 	var body: some View {
 		ScrollViewReader { scrollView in
 			ScrollView {
 				VStack(spacing: 16) {
-					LiveGameBox(userID: userID, isExpanded: $expandedBoxes.contains(.party))
+					LiveGameBox(userID: userID, isTabActive: isTabActive, isExpanded: $expandedBoxes.contains(.party))
 					
 					missionsBox
 					
@@ -62,19 +75,28 @@ struct LiveView: View {
 		.withLocalData($user, id: userID)
 		.id(userID) // when user changes, current state is bound to become invalid/irrelevant
 		.updatingGameConfig()
-		.task(id: ContractRefreshKey(
-			generation: contractsGeneration,
-			assetsVersion: assets?.version,
-			currentActID: seasons?.currentAct()?.id
-		)) {
-			resolvedContracts = contractsProgress.map {
-				ResolvedContracts(progress: $0, assets: assets, seasons: seasons)
-			}
+		.task(id: contractRefreshKey) {
+			let key = contractRefreshKey
+			guard let progress = contractsProgress, resolvedContractsKey != key else { return }
+			let assetsSnapshot = assets
+			let seasonsSnapshot = seasons
+			let resolved = await Task.detached(priority: .userInitiated) {
+				ResolvedContracts(progress: progress, assets: assetsSnapshot, seasons: seasonsSnapshot)
+			}.value
+			guard !Task.isCancelled else { return }
+			resolvedContracts = resolved
+			resolvedContractsKey = key
 		}
 	}
 	
 	var missionsBox: some View {
-		RefreshableBox(title: "Contracts", isExpanded: $expandedBoxes.contains(.missions)) {
+		RefreshableBox(
+			title: "Contracts",
+			isExpanded: $expandedBoxes.contains(.missions),
+			isTabActive: isTabActive,
+			refreshCooldown: 60,
+			autoRefreshDelay: .milliseconds(140)
+		) {
 			infoOrPlaceholder(placeholder: "Contracts not loaded!", contractsProgress) { progress in
 				let resolved = resolvedContracts ?? ResolvedContracts(progress: progress, assets: assets, seasons: seasons)
 				ContractDetailsView(
@@ -91,9 +113,21 @@ struct LiveView: View {
 			async let recruitmentTask = try? client.getActiveRecruitmentEvent()
 			async let masteryTask = try? client.getAgentMastery()
 			let (progress, xp, recruitment, mastery) = try await (progressTask, xpTask, recruitmentTask, masteryTask)
+			let assetsSnapshot = assets
+			let seasonsSnapshot = seasons
+			let nextGeneration = contractsGeneration &+ 1
+			let key = ContractRefreshKey(
+				generation: nextGeneration,
+				assetsVersion: assetsSnapshot?.version,
+				currentActID: seasonsSnapshot?.currentAct()?.id
+			)
+			let resolved = await Task.detached(priority: .userInitiated) {
+				ResolvedContracts(progress: progress, assets: assetsSnapshot, seasons: seasonsSnapshot)
+			}.value
 			contractsProgress = progress
-			contractsGeneration &+= 1
-			resolvedContracts = ResolvedContracts(progress: progress, assets: assets, seasons: seasons)
+			contractsGeneration = nextGeneration
+			resolvedContracts = resolved
+			resolvedContractsKey = key
 			accountXP = xp
 			if let xp {
 				progressTimelineStore?.record(accountXP: xp, for: userID)
@@ -105,13 +139,21 @@ struct LiveView: View {
 	}
 	
 	var loadoutBox: some View {
-		RefreshableBox(title: "Loadout", isExpanded: $expandedBoxes.contains(.loadout)) {
+		RefreshableBox(
+			title: "Loadout",
+			isExpanded: $expandedBoxes.contains(.loadout),
+			isTabActive: isTabActive,
+			refreshCooldown: 60,
+			autoRefreshDelay: .milliseconds(210)
+		) {
 			infoOrPlaceholder(placeholder: "Loadout not loaded!", loadoutInfo) { info in
 				LoadoutDetailsView(loadout: info.loadout, inventory: info.inventory)
 			}
 		} refresh: { client in
 			do {
-				loadoutInfo = try await .init(using: client)
+				let loaded = try await LoadoutInfo(using: client)
+				loadoutInfo = loaded
+				favoritesManager?.cacheInventory(loaded.inventory, for: client.userID)
 				await favoritesManager?.refresh(using: client)
 			} catch Loadout.FetchError.uninitialized {
 				throw WrongAccountError(user: user)
@@ -120,17 +162,40 @@ struct LiveView: View {
 	}
 	
 	var storeBox: some View {
-		RefreshableBox(title: "Store", isExpanded: $expandedBoxes.contains(.store)) {
+		RefreshableBox(
+			title: "Store",
+			isExpanded: $expandedBoxes.contains(.store),
+			isTabActive: isTabActive,
+			refreshCooldown: 60,
+			autoRefreshDelay: .milliseconds(280)
+		) {
 			infoOrPlaceholder(placeholder: "Store not loaded!", storeInfo) { info in
 				StoreDetailsView(
 					updateTime: info.updateTime,
-					storefront: info.storefront, wallet: info.wallet
+					storefront: info.storefront,
+					wallet: info.wallet,
+					userID: userID,
+					autoExpandNightMarket: $shouldExpandNightMarket
 				)
 			}
 		} refresh: {
 			let fetched = try await StoreInfo(using: $0)
 			storeInfo = fetched
 			progressTimelineStore?.record(wallet: fetched.wallet, for: userID)
+			shopHistoryStore?.record(storefront: fetched.storefront, for: userID)
+			let assetsSnapshot = assets
+			let wishlistEntries = wishlistManager?.entries ?? []
+			let accountID = userID
+			Task(priority: .utility) {
+				await StoreNotificationManager.shared.processObservedStorefront(
+					fetched.storefront,
+					for: accountID,
+					fetchDate: fetched.updateTime,
+					assets: assetsSnapshot,
+					wishlistEntries: wishlistEntries,
+					isBackground: false
+				)
+			}
 		}
 		.id(storeBoxID)
 	}
@@ -148,6 +213,12 @@ struct LiveView: View {
 			default:
 				break
 			}
+		case .inApp(.store(let expandNightMarket)):
+			expandedBoxes.insert(.store)
+			if expandNightMarket {
+				shouldExpandNightMarket = true
+			}
+			scrollView.scrollTo(storeBoxID)
 		default:
 			break
 		}
@@ -183,8 +254,8 @@ struct LiveView: View {
 }
 
 extension LiveView {
-	init(userID: User.ID) {
-		self.init(userID: userID, user: .init(id: userID))
+	init(userID: User.ID, isTabActive: Bool = true) {
+		self.init(userID: userID, isTabActive: isTabActive, user: .init(id: userID))
 	}
 }
 

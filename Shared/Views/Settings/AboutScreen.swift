@@ -45,6 +45,77 @@ enum ReleaseNotes {
 	/// Newest first. Bump the app's MARKETING_VERSION and add an entry here for every build.
 	static let releases: [AppRelease] = [
 		AppRelease(
+			version: "2.4",
+			date: "27 Nov 2026",
+			summary: "Store notifications, ranked and MMR analysis, group performance, and a rebuilt friends list — on top of DT's 2.3 release.",
+			changes: [
+				.init(
+					title: "Store notifications",
+					detail: "Daily shop refreshes, wishlist skins on sale, bundles leaving soon, and the night market can now send a notification. Refreshes run in the background so the nudge arrives even when Vantage isn't open, and a diagnostics screen shows what the last check found.",
+					check: "Settings → Notifications: turn on Daily Shop Refresh, allow notifications when asked, then use Diagnostics to see the last background check."
+				),
+				.init(
+					title: "Ranked & MMR analysis",
+					detail: "Statistics gains a Ranked tab with RR trend, rank distribution and per-agent win rates. Match Details gains a Rank & RR Impact card, and lobby screens now show each player's rank and ACS%.",
+					check: "Statistics → Ranked shows your RR history; open any ranked match for the RR impact card."
+				),
+				.init(
+					title: "Group Performance",
+					detail: "A new Hub section tracks how your usual party performs together: win rate, average ACS and head-to-head records. Results are cached, can be refreshed per group, and are included in backups.",
+					check: "Hub → Group Performance picks a party from your recent matches and loads its stats."
+				),
+				.init(
+					title: "Rebuilt Duel History",
+					detail: "Duel History now breaks duels down by hit zone and engagement range, with badges for shields and a clearer head-to-head summary.",
+					check: "Open a match → Duels; the zone and range breakdown should match the duel list."
+				),
+				.init(
+					title: "Friends list improvements",
+					detail: "Friend groups collapse, friend notes can be edited in place, and friend requests over XMPP are handled more strictly. Switching to the Live tab no longer stutters.",
+					check: "Reference → Friends: tap a group header to collapse it, and long-press a friend to edit their note."
+				),
+				.init(
+					title: "Skin favorites by chroma",
+					detail: "Favorites are stored per chroma instead of per skin, and ownership is checked before a skin is offered as a favorite, so variants you don't own no longer appear.",
+					check: "Open a weapon with multiple chromas, favorite one variant, and confirm only that variant is marked."
+				),
+				.init(
+					title: "Statistics and session recap in Hub",
+					detail: "The Hub progress section now shows your overall stats and a session recap, with items reordered by how often they're used. Win Rate can be sorted by agent.",
+					check: "Hub progress shows the stats and recap blocks; Statistics → Win Rate has an agent sort."
+				),
+				.init(
+					title: "Custom games and accent fixes",
+					detail: "Custom game lobbies no longer fail on missing map assets and can switch queue directly. The default accent color is purple again, and instalock keeps working as before.",
+					check: "Open a custom game lobby to confirm the map loads; the accent should be purple unless you set your own."
+				),
+			],
+			baseline: [ // deliberately empty for the current release
+			]
+		),
+		AppRelease(
+			version: "2.3",
+			date: nil,
+			summary: "DT's 2.3 release: the custom game map selector works again and the app is noticeably faster.",
+			changes: [
+				.init(
+					title: "Custom game map selector",
+					detail: "The map picker in custom game lobbies no longer loses the selection, and the chosen map is kept when the lobby is reopened.",
+					check: "Open a custom game lobby, pick a map, close and reopen the sheet: your map should still be selected."
+				),
+				.init(
+					title: "Faster loading and scrolling",
+					detail: "Asset handling and list rendering were optimized, cutting the time it takes to open asset-heavy screens and to scroll long match and store lists.",
+					check: "Scroll a long store or match list; it should stay smooth while images load."
+				),
+			],
+			baseline: [
+				"Spike Planted countdown on Live Match",
+				"Instalock agent with a single retry",
+				"About screen, per-account overview, and .rbbackup backups",
+			]
+		),
+		AppRelease(
 			version: "1.5",
 			date: "24 Nov 2026",
 			summary: "Adds a spike timer to Live Match and makes instalock stop retrying forever.",

@@ -578,7 +578,9 @@ final class LoadoutPresetManager: ObservableObject {
 				}
 				let candidate: SkinCandidate = (skin, ownedLevels, ownedChromas)
 				allOwned.append(candidate)
-				if favIDs == nil || favIDs!.contains(skin.id.rawID) {
+				if favIDs == nil
+					|| favIDs!.contains(skin.id.rawID)
+					|| skin.levels.contains(where: { favIDs!.contains($0.id.rawID) }) {
 					favOwned.append(candidate)
 				}
 			}

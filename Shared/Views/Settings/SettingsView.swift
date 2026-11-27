@@ -31,6 +31,25 @@ struct SettingsView: View {
 				
 				Section {
 					NavigationLink {
+						NotificationSettingsView(
+							accountManager: accountManager,
+							assetManager: assetManager,
+							settings: settings
+						)
+					} label: {
+						Label {
+							HStack {
+								Text("Notifications")
+								Spacer()
+								NotificationStatusLabel(settings: settings)
+							}
+						} icon: {
+							Image(systemName: "bell.badge")
+								.foregroundStyle(.tint)
+						}
+					}
+					
+					NavigationLink {
 						StorageView(accountManager: accountManager, assetManager: assetManager, settings: settings)
 					} label: {
 						Label {
@@ -206,6 +225,23 @@ struct SettingsView: View {
 	}
 }
 
+private struct NotificationStatusLabel: View {
+	@ObservedObject var settings: AppSettings
+	@EnvironmentObject private var notificationManager: StoreNotificationManager
+	
+	var body: some View {
+		Text(statusText)
+			.foregroundStyle(.secondary)
+	}
+	
+	private var statusText: String {
+		if notificationManager.authorizationStatus == .denied {
+			return "Blocked"
+		}
+		return settings.anyStoreNotificationEnabled ? "On" : "Off"
+	}
+}
+
 private extension AppSettings.Theme {
 	var name: Text {
 		switch self {
@@ -371,20 +407,23 @@ extension AgentInfo: SearchableAsset {
 #if DEBUG
 struct SettingsView_Previews: PreviewProvider {
 	static var previews: some View {
-		SettingsView(accountManager: .mocked, assetManager: .forPreviews, settings: .init(), store: .init())
-			.withToolbar()
-		
-		AdvancedSettingsView(accountManager: .mocked, assetManager: .forPreviews, settings: .init())
-			.withToolbar()
-			.previewDisplayName("Advanced Settings")
-		
-		SettingsView(accountManager: .mockEmpty, assetManager: .mockEmpty, settings: .init(), store: .init())
-			.withToolbar()
-			.previewDisplayName("Empty Managers")
-		
-		AppIconPicker(manager: .init())
-			.withToolbar()
-			.previewDisplayName("App Icon Picker")
+		Group {
+			SettingsView(accountManager: .mocked, assetManager: .forPreviews, settings: .init(), store: .init())
+				.withToolbar()
+			
+			AdvancedSettingsView(accountManager: .mocked, assetManager: .forPreviews, settings: .init())
+				.withToolbar()
+				.previewDisplayName("Advanced Settings")
+			
+			SettingsView(accountManager: .mockEmpty, assetManager: .mockEmpty, settings: .init(), store: .init())
+				.withToolbar()
+				.previewDisplayName("Empty Managers")
+			
+			AppIconPicker(manager: .init())
+				.withToolbar()
+				.previewDisplayName("App Icon Picker")
+		}
+		.environmentObject(StoreNotificationManager.shared)
 	}
 }
 #endif

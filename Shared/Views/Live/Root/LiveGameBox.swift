@@ -5,6 +5,7 @@ import AudioToolbox
 
 struct LiveGameBox: View {
 	var userID: User.ID
+	var isTabActive: Bool = true
 	@State var party: Party?
 	@State var partyPlayer: PartyPlayer?
 	@State var activeMatch: ActiveMatch?
@@ -34,7 +35,7 @@ struct LiveGameBox: View {
 				Spacer()
 				
 				if isExpanded {
-					AutoRefresher(isPaused: shownMatch != nil) {
+					AutoRefresher(isPaused: shownMatch != nil || !isTabActive) {
 						await load(refresh)
 					}
 					.padding()
@@ -61,12 +62,11 @@ struct LiveGameBox: View {
 				.padding(.bottom, 14)
 			}
 		}
-		.background(Color.secondaryGroupedBackground)
-		.cornerRadius(20)
-		.shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 6)
-		.onSceneActivation {
-			guard isExpanded else { return }
-			await load(refresh)
+		.clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+		.background {
+			RoundedRectangle(cornerRadius: 20, style: .continuous)
+				.fill(Color.secondaryGroupedBackground)
+				.shadow(color: .black.opacity(0.08), radius: 12, x: 0, y: 6)
 		}
 		.onChange(of: activeMatch) { [activeMatch] newMatch in
 			if shouldAutoShow, activeMatch?.id != newMatch?.id {
