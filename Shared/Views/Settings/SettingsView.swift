@@ -110,14 +110,14 @@ struct SettingsView: View {
 						AboutScreen()
 					} label: {
 						Label {
-							Text("About Recon Bolt Revived")
+							Text("About Vantage")
 						} icon: {
 							Image(systemName: "questionmark")
 								.foregroundStyle(.tint)
 						}
 					}
 					
-					ListLink("DT-L21", icon: "person", destination: "https://guns.lol/dt.l21")
+					
 				}
 				.id(storefrontID)
 			}

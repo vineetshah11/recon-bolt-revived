@@ -116,7 +116,7 @@ enum ReleaseNotes {
 			]
 		),
 		AppRelease(
-			version: "1.5",
+			version: "2.2",
 			date: "24 Nov 2026",
 			summary: "Adds a spike timer to Live Match and makes instalock stop retrying forever.",
 			changes: [
@@ -135,7 +135,7 @@ enum ReleaseNotes {
 			]
 		),
 		AppRelease(
-			version: "1.4",
+			version: "2.1",
 			date: nil,
 			summary: "The Vantage build that came before the spike timer and the instalock retry.",
 			changes: [],
