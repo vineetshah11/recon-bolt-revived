@@ -3046,7 +3046,7 @@
 			repositoryURL = "https://github.com/TMaume/ValorantAPI-Revived.git";
 			requirement = {
 				kind = revision;
-				revision = 25c56356a5f0832c7af7ef2a180c0f54503fffdb;
+				revision = 349c41562aa142be57717fd72af33360af283742;
 			};
 		};
 		B9CF2E6A25A81F57004A1458 /* XCRemoteSwiftPackageReference "SwifUI-Missing-Pieces" */ = {
